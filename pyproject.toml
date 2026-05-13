@@ -1,0 +1,109 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "glpi-python-client"
+version = "0.1.0"
+description = "A typed Python client for GLPI ITSM APIs."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "glpi-python-client contributors" }]
+keywords = ["glpi", "itsm", "api", "client"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "lxml>=4.9",
+    "markdown>=3.6",
+    "markdownify>=0.13",
+    "pydantic>=2.8",
+    "requests>=2.31",
+    "tenacity>=8.2",
+    "urllib3>=2.0",
+]
+
+[project.optional-dependencies]
+docs = [
+    "numpydoc>=1.8",
+    "sphinx>=7.2,<8.2",
+    "sphinx-rtd-theme>=2.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+dev = [
+    "build>=1.2",
+    "mypy>=1.11",
+    "numpydoc>=1.8",
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "sphinx>=7.2,<8.2",
+    "sphinx-rtd-theme>=2.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "twine>=5.1",
+    "types-requests>=2.32",
+    "vulture>=2.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/glpi-python-client/glpi-python-client"
+Documentation = "https://github.com/glpi-python-client/glpi-python-client#readme"
+Issues = "https://github.com/glpi-python-client/glpi-python-client/issues"
+Source = "https://github.com/glpi-python-client/glpi-python-client"
+
+[tool.hatch.build.targets.wheel]
+packages = ["glpi_python_client"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/docs",
+    "/glpi_python_client",
+    "/skills",
+    "/.readthedocs.yaml",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/README.md",
+    "/pyproject.toml",
+]
+exclude = [
+    "/docs/_build",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["glpi_python_client", "integration_tests"]
+addopts = "--strict-markers --strict-config"
+markers = [
+    "integration: tests that call a live GLPI instance using local secrets",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "E", "F", "I", "RUF", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["glpi_python_client"]
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.vulture]
+min_confidence = 80
+paths = ["glpi_python_client"]

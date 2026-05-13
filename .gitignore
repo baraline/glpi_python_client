@@ -1,0 +1,30 @@
+# Bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+docs/_build/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local configuration
+.env
+.env.*
+
+*.pyc
+dist/
+.venv/
+
+secrets/
+secrets/*
+
+integration_tests/
+integration_tests/*
