@@ -26,16 +26,33 @@ python -m twine check dist/*
 
 ## Publish
 
-Publish to TestPyPI first:
+Published GitHub releases now upload the package to PyPI automatically through
+`.github/workflows/release.yml`.
+
+Required GitHub repository secret:
+
+- `PYPI_API_TOKEN`: a PyPI API token for the `glpi-python-client` project.
+
+Release flow:
+
+1. Push the release commit and tag.
+2. Publish the GitHub release.
+3. Let the release workflow run the test, quality, build, metadata, and PyPI
+   publication steps.
+
+Manual fallback:
+
+Publish to TestPyPI first if you need to validate the artifacts manually:
 
 ```bash
 python -m twine upload --repository testpypi dist/*
 ```
 
-Then publish to PyPI:
+Then publish to PyPI manually if the workflow is unavailable:
 
 ```bash
 python -m twine upload dist/*
 ```
 
-Tag the release after the package is available from the registry.
+The GitHub release should only be published after the version and changelog are
+ready, because publishing the release now triggers the PyPI upload.

@@ -102,10 +102,33 @@ jobs:
           name: glpi-python-client-dist
           path: dist/*
 
-  publish-readthedocs:
-    name: Publish release docs
+  publish-pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
     needs:
       - build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: glpi-python-client-dist
+          path: dist
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-readthedocs:
+    name: Publish release docs
+    if: ${{ always() && needs.build.result == 'success' && (github.event_name != 'release' || needs.publish-pypi.result == 'success') }}
+    needs:
+      - build
+      - publish-pypi
     runs-on: ubuntu-latest
     env:
       READTHEDOCS_BASE_URL: ${{ vars.READTHEDOCS_BASE_URL }}

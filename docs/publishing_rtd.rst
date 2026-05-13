@@ -29,19 +29,36 @@ Build Artifacts
 Publish
 -------
 
-Publish to TestPyPI first:
+Published GitHub releases now upload the package to PyPI automatically through
+``.github/workflows/release.yml``.
+
+Required GitHub repository secret:
+
+* ``PYPI_API_TOKEN``: a PyPI API token for the ``glpi-python-client`` project.
+
+Release flow:
+
+#. Push the release commit and tag.
+#. Publish the GitHub release.
+#. Let the release workflow run the test, quality, build, metadata, and PyPI
+   publication steps.
+
+Manual fallback:
+
+Publish to TestPyPI first if you need to validate the artifacts manually:
 
 .. code-block:: console
 
    python -m twine upload --repository testpypi dist/*
 
-Then publish to PyPI:
+Then publish to PyPI manually if the workflow is unavailable:
 
 .. code-block:: console
 
    python -m twine upload dist/*
 
-Tag the release after the package is available from the registry.
+The GitHub release should only be published after the version and changelog are
+ready, because publishing the release now triggers the PyPI upload.
 
 GitHub Actions and Read the Docs
 --------------------------------
@@ -52,8 +69,9 @@ The repository ships with two GitHub Actions workflows:
    It executes ``pytest`` on Python 3.10 through 3.13, then runs ``ruff``,
    ``mypy``, and the Sphinx build on Python 3.12.
 * ``.github/workflows/release.yml`` runs on published GitHub releases. It
-   repeats the quality checks, builds the source and wheel distributions, and
-   validates them with ``twine check``.
+   repeats the quality checks, builds the source and wheel distributions,
+   validates them with ``twine check``, and publishes them to PyPI when the
+   ``PYPI_API_TOKEN`` secret is configured.
 
 Read the Docs publication is triggered from those workflows when the following
 GitHub repository secrets are configured:
