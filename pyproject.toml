@@ -58,10 +58,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/glpi-python-client/glpi-python-client"
-Documentation = "https://github.com/glpi-python-client/glpi-python-client#readme"
-Issues = "https://github.com/glpi-python-client/glpi-python-client/issues"
-Source = "https://github.com/glpi-python-client/glpi-python-client"
+Homepage = "https://github.com/baraline/glpi_python_client"
+Documentation = "https://github.com/baraline/glpi_python_client#readme"
+Issues = "https://github.com/baraline/glpi_python_client/issues"
+Source = "https://github.com/baraline/glpi_python_client"
 
 [tool.hatch.build.targets.wheel]
 packages = ["glpi_python_client"]
