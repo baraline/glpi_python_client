@@ -3,7 +3,7 @@
 [![CI](https://github.com/baraline/glpi_python_client/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/baraline/glpi_python_client/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/baraline/glpi_python_client)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/baraline/glpi_python_client)
-[![Docs](https://img.shields.io/badge/docs-Sphinx-blue)](docs/)
+[![Docs](https://readthedocs.org/projects/glpi-python-client/badge/?version=latest)](https://glpi-python-client.readthedocs.io/en/latest/)
 
 `glpi-python-client` is a typed Python client for GLPI ITSM APIs.
 
@@ -79,10 +79,10 @@ If your application already provides `GLPI_` environment variables,
 
 ## Documentation
 
-- [Usage guide](docs/usage.md)
-- [API reference](docs/api_reference.rst)
-- [Development guide](docs/development.md)
-- [Publishing checklist](docs/publishing.md)
+- [Hosted documentation](https://glpi-python-client.readthedocs.io/en/latest/)
+- [API reference](https://glpi-python-client.readthedocs.io/en/latest/api_reference.html)
+- [Installation guide](https://glpi-python-client.readthedocs.io/en/latest/installation.html)
+- [Development guide](https://glpi-python-client.readthedocs.io/en/latest/development_rtd.html)
 
 To build the Sphinx documentation locally:
 

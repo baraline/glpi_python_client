@@ -59,7 +59,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/baraline/glpi_python_client"
-Documentation = "https://github.com/baraline/glpi_python_client#readme"
+Documentation = "https://glpi-python-client.readthedocs.io/en/latest/"
 Issues = "https://github.com/baraline/glpi_python_client/issues"
 Source = "https://github.com/baraline/glpi_python_client"
 
