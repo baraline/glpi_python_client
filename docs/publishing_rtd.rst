@@ -32,9 +32,29 @@ Publish
 Published GitHub releases now upload the package to PyPI automatically through
 ``.github/workflows/release.yml``.
 
-Required GitHub repository secret:
+This repository now uses PyPI Trusted Publishing rather than a long-lived PyPI
+API token stored in GitHub secrets.
 
-* ``PYPI_API_TOKEN``: a PyPI API token for the ``glpi-python-client`` project.
+GitHub Actions side:
+
+* Workflow: ``.github/workflows/release.yml``
+* Job: ``publish-pypi``
+* Environment: ``pypi``
+* Required permission: ``id-token: write``
+
+PyPI side:
+
+* If the ``glpi-python-client`` project already exists on PyPI, add a trusted
+   publisher for:
+
+   * owner: ``baraline``
+   * repository: ``glpi_python_client``
+   * workflow: ``release.yml``
+   * environment: ``pypi``
+
+* If the project does not exist yet on PyPI, create a pending trusted
+   publisher with the same GitHub configuration and the PyPI project name
+   ``glpi-python-client``.
 
 Release flow:
 
@@ -42,6 +62,8 @@ Release flow:
 #. Publish the GitHub release.
 #. Let the release workflow run the test, quality, build, metadata, and PyPI
    publication steps.
+
+No ``PYPI_API_TOKEN`` GitHub secret is required for this flow.
 
 Manual fallback:
 
@@ -70,8 +92,8 @@ The repository ships with two GitHub Actions workflows:
    ``mypy``, and the Sphinx build on Python 3.12.
 * ``.github/workflows/release.yml`` runs on published GitHub releases. It
    repeats the quality checks, builds the source and wheel distributions,
-   validates them with ``twine check``, and publishes them to PyPI when the
-   ``PYPI_API_TOKEN`` secret is configured.
+   validates them with ``twine check``, and publishes them to PyPI through a
+   GitHub Actions trusted publisher configuration on PyPI.
 
 Read the Docs publication is triggered from those workflows when the following
 GitHub repository secrets are configured:

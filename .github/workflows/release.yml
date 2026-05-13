@@ -103,11 +103,18 @@ jobs:
           path: dist/*
 
   publish-pypi:
-    name: Publish to PyPI
+    name: Upload release to PyPI
     if: github.event_name == 'release'
     needs:
       - build
     runs-on: ubuntu-latest
+    # Specifying a GitHub environment is optional, but strongly encouraged.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/glpi-python-client/
+    permissions:
+      # IMPORTANT: this permission is mandatory for Trusted Publishing.
+      id-token: write
 
     steps:
       - name: Download distributions
@@ -116,12 +123,10 @@ jobs:
           name: glpi-python-client-dist
           path: dist
 
-      - name: Publish distributions to PyPI
+      - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
 
   publish-readthedocs:
     name: Publish release docs
