@@ -2,6 +2,27 @@
 requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+ignore-vcs = false
+skip-excluded-dirs = true
+exclude = [
+    "__pycache__/",
+    "*.py[cod]",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    "build/",
+    "dist/",
+    "*.egg-info/",
+    "docs/_build/",
+    ".venv/",
+    "venv/",
+    ".env",
+    ".env.*",
+    "secrets/",
+    "integration_tests/",
+]
+
 [project]
 name = "glpi-python-client"
 version = "0.1.0"
@@ -77,9 +98,6 @@ include = [
     "/LICENSE",
     "/README.md",
     "/pyproject.toml",
-]
-exclude = [
-    "/docs/_build",
 ]
 
 [tool.pytest.ini_options]
