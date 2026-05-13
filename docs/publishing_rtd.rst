@@ -63,6 +63,10 @@ Release flow:
 #. Let the release workflow run the test, quality, build, metadata, and PyPI
    publication steps.
 
+The release workflow validates that the GitHub release tag,
+``pyproject.toml`` version, and ``glpi_python_client.__version__`` all match
+before it builds and publishes the package.
+
 No ``PYPI_API_TOKEN`` GitHub secret is required for this flow.
 
 Manual fallback:

@@ -90,6 +90,41 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .[dev]
 
+      - name: Validate release tag matches package version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_tag="${{ github.event.release.tag_name }}"
+          normalized_tag="${release_tag#v}"
+          pyproject_version="$(python - <<'PY'
+          from pathlib import Path
+          try:
+              from tomllib import loads as toml_loads
+          except ModuleNotFoundError:
+              from tomli import loads as toml_loads
+
+          pyproject = toml_loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(pyproject['project']['version'])
+          PY
+          )"
+          package_version="$(python - <<'PY'
+          import glpi_python_client
+          print(glpi_python_client.__version__)
+          PY
+          )"
+
+          if [ "${pyproject_version}" != "${package_version}" ]; then
+            echo "pyproject.toml version (${pyproject_version}) does not match glpi_python_client.__version__ (${package_version})." >&2
+            exit 1
+          fi
+
+          if [ "${normalized_tag}" != "${pyproject_version}" ]; then
+            echo "GitHub release tag (${release_tag}) does not match package version (${pyproject_version})." >&2
+            exit 1
+          fi
+
       - name: Build distributions
         run: python -m build
 
