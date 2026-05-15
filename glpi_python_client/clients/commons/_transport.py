@@ -479,7 +479,7 @@ class AsyncTransportMixin:
 
         request_body = body
         if request_body is None and delete_model_cls is not None and force is not None:
-            request_body = model_to_payload(delete_model_cls(force=force))
+            request_body = model_to_payload(delete_model_cls(force=force))  # type: ignore[call-arg]
         response = await self._delete_request(
             endpoint, request_body, skip_entity=skip_entity
         )

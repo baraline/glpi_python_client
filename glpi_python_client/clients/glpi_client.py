@@ -12,8 +12,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 from types import TracebackType
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:  # pragma: no cover - fallback for Python 3.10
+    from typing_extensions import Self
 
 from glpi_python_client.clients.api import (
     AsyncDocumentMixin,

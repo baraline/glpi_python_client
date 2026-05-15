@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import cast
 
 from glpi_python_client.clients.commons._constants import (
     DOCUMENT_ENDPOINT,
@@ -281,7 +280,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             ticket_id=ticket_id,
             entity_id=entity_id,
         )
-        return cast(dict[str, object], result)
+        return result
 
 
 __all__ = ["AsyncDocumentMixin"]

@@ -175,7 +175,7 @@ def _summarize_tickets(tickets: list[GetTicket]) -> dict[str, object]:
     for ticket in tickets:
         entity_key = _entity_key(ticket.entity)
         bucket = entities[entity_key]
-        bucket["total"] = int(bucket["total"]) + 1  # type: ignore[arg-type]
+        bucket["total"] = int(bucket["total"]) + 1  # type: ignore[call-overload]
         _count_status(bucket["by_status"], ticket.status)  # type: ignore[arg-type]
         _count_enum(bucket["by_priority"], ticket.priority, GlpiPriority)  # type: ignore[arg-type]
         _count_enum(bucket["by_type"], ticket.type, GlpiTicketType)  # type: ignore[arg-type]
@@ -255,9 +255,9 @@ def _freeze_bucket(bucket: dict[str, object]) -> dict[str, object]:
 
     return {
         "total": bucket["total"],
-        "by_status": dict(bucket["by_status"]),  # type: ignore[arg-type]
-        "by_priority": dict(bucket["by_priority"]),  # type: ignore[arg-type]
-        "by_type": dict(bucket["by_type"]),  # type: ignore[arg-type]
+        "by_status": dict(bucket["by_status"]),  # type: ignore[call-overload]
+        "by_priority": dict(bucket["by_priority"]),  # type: ignore[call-overload]
+        "by_type": dict(bucket["by_type"]),  # type: ignore[call-overload]
     }
 
 
