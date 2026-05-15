@@ -437,10 +437,10 @@ timeline list calls concurrently and returns a single
    print(len(bundle.solutions), len(bundle.documents))
 
 The context exposes :meth:`GlpiTicketContext.to_markdown` which renders
-the ticket header and every timeline event (followups, tasks,
-solutions, document links) as a single Markdown transcript. Events are
-ordered by ``timeline_position`` when set and otherwise by
-``date_creation``:
+the ticket title, a metadata subtitle, and every timeline event
+(followups, tasks, solutions, document links) as a single Markdown
+transcript. Events are ordered by ``timeline_position`` when set and
+otherwise by ``date_creation``:
 
 .. code-block:: python
 
@@ -476,7 +476,9 @@ Example 1 — Create a ticket and read it back
 Expected Markdown (abridged)::
 
    # Ticket #123 — Wi-Fi unreachable
-   - **Status**: New
+    > Status: New
+
+    ## Description
 
    802.1X handshake fails on the 5 GHz radio.
 
@@ -498,8 +500,10 @@ Expected Markdown (abridged)::
 
    # Ticket #123 — Wi-Fi unreachable
 
-   ## Followup #45
-   - **Created**: 2025-01-02T10:15:00+00:00
+    ## Timeline
+
+    ### Followup #45
+    > Created at: 2025-01-02T10:15:00+00:00
 
    Reproduced on the lab laptop, capturing logs.
 
@@ -522,8 +526,8 @@ Example 3 — Add a task with a duration
 
 Expected Markdown (abridged)::
 
-   ## Task #12
-   - **Duration**: 1800s
+    ### Task #12
+    > Duration: 1800s
 
    On-site visit to swap the access point.
 
@@ -548,9 +552,11 @@ status from the v2 API.
 Expected Markdown (abridged)::
 
    # Ticket #123 — Wi-Fi unreachable
-   - **Status**: Solved
+    > Status: Solved
 
-   ## Solution #7
+    ## Timeline
+
+    ### Solution #7
 
    Replaced the access point firmware.
 

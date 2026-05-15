@@ -9,6 +9,7 @@ single object to reason about a ticket and its history.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import Field
@@ -49,6 +50,45 @@ def _ref_label(ref: IdNameRef | None) -> str | None:
     if ref.id is not None:
         return f"#{ref.id}"
     return None
+
+
+def _render_value(value: object | None) -> str | None:
+    """Convert one supported metadata value into a display string.
+
+    The ticket-context Markdown view reuses one compact subtitle format
+    across the main ticket and every timeline item. This helper keeps
+    the formatting rules consistent for timestamps, GLPI references,
+    and enum values while leaving plain strings unchanged.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, IdNameRef):
+        return _ref_label(value)
+    if isinstance(value, Enum):
+        return value.name.replace("_", " ").title()
+    return str(value)
+
+
+def _subtitle_line(*parts: tuple[str, object | None]) -> str | None:
+    """Build one Markdown subtitle line from labeled metadata values.
+
+    Missing values are skipped so callers can pass the full set of
+    potentially interesting fields without having to pre-filter them.
+    The subtitle is emitted as one Markdown blockquote line to make the
+    metadata visually distinct from the section body.
+    """
+
+    rendered_parts = []
+    for label, value in parts:
+        rendered_value = _render_value(value)
+        if rendered_value:
+            rendered_parts.append(f"{label}: {rendered_value}")
+    if not rendered_parts:
+        return None
+    return f"> {' | '.join(rendered_parts)}"
 
 
 def _event_sort_key(event: Any) -> tuple[int, int, datetime]:
@@ -94,14 +134,15 @@ class GlpiTicketContext(GlpiModel):
     def to_markdown(self) -> str:
         """Render the ticket and its timeline as one Markdown transcript.
 
-        The header reports the ticket identifier, name, status, and body,
-        followed by every timeline event (followups, tasks, solutions)
-        sorted by ``timeline_position`` when set and otherwise by
-        ``date_creation``. Linked documents are appended at the end as a
-        bullet list because the timeline document link payload does not
-        carry a creation timestamp. Empty fields are omitted so the
-        output stays compact regardless of how complete the GLPI payload
-        is.
+        The rendering starts with the ticket title, then a compact
+        subtitle line containing the requester, last editor, and the
+        key timestamps exposed by the public ticket model. The ticket
+        body is separated from the timeline itself, and each followup,
+        task, and solution receives its own heading plus a metadata
+        subtitle. Timeline entries remain sorted by ``timeline_position``
+        when set and otherwise by ``date_creation``. Linked documents are
+        still appended in a dedicated section because the document-link
+        payload does not expose the same authoring metadata.
 
         Returns
         -------
@@ -118,10 +159,22 @@ class GlpiTicketContext(GlpiModel):
             lines.append(f"# Ticket #{ticket.id} \u2014 {ticket_label}")
         else:
             lines.append(f"# Ticket \u2014 {ticket_label}")
-        status_label = _ref_label(ticket.status)
-        if status_label is not None:
-            lines.append(f"- **Status**: {status_label}")
+
+        ticket_subtitle = _subtitle_line(
+            ("Status", ticket.status),
+            ("Requester", ticket.user_recipient),
+            ("Last edited by", ticket.user_editor),
+            ("Created at", ticket.date_creation),
+            ("Updated at", ticket.date_mod),
+            ("Resolved at", ticket.date_solve),
+            ("Closed at", ticket.date_close),
+        )
+        if ticket_subtitle is not None:
+            lines.append(ticket_subtitle)
+
         if ticket.content:
+            lines.append("")
+            lines.append("## Description")
             lines.append("")
             lines.append(ticket.content)
 
@@ -131,20 +184,44 @@ class GlpiTicketContext(GlpiModel):
         events.extend(("Solution", item) for item in self.solutions)
         events.sort(key=lambda pair: _event_sort_key(pair[1]))
 
+        if events:
+            lines.append("")
+            lines.append("## Timeline")
+
         for kind, event in events:
             event_id = getattr(event, "id", None)
-            heading = f"## {kind} #{event_id}" if event_id is not None else f"## {kind}"
+            heading = (
+                f"### {kind} #{event_id}" if event_id is not None else f"### {kind}"
+            )
             lines.append("")
             lines.append(heading)
-            author_label = _ref_label(getattr(event, "user", None))
-            if author_label is not None:
-                lines.append(f"- **Author**: {author_label}")
-            created = getattr(event, "date_creation", None)
-            if created is not None:
-                lines.append(f"- **Created**: {created.isoformat()}")
-            duration = getattr(event, "duration", None)
-            if duration is not None:
-                lines.append(f"- **Duration**: {duration}s")
+
+            event_subtitle = _subtitle_line(
+                ("Created by", getattr(event, "user", None)),
+                ("Last edited by", getattr(event, "user_editor", None)),
+                ("Created at", getattr(event, "date_creation", None)),
+                ("Updated at", getattr(event, "date_mod", None)),
+                ("Scheduled for", getattr(event, "date", None)),
+                ("Planned start", getattr(event, "planned_begin", None)),
+                ("Planned end", getattr(event, "planned_end", None)),
+                ("Approved at", getattr(event, "date_approval", None)),
+                ("State", getattr(event, "state", None)),
+                ("Status", getattr(event, "status", None)),
+                (
+                    "Duration",
+                    (
+                        f"{duration}s"
+                        if (duration := getattr(event, "duration", None)) is not None
+                        else None
+                    ),
+                ),
+                ("Technician", getattr(event, "user_tech", None)),
+                ("Technician group", getattr(event, "group_tech", None)),
+                ("Approver", getattr(event, "approver", None)),
+            )
+            if event_subtitle is not None:
+                lines.append(event_subtitle)
+
             content = getattr(event, "content", None)
             if content:
                 lines.append("")

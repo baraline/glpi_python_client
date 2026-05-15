@@ -57,8 +57,33 @@ def test_to_markdown_renders_header_and_status() -> None:
     )
     rendered = context.to_markdown()
     assert rendered.startswith("# Ticket #42 \u2014 Printer broken")
-    assert "**Status**: Processing (assigned)" in rendered
+    assert "> Status: Processing (assigned)" in rendered
+    assert "## Description" in rendered
     assert "Cannot print" in rendered
+
+
+def test_to_markdown_renders_ticket_subtitle_metadata() -> None:
+    """The main ticket subtitle includes requester, editor, and timestamps."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {
+                "id": 42,
+                "name": "Printer broken",
+                "user_recipient": {"id": 7, "name": "Alice"},
+                "user_editor": {"id": 8, "name": "Bob"},
+                "date_creation": datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc),
+                "date_mod": datetime(2024, 1, 2, 11, 45, tzinfo=timezone.utc),
+            }
+        }
+    )
+
+    rendered = context.to_markdown()
+
+    assert "Requester: Alice" in rendered
+    assert "Last edited by: Bob" in rendered
+    assert "Created at: 2024-01-01T09:30:00+00:00" in rendered
+    assert "Updated at: 2024-01-02T11:45:00+00:00" in rendered
 
 
 def test_to_markdown_orders_events_by_creation_when_no_position() -> None:
@@ -110,8 +135,9 @@ def test_to_markdown_prefers_timeline_position_over_creation() -> None:
     )
     rendered = context.to_markdown()
     assert rendered.index("left positioned") < rendered.index("no position late")
-    assert "## Task #2" in rendered
-    assert "## Followup #1" in rendered
+    assert "## Timeline" in rendered
+    assert "### Task #2" in rendered
+    assert "### Followup #1" in rendered
 
 
 def test_to_markdown_renders_solution_and_documents() -> None:
@@ -128,7 +154,7 @@ def test_to_markdown_renders_solution_and_documents() -> None:
         }
     )
     rendered = context.to_markdown()
-    assert "## Solution #4" in rendered
+    assert "### Solution #4" in rendered
     assert "All fixed" in rendered
     assert "## Documents" in rendered
     assert "- logs/run.txt" in rendered
@@ -153,4 +179,32 @@ def test_to_markdown_renders_task_duration() -> None:
         }
     )
     rendered = context.to_markdown()
-    assert "**Duration**: 1800s" in rendered
+    assert "> Duration: 1800s" in rendered
+
+
+def test_to_markdown_renders_event_creator_editor_and_timestamps() -> None:
+    """Timeline subtitles include author, editor, and timestamp metadata."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {
+                    "id": 12,
+                    "content": "note",
+                    "user": {"id": 7, "name": "Alice"},
+                    "user_editor": {"id": 8, "name": "Bob"},
+                    "date_creation": datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc),
+                    "date_mod": datetime(2024, 1, 2, 10, 5, tzinfo=timezone.utc),
+                }
+            ],
+        }
+    )
+
+    rendered = context.to_markdown()
+
+    assert "### Followup #12" in rendered
+    assert "Created by: Alice" in rendered
+    assert "Last edited by: Bob" in rendered
+    assert "Created at: 2024-01-02T10:00:00+00:00" in rendered
+    assert "Updated at: 2024-01-02T10:05:00+00:00" in rendered
