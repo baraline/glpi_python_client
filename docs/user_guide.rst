@@ -436,6 +436,147 @@ timeline list calls concurrently and returns a single
    print(len(bundle.followups), len(bundle.tasks))
    print(len(bundle.solutions), len(bundle.documents))
 
+The context exposes :meth:`GlpiTicketContext.to_markdown` which renders
+the ticket header and every timeline event (followups, tasks,
+solutions, document links) as a single Markdown transcript. Events are
+ordered by ``timeline_position`` when set and otherwise by
+``date_creation``:
+
+.. code-block:: python
+
+   bundle = await client.get_ticket_context(ticket_id)
+   print(bundle.to_markdown())
+
+Focused Workflow Examples
+-------------------------
+
+The snippets below each exercise one focused workflow and end by
+rendering the resulting :class:`GlpiTicketContext` as Markdown. Every
+example is mirrored by an integration test in
+``integration_tests/test_integration.py`` (named
+``test_example_*``).
+
+Example 1 — Create a ticket and read it back
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiClient, PostTicket
+
+   async with GlpiClient.from_env() as client:
+       ticket_id = await client.create_ticket(
+           PostTicket(
+               name="Wi-Fi unreachable",
+               content="802.1X handshake fails on the 5 GHz radio.",
+           )
+       )
+       context = await client.get_ticket_context(ticket_id)
+       print(context.to_markdown())
+
+Expected Markdown (abridged)::
+
+   # Ticket #123 — Wi-Fi unreachable
+   - **Status**: New
+
+   802.1X handshake fails on the 5 GHz radio.
+
+Example 2 — Add a followup response
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from glpi_python_client import PostFollowup
+
+   await client.create_ticket_followup(
+       ticket_id,
+       PostFollowup(content="Reproduced on the lab laptop, capturing logs."),
+   )
+   context = await client.get_ticket_context(ticket_id)
+   print(context.to_markdown())
+
+Expected Markdown (abridged)::
+
+   # Ticket #123 — Wi-Fi unreachable
+
+   ## Followup #45
+   - **Created**: 2025-01-02T10:15:00+00:00
+
+   Reproduced on the lab laptop, capturing logs.
+
+Example 3 — Add a task with a duration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   from glpi_python_client import PostTicketTask
+
+   await client.create_ticket_task(
+       ticket_id,
+       PostTicketTask(
+           content="On-site visit to swap the access point.",
+           duration=1800,
+       ),
+   )
+   context = await client.get_ticket_context(ticket_id)
+   print(context.to_markdown())
+
+Expected Markdown (abridged)::
+
+   ## Task #12
+   - **Duration**: 1800s
+
+   On-site visit to swap the access point.
+
+Example 4 — Close a ticket with a solution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+GLPI moves a ticket to the *Solved* status as soon as a solution is
+posted, so adding a solution is the supported way to change the ticket
+status from the v2 API.
+
+.. code-block:: python
+
+   from glpi_python_client import PostSolution
+
+   await client.create_ticket_solution(
+       ticket_id,
+       PostSolution(content="Replaced the access point firmware."),
+   )
+   context = await client.get_ticket_context(ticket_id)
+   print(context.to_markdown())
+
+Expected Markdown (abridged)::
+
+   # Ticket #123 — Wi-Fi unreachable
+   - **Status**: Solved
+
+   ## Solution #7
+
+   Replaced the access point firmware.
+
+Example 5 — Upload a document to an existing ticket
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``upload_document`` accepts a ``ticket_id`` and links the new document
+to the timeline in a single call. The call requires the legacy v1
+session (``v1_base_url`` and ``v1_user_token``).
+
+.. code-block:: python
+
+   await client.upload_document(
+       filename="diagnostic.txt",
+       content=b"link layer ok\nradius timeout 3s\n",
+       mime_type="text/plain",
+       ticket_id=ticket_id,
+   )
+   context = await client.get_ticket_context(ticket_id)
+   print(context.to_markdown())
+
+Expected Markdown (abridged)::
+
+   ## Documents
+   - diagnostic.txt
+
 Reporting Helpers
 -----------------
 

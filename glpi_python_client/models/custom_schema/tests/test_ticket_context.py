@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from pydantic import ValidationError
 
@@ -38,3 +40,117 @@ def test_ticket_context_accepts_timeline_records() -> None:
     context = GlpiTicketContext.model_validate(payload)
     assert context.tasks[0].id == 11
     assert context.documents[0].documents_id == 99
+
+
+def test_to_markdown_renders_header_and_status() -> None:
+    """``to_markdown`` includes the ticket id, name, status and content."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {
+                "id": 42,
+                "name": "Printer broken",
+                "content": "Cannot print",
+                "status": {"id": 2, "name": "Processing (assigned)"},
+            }
+        }
+    )
+    rendered = context.to_markdown()
+    assert rendered.startswith("# Ticket #42 \u2014 Printer broken")
+    assert "**Status**: Processing (assigned)" in rendered
+    assert "Cannot print" in rendered
+
+
+def test_to_markdown_orders_events_by_creation_when_no_position() -> None:
+    """Events without ``timeline_position`` are ordered by creation date."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {
+                    "id": 2,
+                    "content": "second note",
+                    "date_creation": datetime(2024, 1, 2, tzinfo=timezone.utc),
+                },
+                {
+                    "id": 1,
+                    "content": "first note",
+                    "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                },
+            ],
+        }
+    )
+    rendered = context.to_markdown()
+    assert rendered.index("first note") < rendered.index("second note")
+
+
+def test_to_markdown_prefers_timeline_position_over_creation() -> None:
+    """Events carrying a positive ``timeline_position`` come first in order."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {
+                    "id": 1,
+                    "content": "no position late",
+                    "date_creation": datetime(2024, 1, 5, tzinfo=timezone.utc),
+                },
+            ],
+            "tasks": [
+                {
+                    "id": 2,
+                    "content": "left positioned",
+                    "timeline_position": 1,
+                    "date_creation": datetime(2024, 1, 10, tzinfo=timezone.utc),
+                },
+            ],
+        }
+    )
+    rendered = context.to_markdown()
+    assert rendered.index("left positioned") < rendered.index("no position late")
+    assert "## Task #2" in rendered
+    assert "## Followup #1" in rendered
+
+
+def test_to_markdown_renders_solution_and_documents() -> None:
+    """Solutions and document links are rendered with their dedicated sections."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 7, "name": "Reset"},
+            "solutions": [{"id": 4, "content": "All fixed"}],
+            "documents": [
+                {"id": 11, "documents_id": 99, "filepath": "logs/run.txt"},
+                {"id": 12, "documents_id": 100},
+            ],
+        }
+    )
+    rendered = context.to_markdown()
+    assert "## Solution #4" in rendered
+    assert "All fixed" in rendered
+    assert "## Documents" in rendered
+    assert "- logs/run.txt" in rendered
+    assert "- document #100" in rendered
+
+
+def test_to_markdown_handles_empty_timeline() -> None:
+    """A ticket with no events still produces a valid Markdown header."""
+
+    context = GlpiTicketContext.model_validate({"ticket": {"id": 3, "name": "Quiet"}})
+    rendered = context.to_markdown()
+    assert rendered == "# Ticket #3 \u2014 Quiet"
+
+
+def test_to_markdown_renders_task_duration() -> None:
+    """Tasks expose their ``duration`` field in seconds."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "tasks": [{"id": 9, "content": "work", "duration": 1800}],
+        }
+    )
+    rendered = context.to_markdown()
+    assert "**Duration**: 1800s" in rendered
