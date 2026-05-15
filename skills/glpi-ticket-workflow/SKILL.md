@@ -29,7 +29,7 @@ Search open tickets:
 tickets = await client.search_tickets("status==1", limit=20)
 ```
 
-Create a ticket. Content fields accept GLPI HTML directly:
+Create a ticket. Content fields accept Markdown and are converted to GLPI's HTML transport format transparently:
 
 ```python
 from glpi_python_client import PostTicket
@@ -37,7 +37,7 @@ from glpi_python_client import PostTicket
 ticket_id = await client.create_ticket(
     PostTicket(
         name="Printer issue",
-        content="<p>Printer is unreachable from <strong>accounting</strong>.</p>",
+        content="Printer is unreachable from **accounting**.",
     )
 )
 created = await client.get_ticket(ticket_id)
@@ -50,7 +50,7 @@ from glpi_python_client import PatchTicket
 
 await client.update_ticket(
     321,
-    PatchTicket(content="<p>Updated diagnosis</p>"),
+    PatchTicket(content="Updated diagnosis"),
 )
 ```
 
@@ -61,7 +61,7 @@ from glpi_python_client import PostTicket
 
 ticket = PostTicket(
     name="Badge reader offline",
-    content="<p>Badge reader is offline.</p>",
+    content="Badge reader is offline.",
     extra_payload={"_room_code": "PAR-3F-12", "_asset_tag": "BADGE-044"},
 )
 ```

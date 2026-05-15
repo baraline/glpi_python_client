@@ -165,7 +165,7 @@ async def test_create_ticket_task_uses_task_endpoint(
     await client.create_ticket_task(8, PostTicketTask(content="task", duration=120))
     call = recorder.calls[0]
     assert call["endpoint"] == "Assistance/Ticket/8/Timeline/Task"
-    assert call["json"] == {"content": "task", "duration": 120}
+    assert call["json"] == {"content": "<p>task</p>", "duration": 120}
 
 
 async def test_create_ticket_solution_uses_solution_endpoint(

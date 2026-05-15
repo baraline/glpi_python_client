@@ -15,6 +15,7 @@ from datetime import datetime
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
+from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
 from glpi_python_client.models.api_schema.enums import (
     GlpiTaskState,
     GlpiTimelinePosition,
@@ -29,7 +30,7 @@ class GetTicketTask(GlpiModel):
 
     id: int | None = None
     uuid: str | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
@@ -52,7 +53,7 @@ class GetTicketTask(GlpiModel):
 class PostTicketTask(GlpiModel):
     """Request body for ``POST`` on ticket timeline task endpoints."""
 
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None

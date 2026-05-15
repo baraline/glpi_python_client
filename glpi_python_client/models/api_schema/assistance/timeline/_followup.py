@@ -15,6 +15,7 @@ from datetime import datetime
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
+from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
 from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
 
 
@@ -27,7 +28,7 @@ class GetFollowup(GlpiModel):
     id: int | None = None
     itemtype: str | None = None
     items_id: int | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
@@ -45,7 +46,7 @@ class PostFollowup(GlpiModel):
 
     itemtype: str | None = None
     items_id: int | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None

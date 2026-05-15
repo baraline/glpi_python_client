@@ -39,15 +39,15 @@ from glpi_python_client import PostFollowup, PostSolution, PostTicketTask
 
 followup_id = await client.create_ticket_followup(
     321,
-    PostFollowup(content="<p>Triaged: investigation in progress.</p>"),
+    PostFollowup(content="Triaged: investigation in progress."),
 )
 task_id = await client.create_ticket_task(
     321,
-    PostTicketTask(content="<p>On-site visit</p>", duration=900),
+    PostTicketTask(content="On-site visit", duration=900),
 )
 solution_id = await client.create_ticket_solution(
     321,
-    PostSolution(content="<p>Replaced the access point.</p>"),
+    PostSolution(content="Replaced the access point."),
 )
 ```
 

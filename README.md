@@ -57,7 +57,7 @@ async def main() -> None:
         ticket_id = await glpi.create_ticket(
             PostTicket(
                 name="Printer issue",
-                content="<p>The printer is not reachable from the office network.</p>",
+                content="The printer is not reachable from the office network.",
             )
         )
         ticket = await glpi.get_ticket(ticket_id)

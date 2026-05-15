@@ -151,7 +151,7 @@ coroutines to it from any synchronous thread:
        )
        try:
            ticket_id = glpi.create_ticket(
-               "Printer issue", "<p>The printer is offline.</p>"
+               "Printer issue", "The printer is offline."
            )
            print("created ticket", ticket_id)
        finally:
@@ -270,7 +270,7 @@ ambient extras when both are present.
 
    ticket = PostTicket(
        name="Printer offline",
-       content="<p>The third-floor printer cannot be reached.</p>",
+       content="The third-floor printer cannot be reached.",
        extra_payload={"_room_code": "PAR-3F-12"},
    )
    ticket_id = await client.create_ticket(ticket)
@@ -290,12 +290,12 @@ helpers under ``/Assistance/Ticket``.
    from glpi_python_client import PatchTicket, PostTicket
 
    ticket_id = await client.create_ticket(
-       PostTicket(name="Wi-Fi unreachable", content="<p>802.1X failure</p>")
+       PostTicket(name="Wi-Fi unreachable", content="802.1X failure")
    )
    try:
        await client.update_ticket(
            ticket_id,
-           PatchTicket(content="<p>Updated diagnosis</p>"),
+           PatchTicket(content="Updated diagnosis"),
        )
        ticket = await client.get_ticket(ticket_id)
        results = await client.search_tickets("status==1", limit=20)
@@ -326,15 +326,15 @@ delete_`` shape (``link_`` / ``unlink_`` for documents).
 
    followup_id = await client.create_ticket_followup(
        ticket_id,
-       PostFollowup(content="<p>Triaged: ongoing</p>"),
+       PostFollowup(content="Triaged: ongoing"),
    )
    task_id = await client.create_ticket_task(
        ticket_id,
-       PostTicketTask(content="<p>On-site visit</p>", duration=900),
+       PostTicketTask(content="On-site visit", duration=900),
    )
    solution_id = await client.create_ticket_solution(
        ticket_id,
-       PostSolution(content="<p>Replaced the access point</p>"),
+       PostSolution(content="Replaced the access point"),
    )
 
    followups = await client.list_ticket_followups(ticket_id)
@@ -507,16 +507,16 @@ The following example mirrors the integration test suite:
                )
            )
            ticket_id = await client.create_ticket(
-               PostTicket(name="VPN drops", content="<p>Daily VPN drops at 11:00</p>")
+               PostTicket(name="VPN drops", content="Daily VPN drops at 11:00")
            )
            try:
                await client.create_ticket_followup(
                    ticket_id,
-                   PostFollowup(content="<p>Reproduced on lab laptop</p>"),
+                   PostFollowup(content="Reproduced on lab laptop"),
                )
                await client.create_ticket_task(
                    ticket_id,
-                   PostTicketTask(content="<p>Capture VPN logs</p>", duration=1800),
+                   PostTicketTask(content="Capture VPN logs", duration=1800),
                )
                await client.add_ticket_team_member(
                    ticket_id,
@@ -524,7 +524,7 @@ The following example mirrors the integration test suite:
                )
                await client.create_ticket_solution(
                    ticket_id,
-                   PostSolution(content="<p>Upgraded VPN client</p>"),
+                   PostSolution(content="Upgraded VPN client"),
                )
                context = await client.get_ticket_context(ticket_id)
                print(context.ticket.name, len(context.followups))

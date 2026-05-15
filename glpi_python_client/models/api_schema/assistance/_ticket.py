@@ -23,6 +23,7 @@ from glpi_python_client.models.api_schema._common import (
     IdNameCompletenameRef,
     IdNameRef,
 )
+from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
 from glpi_python_client.models.api_schema.enums import (
     GlpiGlobalValidation,
     GlpiPriority,
@@ -59,7 +60,7 @@ class GetTicket(GlpiModel):
 
     id: int | None = None
     name: str | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     user_recipient: IdNameRef | None = None
     user_editor: IdNameRef | None = None
     is_deleted: bool | None = None
@@ -111,7 +112,7 @@ class PostTicket(GlpiModel):
     """
 
     name: str | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     is_deleted: bool | None = None
     category: IdNameRef | None = None
     location: IdNameRef | None = None

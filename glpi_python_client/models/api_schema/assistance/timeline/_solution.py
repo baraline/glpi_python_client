@@ -15,6 +15,7 @@ from datetime import datetime
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
+from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
 from glpi_python_client.models.api_schema.enums import GlpiSolutionStatus
 
 
@@ -28,7 +29,7 @@ class GetSolution(GlpiModel):
     itemtype: str | None = None
     items_id: int | None = None
     type: IdNameRef | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
     approver: IdNameRef | None = None
@@ -45,7 +46,7 @@ class PostSolution(GlpiModel):
     itemtype: str | None = None
     items_id: int | None = None
     type: IdNameRef | None = None
-    content: str | None = None
+    content: GlpiMarkdownContent = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
     approver: IdNameRef | None = None
