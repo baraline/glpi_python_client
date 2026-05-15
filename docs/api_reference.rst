@@ -30,6 +30,11 @@ Legacy v1 Session
 Models
 ------
 
+.. autoclass:: GlpiEntity
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: GlpiUser
    :members:
    :undoc-members:
@@ -66,6 +71,29 @@ Models
    :show-inheritance:
 
 .. autoclass:: GlpiTeamMember
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GlpiTicketContext
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Enums
+-----
+
+.. autoclass:: GlpiTicketStatus
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GlpiPriority
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GlpiTicketType
    :members:
    :undoc-members:
    :show-inheritance:

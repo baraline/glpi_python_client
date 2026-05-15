@@ -172,3 +172,49 @@ def test_async_search_ticket_records_returns_full_list_by_default(
             await client.close()
 
     asyncio.run(run_test())
+
+
+def test_async_search_ticket_records_preserves_requested_unmodeled_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run_test() -> None:
+        client = AsyncGlpiClient(
+            glpi_api_url="https://glpi.example.test/api.php/",
+            client_id="client-id",
+            client_secret="client-secret",
+        )
+
+        async def fake_get_request(
+            endpoint: str,
+            params: dict[str, object] | None = None,
+            skip_entity: bool = False,
+        ) -> SearchResponse:
+            assert endpoint == "Assistance/Ticket"
+            assert skip_entity is False
+            assert params is not None
+            assert "resolution_date" in str(params.get("fields"))
+            return SearchResponse(
+                [
+                    make_ticket_record(
+                        id=1,
+                        resolution_date="2026-01-15 11:45:00",
+                        date_solve="2026-01-16 09:00:00",
+                    )
+                ],
+                headers={"Content-Range": "0-0/1"},
+            )
+
+        monkeypatch.setattr(client, "_get_request", fake_get_request)
+        try:
+            tickets = await client.search_ticket_records(
+                fields=("resolution_date", "date_solve"),
+            )
+
+            assert tickets[0].extra_payload == {
+                "resolution_date": "2026-01-15 11:45:00",
+                "date_solve": "2026-01-16 09:00:00",
+            }
+        finally:
+            await client.close()
+
+    asyncio.run(run_test())

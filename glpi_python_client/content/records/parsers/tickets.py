@@ -23,6 +23,33 @@ from glpi_python_client.content.records.core.scalars import (
 )
 from glpi_python_client.models import GlpiTicket
 
+_KNOWN_TICKET_FIELDS = {
+    "id",
+    "name",
+    "content",
+    "status",
+    "urgency",
+    "impact",
+    "priority",
+    "type",
+    "external_id",
+    "category",
+    "entity",
+    "location",
+    "request_type",
+    "date_creation",
+    "date_mod",
+    "date_close",
+    "user_recipient",
+    "user_editor",
+    "followups",
+    "tasks",
+    "solutions",
+    "documents",
+    "team",
+    "is_deleted",
+}
+
 
 def _is_deleted_ticket(record: dict[str, Any]) -> bool:
     """Return whether one raw GLPI ticket payload represents a deleted ticket.
@@ -93,4 +120,9 @@ def _glpi_ticket_record(raw_ticket: dict[str, Any]) -> GlpiTicket:
         date_close=_parse_glpi_datetime(fields.get("date_close")),
         user_recipient=_glpi_ticket_user_payload(fields.get("user_recipient")),
         user_editor=_glpi_ticket_user_payload(fields.get("user_editor")),
+        extra_payload={
+            key: value
+            for key, value in fields.items()
+            if key not in _KNOWN_TICKET_FIELDS
+        },
     )

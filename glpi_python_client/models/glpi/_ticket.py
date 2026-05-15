@@ -93,12 +93,21 @@ def _glpi_task_from_value(value: object) -> GlpiTask:
         editor = GlpiUser(user_id=str(editor_id))
     return GlpiTask(
         task_id=_optional_text(data.get("task_id")),
+        ticket_id=_optional_text(data.get("ticket_id")),
+        user_id=_optional_text(data.get("user_id")),
+        user=_glpi_user_from_value(data.get("user")),
+        duration=(
+            int(data.get("duration")) if data.get("duration") is not None else None
+        ),
+        date=_datetime_from_data(data.get("date")),
         content=GlpiContentConverter.from_transport(data.get("content")),
         created_at=_datetime_from_data(data.get("created_at")),
         updated_at=_datetime_from_data(data.get("updated_at")),
         author=author,
         editor=editor,
         is_private=bool(data.get("is_private", False)),
+        entity=data.get("entity"),
+        extra_payload=dict(data.get("extra_payload") or {}),
     )
 
 

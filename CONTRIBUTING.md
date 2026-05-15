@@ -8,14 +8,21 @@ Thank you for improving `glpi-python-client`.
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install -e .[dev]
+python -m pre_commit install
+python -m pre_commit run --all-files
 python -m pytest
 ```
+
+The repository ships a root `.pre-commit-config.yaml` that runs Ruff on each
+commit. The lint hook applies safe fixes first, then Ruff formats the touched
+files.
 
 ## Quality Checks
 
 Run the focused checks before opening a pull request:
 
 ```bash
+python -m pre_commit run --all-files
 python -m pytest
 python -m ruff check .
 python -m mypy glpi_python_client
@@ -26,7 +33,7 @@ python -m mypy glpi_python_client
 To build the documentation locally:
 
 ```bash
-python -m sphinx -W --keep-going -b html docs docs/_build/html pa
+python -m sphinx -W --keep-going -b html docs docs/_build/html
 ```
 
 ## GitHub Actions

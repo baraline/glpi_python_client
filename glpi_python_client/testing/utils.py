@@ -129,6 +129,26 @@ def make_followup_record(**overrides: object) -> dict[str, Any]:
     return payload
 
 
+def make_task_record(**overrides: object) -> dict[str, Any]:
+    """Return a representative raw GLPI task payload.
+
+    The payload captures the task fields needed by timeline and global task
+    search tests while still allowing targeted overrides.
+    """
+
+    payload: dict[str, Any] = {
+        "id": 14,
+        "tickets_id": 321,
+        "users_id": 7,
+        "user": {"id": 7, "name": "jdoe"},
+        "actiontime": 1800,
+        "date": "2026-01-15 10:30:00",
+        "content": "<p>Task body</p>",
+    }
+    payload.update(overrides)
+    return payload
+
+
 def make_ticket_record(**overrides: object) -> dict[str, Any]:
     """Return a representative raw GLPI ticket payload.
 

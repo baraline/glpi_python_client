@@ -264,6 +264,46 @@ def test_search_ticket_records_returns_full_list_by_default(
         client.close()
 
 
+def test_search_ticket_records_preserves_requested_unmodeled_fields(
+    client_factory: Callable[..., GlpiClient],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = client_factory()
+
+    def fake_get_request(
+        endpoint: str,
+        params: dict[str, object] | None = None,
+        skip_entity: bool = False,
+    ) -> SearchResponse:
+        assert endpoint == "Assistance/Ticket"
+        assert skip_entity is False
+        assert params is not None
+        assert "resolution_date" in str(params.get("fields"))
+        return SearchResponse(
+            [
+                make_ticket_record(
+                    id=1,
+                    resolution_date="2026-01-15 11:45:00",
+                    date_solve="2026-01-16 09:00:00",
+                )
+            ],
+            headers={"Content-Range": "0-0/1"},
+        )
+
+    monkeypatch.setattr(client, "_get_request", fake_get_request)
+    try:
+        tickets = client.search_ticket_records(
+            fields=("resolution_date", "date_solve"),
+        )
+
+        assert tickets[0].extra_payload == {
+            "resolution_date": "2026-01-15 11:45:00",
+            "date_solve": "2026-01-16 09:00:00",
+        }
+    finally:
+        client.close()
+
+
 @pytest.mark.parametrize(
     ("include_deleted_ticket", "expected_ids"),
     [(False, ["1"]), (True, ["1", "2"])],

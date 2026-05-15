@@ -13,7 +13,15 @@ from glpi_python_client.content.records.core.scalars import (
     _optional_int,
     _optional_text,
 )
-from glpi_python_client.models import GlpiLocation, GlpiUser
+from glpi_python_client.models import GlpiEntity, GlpiLocation, GlpiUser
+
+_KNOWN_ENTITY_FIELDS = {
+    "id",
+    "name",
+    "complete_name",
+    "completename",
+    "comment",
+}
 
 
 def _glpi_user_record(raw_user: dict[str, Any]) -> GlpiUser:
@@ -41,6 +49,30 @@ def _glpi_user_record(raw_user: dict[str, Any]) -> GlpiUser:
         or realname
         or firstname,
         entity_id=_optional_int(_glpi_id_value(default_entity) or default_entity),
+    )
+
+
+def _glpi_entity_record(raw_entity: dict[str, Any]) -> GlpiEntity:
+    """Build a ``GlpiEntity`` from one raw entity payload.
+
+    The parser normalizes the public identifier and full-name fields while
+    preserving any unmodeled payload values in ``extra_payload``.
+    """
+
+    entity_id = _optional_text(raw_entity.get("id"))
+    if entity_id is None:
+        raise ValueError("GLPI entity payload did not include an ID")
+    return GlpiEntity(
+        entity_id=entity_id,
+        name=_optional_text(raw_entity.get("name")),
+        complete_name=_optional_text(raw_entity.get("complete_name"))
+        or _optional_text(raw_entity.get("completename")),
+        comment=_optional_text(raw_entity.get("comment")),
+        extra_payload={
+            key: value
+            for key, value in raw_entity.items()
+            if key not in _KNOWN_ENTITY_FIELDS
+        },
     )
 
 

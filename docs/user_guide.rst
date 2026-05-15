@@ -161,6 +161,117 @@ Replace ``_room_code`` and ``_asset_tag`` with the field names expected by your
 GLPI instance or plugin. The same ``extra_payload`` pattern works with the
 other public payload-backed models.
 
+Requested Ticket Fields Not Modeled Directly
+--------------------------------------------
+
+When you request extra ticket fields that do not map to typed
+:class:`glpi_python_client.GlpiTicket` attributes, the package preserves those
+values in ``ticket.extra_payload`` instead of dropping them.
+
+.. code-block:: python
+
+   tickets = glpi.search_ticket_records(
+       query='status.id=in=(1,2)',
+       fields=("resolution_date", "date_solve"),
+   )
+
+   first_ticket = tickets[0]
+   print(first_ticket.extra_payload["resolution_date"])
+   print(first_ticket.extra_payload["date_solve"])
+
+Entity Search
+-------------
+
+Use :meth:`glpi_python_client.GlpiClient.search_entities` when you need typed
+entity lookup from the public package root.
+
+.. code-block:: python
+
+   entities = glpi.search_entities(
+       rsql_filter='name=like=*novahe*',
+       limit=50,
+       start=0,
+   )
+
+   for entity in entities:
+       print(entity.entity_id, entity.name, entity.complete_name)
+
+Unmodeled entity payload keys remain available through
+:attr:`glpi_python_client.GlpiEntity.extra_payload`.
+
+Task Search and Duration Statistics
+-----------------------------------
+
+Use :meth:`glpi_python_client.GlpiClient.search_task_records` for global task
+searches and :meth:`glpi_python_client.GlpiClient.get_task_durations` when you
+need aggregated duration reports.
+
+.. code-block:: python
+
+   tasks = glpi.search_task_records(
+       query='date=ge=2026-01-01;date=le=2026-01-31',
+       fields=("id", "tickets_id", "users_id", "actiontime", "date", "content"),
+       sort="date:desc",
+   )
+
+   summary = glpi.get_task_durations(
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+       entity_name="Novahe",
+       return_task_details=True,
+   )
+
+   print(summary["total_duration"])
+   print(summary["duration_by_user"])
+
+:class:`glpi_python_client.GlpiTask` keeps typed fields such as ``ticket_id``,
+``user_id``, ``duration``, ``date``, and ``entity``. Additional task payload
+keys remain available through ``extra_payload``.
+
+Ticket Statistics and User Activity
+-----------------------------------
+
+Public enums keep the common GLPI numeric constants at the package root and
+can be used directly when composing RSQL filters.
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiTicketStatus, GlpiTicketType
+
+   open_ticket_query = GlpiTicketStatus.NEW.rsql_equals("status")
+   request_query = GlpiTicketType.REQUEST.rsql_equals("type")
+
+   stats = glpi.get_ticket_statistics(
+       entity_name="Novahe",
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+       extra_filter=f"{open_ticket_query};{request_query}",
+   )
+
+   activity = glpi.get_user_activity(
+       email="jane.doe@example.com",
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+   )
+
+   print(stats["entities"])
+   print(activity["users"])
+
+Ticket Context Bundles
+----------------------
+
+Use :meth:`glpi_python_client.GlpiClient.get_ticket_context` when one workflow
+needs the primary ticket together with the common timeline and document
+records.
+
+.. code-block:: python
+
+   bundle = glpi.get_ticket_context("123")
+
+   print(bundle.ticket.id)
+   print(len(bundle.tasks), len(bundle.followups), len(bundle.solutions))
+   print(len(bundle.documents))
+
 Utility Constructor
 -------------------
 

@@ -20,6 +20,14 @@ DOCUMENT_SUFFIX = "Timeline/Document"
 TEAM_MEMBER_SUFFIX = "TeamMember"
 USER_ENDPOINT = "Administration/User"
 LOCATION_ENDPOINT = "Dropdowns/Location"
+ENTITY_ENDPOINTS = (
+    "Administration/Entity",
+    "Dropdowns/Entity",
+)
+TASK_SEARCH_ENDPOINTS = (
+    "Assistance/Task",
+    "Assistance/TicketTask",
+)
 
 LIST_TICKET_CORE_FIELDS = [
     "id",
@@ -42,4 +50,20 @@ LIST_TICKET_CORE_FIELDS = [
     "team",
     "user_recipient",
     "user_editor",
+]
+
+LIST_TASK_CORE_FIELDS = [
+    "id",
+    "content",
+    "is_private",
+    "date",
+    "date_creation",
+    "date_mod",
+    "users_id",
+    "user",
+    "user_editor",
+    "tickets_id",
+    "actiontime",
+    "entity",
+    "entities_id",
 ]

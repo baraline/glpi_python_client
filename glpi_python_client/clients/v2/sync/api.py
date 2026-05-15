@@ -6,8 +6,10 @@ surface consumed by the public ``GlpiClient`` class.
 
 from __future__ import annotations
 
+from .analytics import SyncAnalyticsMixin
 from .directory import SyncDirectoryMixin
 from .documents import SyncDocumentMixin
+from .tasks import SyncTaskMixin
 from .team import SyncTeamMixin
 from .tickets import SyncTicketMixin
 from .timeline import SyncTimelineMixin
@@ -15,8 +17,10 @@ from .transport import SyncTransportMixin
 
 
 class GlpiApiClientMixin(
+    SyncAnalyticsMixin,
     SyncTicketMixin,
     SyncTimelineMixin,
+    SyncTaskMixin,
     SyncDocumentMixin,
     SyncTeamMixin,
     SyncDirectoryMixin,

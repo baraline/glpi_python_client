@@ -15,7 +15,8 @@ package.
 | `glpi-ticket-workflow` | Search, fetch, create, or update tickets | `GlpiClient`, `GlpiTicket` |
 | `glpi-ticket-timeline` | Read timeline records or add notes and solutions | `GlpiFollowup`, `GlpiTask`, `GlpiSolution`, `GlpiDocument` |
 | `glpi-document-workflow` | Upload, fetch, or download documents | `GlpiDocument`, `GlpiClient`, `GLPIV1Session` |
-| `glpi-user-location-provisioning` | Search or create users and locations | `GlpiUser`, `GlpiLocation` |
+| `glpi-user-location-provisioning` | Search users, locations, and entities or create users and locations | `GlpiUser`, `GlpiLocation`, `GlpiEntity` |
+| `glpi-reporting-and-context` | Search entities and tasks, aggregate durations and ticket stats, inspect user activity, or load one ticket context bundle | `GlpiClient`, `GlpiEntity`, `GlpiTask`, `GlpiTicketContext` |
 | `glpi-team-members` | List, add, or remove ticket team members | `GlpiTeamMember` |
 
 Validate individual skills with the reference validator when available:

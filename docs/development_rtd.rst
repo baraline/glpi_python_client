@@ -12,6 +12,11 @@ Create a virtual environment and install the development dependencies:
    .venv\Scripts\activate
    python -m pip install --upgrade pip
    python -m pip install -e .[dev]
+   python -m pre_commit install
+
+The repository ships a root ``.pre-commit-config.yaml`` that runs Ruff on each
+commit. The lint hook applies safe fixes first, then Ruff formats the touched
+files.
 
 Quality Checks
 --------------
@@ -20,6 +25,7 @@ Run the focused checks before opening a pull request:
 
 .. code-block:: console
 
+   python -m pre_commit run --all-files
    python -m pytest
    python -m ruff check .
    python -m mypy glpi_python_client

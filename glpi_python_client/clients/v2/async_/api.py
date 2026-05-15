@@ -6,8 +6,10 @@ consumed by the public ``AsyncGlpiClient`` class.
 
 from __future__ import annotations
 
+from .analytics import AsyncAnalyticsMixin
 from .directory import AsyncDirectoryMixin
 from .documents import AsyncDocumentMixin
+from .tasks import AsyncTaskMixin
 from .team import AsyncTeamMixin
 from .tickets import AsyncTicketMixin
 from .timeline import AsyncTimelineMixin
@@ -15,8 +17,10 @@ from .transport import AsyncTransportMixin
 
 
 class AsyncGlpiApiClientMixin(
+    AsyncAnalyticsMixin,
     AsyncTicketMixin,
     AsyncTimelineMixin,
+    AsyncTaskMixin,
     AsyncDocumentMixin,
     AsyncTeamMixin,
     AsyncDirectoryMixin,

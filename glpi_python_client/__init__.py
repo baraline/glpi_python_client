@@ -9,12 +9,17 @@ from __future__ import annotations
 from glpi_python_client.clients import AsyncGlpiClient, GlpiClient, GLPIV1Session
 from glpi_python_client.models import (
     GlpiDocument,
+    GlpiEntity,
     GlpiFollowup,
     GlpiLocation,
+    GlpiPriority,
     GlpiSolution,
     GlpiTask,
     GlpiTeamMember,
     GlpiTicket,
+    GlpiTicketContext,
+    GlpiTicketStatus,
+    GlpiTicketType,
     GlpiUser,
 )
 
@@ -25,12 +30,17 @@ __all__ = [
     "GLPIV1Session",
     "GlpiClient",
     "GlpiDocument",
+    "GlpiEntity",
     "GlpiFollowup",
     "GlpiLocation",
+    "GlpiPriority",
     "GlpiSolution",
     "GlpiTask",
     "GlpiTeamMember",
     "GlpiTicket",
+    "GlpiTicketContext",
+    "GlpiTicketStatus",
+    "GlpiTicketType",
     "GlpiUser",
     "__version__",
 ]

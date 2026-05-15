@@ -22,6 +22,23 @@ def test_ticket_record_normalizes_nested_fields(
     assert ticket.user_recipient.user_id == "9"
 
 
+def test_ticket_record_preserves_unmodeled_fields_in_extra_payload(
+    sample_ticket_record: dict[str, Any],
+) -> None:
+    ticket = _glpi_ticket_record(
+        {
+            **sample_ticket_record,
+            "resolution_date": "2026-01-15 11:45:00",
+            "date_solve": "2026-01-16 09:00:00",
+        }
+    )
+
+    assert ticket.extra_payload == {
+        "resolution_date": "2026-01-15 11:45:00",
+        "date_solve": "2026-01-16 09:00:00",
+    }
+
+
 def test_filter_visible_ticket_batch_removes_deleted_records() -> None:
     visible, deleted_count = _filter_visible_ticket_batch(
         [

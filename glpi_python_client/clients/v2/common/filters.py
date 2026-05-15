@@ -20,6 +20,47 @@ def rsql_contains_filter(field: str, value: str) -> str | None:
     return f'{field}=like="*{escape_rsql_like_value(text)}*"'
 
 
+def rsql_equals_filter(field: str, value: str | int | None) -> str | None:
+    """Build an equality-style RSQL filter for one field.
+
+    Blank textual values return ``None`` so callers can compose filters without
+    special casing absent inputs.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return f"{field}=={value}"
+    text = value.strip()
+    if not text:
+        return None
+    return f'{field}=="{escape_rsql_text_value(text)}"'
+
+
+def rsql_any_filter(*filters: str | None) -> str | None:
+    """Join non-empty RSQL filter fragments with OR semantics.
+
+    Empty fragments are ignored and an all-empty input returns ``None``.
+    """
+
+    parts = [fragment for fragment in filters if fragment]
+    if not parts:
+        return None
+    return ",".join(parts)
+
+
+def rsql_all_filter(*filters: str | None) -> str | None:
+    """Join non-empty RSQL filter fragments with AND semantics.
+
+    Empty fragments are ignored and an all-empty input returns ``None``.
+    """
+
+    parts = [fragment for fragment in filters if fragment]
+    if not parts:
+        return None
+    return ";".join(parts)
+
+
 def escape_rsql_like_value(value: str) -> str:
     """Escape user text embedded in a quoted RSQL ``like`` value.
 
@@ -28,3 +69,13 @@ def escape_rsql_like_value(value: str) -> str:
     """
 
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("*", "\\*")
+
+
+def escape_rsql_text_value(value: str) -> str:
+    """Escape user text embedded in a quoted RSQL equality value.
+
+    The helper protects backslashes and double quotes so caller input remains a
+    literal value inside the generated RSQL expression.
+    """
+
+    return value.replace("\\", "\\\\").replace('"', '\\"')
