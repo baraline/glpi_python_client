@@ -35,32 +35,49 @@ Package Layout
 --------------
 
 ``glpi_python_client.__init__``
-   Public import surface.
+   Public import surface (``GlpiClient``, ``GlpiTicketContext``, public Pydantic
+   models, enums, and ``__version__``).
 
-``glpi_python_client._client_v2``
-   Main ``GlpiClient`` implementation, configuration, authentication, and
-   context-manager cleanup.
+``glpi_python_client.clients.glpi_client``
+   Composition root. ``GlpiClient`` mixes the per-resource async API mixins,
+   the OAuth2 token manager, the asynchronous v2 transport, and the optional
+   internal v1 session used for document uploads.
 
-``glpi_python_client._api``
-   High-level GLPI endpoint helpers.
+``glpi_python_client.clients.api``
+   Async API mixins generated from the GLPI v2 OpenAPI contract: tickets,
+   ticket timeline (followups, tasks, solutions, documents), team members,
+   documents, users, locations, entities, ...
 
-``glpi_python_client._client_v1``
-   Legacy v1 session used for document operations.
+``glpi_python_client.clients.custom``
+   Higher-level helpers built on top of the contract mixins:
+   ``get_ticket_context``, ``get_ticket_statistics``, ``get_task_statistics``.
 
-``glpi_python_client.models``
-   Typed request and response models.
+``glpi_python_client.clients.commons``
+   Shared HTTP transport pieces, including the timeline envelope unwrap that
+   reconciles live server behaviour with the OpenAPI contract.
 
-``glpi_python_client._records``
-   Raw GLPI payload normalization and model conversion.
+``glpi_python_client.models.api_schema``
+   Contract-aligned Pydantic v2 models (``Get``/``Post``/``Patch``/``Delete``)
+   for each GLPI v2 resource.
+
+``glpi_python_client.models.custom_schema``
+   Composite models such as ``GlpiTicketContext`` returned by the custom
+   helpers.
 
 Adding Endpoints
 ----------------
 
-#. Add or extend a model in ``glpi_python_client.models``.
-#. Add response parsing in ``glpi_python_client._records`` when needed.
-#. Add the client method in ``glpi_python_client._api``.
-#. Add tests for payload serialization, response parsing, and client behavior.
-#. Document the workflow in :doc:`user_guide` or the README.
+#. Add or extend the contract-aligned models in
+   ``glpi_python_client.models.api_schema``.
+#. Add the async mixin and method under ``glpi_python_client.clients.api``,
+   mirroring the OpenAPI path and HTTP verb.
+#. When the live server diverges from the contract, document the choice in the
+   module docstring and (when needed) wire an unwrap helper from
+   ``glpi_python_client.clients.commons``.
+#. Re-export new public symbols from ``glpi_python_client.__init__``.
+#. Add tests for payload serialization, response parsing, and client behaviour.
+#. Document the workflow in :doc:`user_guide` and the matching skill in
+   ``skills/``.
 
 Keep organization-specific entity, profile, and category defaults outside the
 library core. Applications can apply their own mapping before calling the

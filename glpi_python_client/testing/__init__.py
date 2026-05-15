@@ -12,8 +12,6 @@ from glpi_python_client.testing.utils import (
     TicketResponse,
     TokenResponse,
     make_client,
-    make_followup_record,
-    make_ticket_record,
 )
 
 __all__ = [
@@ -22,6 +20,4 @@ __all__ = [
     "TicketResponse",
     "TokenResponse",
     "make_client",
-    "make_followup_record",
-    "make_ticket_record",
 ]

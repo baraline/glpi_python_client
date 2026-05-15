@@ -48,18 +48,24 @@ with GlpiClient(
     username="api-user",
     password="api-password",
 ) as glpi:
-    tickets = glpi.search_ticket_records()
+    tickets = glpi.search_ticket_records(query='status.id=in=(1,2)')
 ```
 
-`search_ticket_records()` returns a full `list[GlpiTicket]` by default. When
-you pass `batch_size`, it becomes a lazy iterator of ticket batches:
+`search_ticket_records()` returns a full `list[GlpiTicket]` by default. Pass a
+`query` for normal searches. Unfiltered ticket collection is allowed by the GLPI
+contract but disabled by default because some deployments reject it; pass
+`allow_unfiltered=True` only when you intentionally want that behavior. When you
+pass `batch_size`, the method returns a lazy iterator of ticket batches.
 
 Deleted tickets are excluded by default from `search_ticket_records()` and
 `get_ticket_record()`. Pass `include_deleted_ticket=True` when you need GLPI
 tickets marked as deleted.
 
 ```python
-for batch in glpi.search_ticket_records(batch_size=200):
+for batch in glpi.search_ticket_records(
+    query='status.id=in=(1,2)',
+    batch_size=200,
+):
     for ticket in batch:
         print(ticket.id)
 ```
@@ -79,7 +85,7 @@ async with AsyncGlpiClient(
     password="api-password",
     auth_token_refresh=900,
 ) as glpi:
-    tickets = await glpi.search_ticket_records()
+    tickets = await glpi.search_ticket_records(query='status.id=in=(1,2)')
 ```
 
 ## Utility Constructor
@@ -112,9 +118,9 @@ Optional variables:
 ## Tickets
 
 ```python
-from glpi_python_client import GlpiTicket
+from glpi_python_client import GlpiTicketCreate
 
-ticket = GlpiTicket(
+ticket = GlpiTicketCreate(
     name="Printer issue",
     content="The printer is not reachable from the office network.",
     urgency=3,
@@ -131,7 +137,8 @@ delete operations return `None` and raise on error.
 The client only forwards fields that you set explicitly on the model. It does
 not inject package-owned defaults for ticket status, priority, type, or
 category. If your GLPI workflow requires any of those values, set them on
-`GlpiTicket` before calling `create_ticket()` or `update_ticket()`.
+`GlpiTicketCreate` before calling `create_ticket()` or `GlpiTicketUpdate`
+before calling `update_ticket()`.
 `create_ticket()` requires a non-empty ticket `name`.
 
 `GlpiTicket` uses the GLPI ticket field names directly, including `id`,
@@ -177,9 +184,11 @@ Unmodeled entity payload keys are preserved in `GlpiEntity.extra_payload`.
 ## Models and Content Formatting
 
 Public GLPI objects are field-validated Pydantic models. Create and update GLPI
-data with `GlpiTicket`, `GlpiFollowup`, `GlpiSolution`, `GlpiDocument`,
-`GlpiUser`, and `GlpiLocation` instead of passing raw dictionaries through
-application code.
+data with dedicated input models such as `GlpiTicketCreate`,
+`GlpiTicketUpdate`, `GlpiFollowupCreate`, `GlpiFollowupUpdate`,
+`GlpiSolutionCreate`, `GlpiDocumentUpload`, `GlpiUserCreate`, and
+`GlpiLocationCreate` instead of passing raw dictionaries through application
+code.
 
 Ticket descriptions, followups, tasks, and solutions use Markdown in Python.
 When data is fetched from GLPI, HTML is converted to Markdown before it is stored
@@ -187,7 +196,7 @@ on the model. When data is sent to GLPI, Markdown is rendered to HTML for the AP
 payload:
 
 ```python
-ticket = GlpiTicket(
+ticket = GlpiTicketCreate(
     name="Laptop cannot join corporate Wi-Fi",
     content=(
         "User sees **certificate rejected** during 802.1X authentication.\n"
@@ -209,9 +218,9 @@ The validated model fields stay typed, and `extra_payload` is merged into the
 outgoing GLPI request body.
 
 ```python
-from glpi_python_client import GlpiTicket
+from glpi_python_client import GlpiTicketCreate
 
-ticket = GlpiTicket(
+ticket = GlpiTicketCreate(
     name="Access badge reader offline",
     content="Reader in **Paris / 3rd floor** is unreachable.",
     extra_payload={
@@ -231,36 +240,37 @@ Search and fetch operations return typed models:
 
 ```python
 tickets = glpi.search_ticket_records(query='status.id=in=(1,2)')
-ticket = glpi.get_ticket_record("123")
-followups = glpi.get_followup_records("123")
-tasks = glpi.get_task_records("123")
-solutions = glpi.get_solution_records("123")
+ticket = glpi.get_ticket_record(123)
+followups = glpi.get_followup_records(123)
+tasks = glpi.get_task_records(123)
+solutions = glpi.get_solution_records(123)
 ```
 
-Public client methods accept GLPI identifiers as either `str` or `int` and
-normalize them into request paths as needed.
+Public v2 client methods accept GLPI identifiers as integers, matching the
+published GLPI API contract.
 
 ## Tasks And Duration Statistics
 
-Use `search_task_records()` for global task searches and `get_task_durations()`
-when you need aggregated duration reports.
+Use `get_task_records(ticket_id)` for task records from one ticket timeline.
+`search_task_records()` keeps the higher-level search workflow by first finding
+candidate tickets with the published ticket endpoint, then reading each ticket's
+`Timeline/Task` records.
 
 ```python
 tasks = glpi.search_task_records(
     query='date=ge=2026-01-01;date=le=2026-01-31',
-    fields=("id", "tickets_id", "users_id", "actiontime", "date", "content"),
     sort="date:desc",
 )
 
-summary = glpi.get_task_durations(
-    start_date="2026-01-01",
-    end_date="2026-01-31",
-    entity_name="Novahe",
-    return_task_details=True,
+scoped_tasks = glpi.search_task_records(
+    query="users_id==7",
+    ticket_query='status.id=in=(1,2)',
 )
 
-print(summary["total_duration"])
-print(summary["duration_by_user"])
+ticket_tasks = glpi.get_task_records(123)
+
+for task in ticket_tasks:
+    print(task.task_id, task.duration)
 ```
 
 `GlpiTask` keeps typed fields such as `ticket_id`, `user_id`, `duration`,
@@ -305,7 +315,7 @@ Use `get_ticket_context()` when you need the core ticket together with the
 common timeline and document records in one public object.
 
 ```python
-bundle = glpi.get_ticket_context("123")
+bundle = glpi.get_ticket_context(123)
 
 print(bundle.ticket.id)
 print(len(bundle.tasks), len(bundle.followups), len(bundle.solutions))
@@ -315,17 +325,22 @@ print(len(bundle.documents))
 ## Users and Locations
 
 ```python
-from glpi_python_client import GlpiLocation, GlpiUser
+from glpi_python_client import GlpiLocationCreate, GlpiUserCreate
 
 user_id = glpi.create_user(
-    GlpiUser(email="jane@example.com", firstname="Jane", realname="Doe")
+    GlpiUserCreate(
+        username="jane.doe",
+        email="jane@example.com",
+        firstname="Jane",
+        realname="Doe",
+    )
 )
-location_id = glpi.create_location(GlpiLocation(name="Paris office"))
+location_id = glpi.create_location(GlpiLocationCreate(name="Paris office"))
 glpi.delete_user(user_id)
 glpi.delete_location(location_id)
 ```
 
-`create_user()` requires at least one usable identity value on `GlpiUser`.
+`create_user()` requires an explicit username on `GlpiUserCreate`.
 `create_location()` requires a non-empty location `name`.
 
 ## Documents
@@ -341,10 +356,10 @@ requires them:
     token.
 
 ```python
-from glpi_python_client import GlpiDocument
+from glpi_python_client import GlpiDocumentUpload
 
 uploaded = glpi.upload_document_to_ticket(
-    GlpiDocument(
+    GlpiDocumentUpload(
         ticket_id=123,
         filename="diagnostic.txt",
         content=b"network trace",
@@ -354,6 +369,10 @@ uploaded = glpi.upload_document_to_ticket(
 if uploaded.document_id is not None:
     glpi.delete_document(uploaded.document_id)
 ```
+
+`GlpiDocumentUpload` is the input model for uploads and requires `ticket_id`,
+`filename`, and `content`. `GlpiDocument` is the read/result model returned by
+document metadata and upload operations.
 
 ## Error Handling
 

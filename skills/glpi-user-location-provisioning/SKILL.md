@@ -1,91 +1,76 @@
 ---
 name: glpi-user-location-provisioning
-description: "Search GLPI users, locations, and entities, or create users and locations, with glpi_python_client GlpiClient, AsyncGlpiClient, GlpiUser, GlpiLocation, and GlpiEntity. Use for user lookup, entity lookup, location lookup, user provisioning, location creation, GLPI entity defaults, notification defaults, and RSQL filters."
+description: "Search GLPI users, locations, and entities, or create, update, and delete users and locations and entities with the asynchronous glpi_python_client.GlpiClient and the matching Get/Post/Patch/Delete models. Use for user lookup, entity lookup, location lookup, user provisioning, location creation, GLPI entity defaults, or RSQL filters."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI high-level API, and credentials allowed to read or create users and locations."
+compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write users, locations, and entities."
 metadata:
   package: glpi-python-client
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # GLPI User, Location, And Entity Provisioning
 
-After the directory refactor, keep imports on the public package root. User and location behavior now lives in `glpi_python_client.clients.v2.sync.directory`, `glpi_python_client.clients.v2.async_.directory`, and `glpi_python_client.content.records.parsers.directory`.
-
-Use this skill when the task is about GLPI users, locations, or entities rather than ticket records. In async code, use the same method names on `AsyncGlpiClient` with `await`.
+Users live under `/Administration/User`, entities under `/Administration/Entity`, and locations under `/Dropdown/Location`. Each resource family is exposed by the same `search_/get_/create_/update_/delete_` shape on `GlpiClient` with matching `Get`/`Post`/`Patch`/`Delete` Pydantic models.
 
 ## Procedure
 
-1. Create a `GlpiClient` or `AsyncGlpiClient` with the correct entity/profile scope.
-2. Search existing users with `search_users(rsql_filter, limit=..., start=..., skip_entity=...)` before creating duplicates.
-3. Search entities with `search_entities(rsql_filter, limit=..., start=...)` when the workflow needs typed entity IDs or complete names.
-4. Create users with `GlpiUser` and `create_user(user)`. The method returns the created `user_id`.
-5. Search locations with `search_locations(name)` before creating duplicates.
-6. Create locations with `GlpiLocation` and `create_location(location)`. The method returns the created `location_id`.
-7. Re-search after writes when the task needs hydrated models instead of the created IDs.
+1. Create a `GlpiClient` with the correct entity/profile scope.
+2. Search before creating duplicates: `search_users(rsql_filter, limit=..., start=...)`, `search_locations(rsql_filter, limit=..., start=...)`, `search_entities(rsql_filter, limit=..., start=...)`.
+3. Fetch one record with `get_user(user_id)`, `get_location(location_id)`, or `get_entity(entity_id)`.
+4. Create with `create_user(PostUser(...))`, `create_location(PostLocation(...))`, or `create_entity(PostEntity(...))`. Each returns the new ID.
+5. Update with `update_user(user_id, PatchUser(...))`, `update_location(location_id, PatchLocation(...))`, or `update_entity(entity_id, PatchEntity(...))`.
+6. Delete with `delete_user(user_id, force=True|False|None)` and the matching `delete_location` / `delete_entity` helpers.
 
 ## Examples
 
-Search for a user by email:
+Search for a user by username:
 
 ```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    users = glpi.search_users('email=="jane.doe@example.com"', limit=5)
-
-Search for entities by name fragment:
-
-```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    entities = glpi.search_entities(
-        rsql_filter='name=like=*novahe*',
-        limit=10,
-    )
-    for entity in entities:
-        print(entity.entity_id, entity.complete_name)
-```
+users = await client.search_users('username=="jane.doe"', limit=5)
 ```
 
 Create a user:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiUser
+from glpi_python_client import PostUser
 
-with GlpiClient.from_env() as glpi:
-    user_id = glpi.create_user(
-        GlpiUser(
-            email="jane.doe@example.com",
-            firstname="Jane",
-            realname="Doe",
-            entity_id=1,
-            default_is_notifications_enabled=True,
-        )
+user_id = await client.create_user(
+    PostUser(
+        username="jane.doe",
+        password="initial-pwd",
+        password2="initial-pwd",
+        firstname="Jane",
+        realname="Doe",
     )
-    print(user_id)
+)
 ```
 
 Find or create a location:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiLocation
+from glpi_python_client import PostLocation
 
-with GlpiClient.from_env() as glpi:
-    matches = glpi.search_locations("Paris HQ")
-    location_id = matches[0].location_id if matches else glpi.create_location(
-        GlpiLocation(name="Paris HQ", entity_id=1)
-    )
-    print(location_id)
+matches = await client.search_locations('name=="Paris HQ"')
+location_id = (
+    matches[0].id
+    if matches
+    else await client.create_location(PostLocation(name="Paris HQ"))
+)
+```
+
+Look entities up by name fragment:
+
+```python
+entities = await client.search_entities("name=like=*novahe*", limit=10)
+for entity in entities:
+    print(entity.id, entity.name, entity.completename)
 ```
 
 ## Gotchas
 
-- `GlpiUser` creation requires at least a name or email; email becomes the username when present.
-- `search_users()` defaults to `limit=1`. Increase `limit` when the task expects multiple matches.
-- `search_entities()` uses raw RSQL filters and returns typed `GlpiEntity` records from the package root.
-- `create_user()` and `create_location()` return IDs, not hydrated models.
-- Use `skip_entity=True` for user searches only when the user explicitly needs a global lookup outside entity/profile routing.
-- `search_locations(name)` performs a name-fragment lookup and strips double quotes from the search text.
-- `AsyncGlpiClient` exposes the same directory methods with `await`.
+- All methods are async; always `await` them.
+- `PostUser` requires `username` and the GLPI server enforces the `password`/`password2` pair when creating local users. Tweak according to your auth backend.
+- Search filters are raw RSQL strings; pagination is via `limit` and `start`.
+- Extra keys returned by the live server (`display_name`, plugin fields, ...) flow into `record.extra_payload` rather than raising.
+- `delete_*(force=True)` permanently deletes the record; omit (or `False`/`None`) to move it to the trash.
+- If the user provides a name rather than an ID, search first and confirm the ID before changing or deleting records.

@@ -1,63 +1,61 @@
 ---
 name: glpi-team-members
-description: "List, add, and remove GLPI ticket team members with glpi_python_client GlpiClient, AsyncGlpiClient, and GlpiTeamMember. Use when assigning users or groups to tickets, inspecting ticket teams, changing team roles, or removing GLPI ticket participants."
+description: "List, add, and remove GLPI ticket team members with the asynchronous glpi_python_client.GlpiClient and the GetTeamMember/PostTeamMember models. Use when assigning users or groups to tickets, inspecting ticket teams, or removing GLPI ticket participants."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI high-level API, and credentials allowed to manage ticket teams."
+compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to manage ticket teams."
 metadata:
   package: glpi-python-client
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # GLPI Team Members
 
-After the team-member refactor, keep imports on the public package root. Ticket-team behavior now lives in `glpi_python_client.clients.v2.sync.team`, `glpi_python_client.clients.v2.async_.team`, and `glpi_python_client.content.records.parsers.team`.
-
-Use this skill for ticket team membership operations. In async code, use the same method names on `AsyncGlpiClient` with `await`.
+Ticket team members are exposed under `/Assistance/Ticket/{id}/TeamMember`. The `GlpiClient` exposes three methods: `list_ticket_team_members`, `add_ticket_team_member`, and `remove_ticket_team_member`.
 
 ## Procedure
 
-1. Create a `GlpiClient` or `AsyncGlpiClient` with the entity/profile scope that can see the ticket.
-2. Inspect current membership with `get_team_member_records(ticket_id)`.
-3. Build `GlpiTeamMember(member_type=..., member_id=..., role=...)` using GLPI values the user supplied or that you looked up.
-4. Add the member with `add_team_member(ticket_id, member)`.
-5. Remove the member with `remove_team_member(ticket_id, member)`.
-6. Refetch with `get_team_member_records(ticket_id)` when the task needs authoritative post-change state.
+1. Create a `GlpiClient` with the entity/profile scope that can see the ticket.
+2. List current membership with `await client.list_ticket_team_members(ticket_id)`.
+3. Build `PostTeamMember(type=..., id=..., role=...)`:
+   - `type` — GLPI itemtype string such as `"User"` or `"Group"`.
+   - `id` — numeric identifier of the user or group to add.
+   - `role` — GLPI role name such as `"assigned"`, `"observer"`, or `"requester"`.
+4. Add with `await client.add_ticket_team_member(ticket_id, member)`.
+5. Remove with `await client.remove_ticket_team_member(ticket_id, member)` where `member` is a `PostTeamMember` describing the entry to drop (same shape as the add call).
 
 ## Examples
 
 List members:
 
 ```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    members = glpi.get_team_member_records("321")
+members = await client.list_ticket_team_members(321)
 ```
 
-Add a user to a ticket team:
+Add a user:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiTeamMember
+from glpi_python_client import PostTeamMember
 
-with GlpiClient.from_env() as glpi:
-    member = GlpiTeamMember(member_type="User", member_id=42, role="assigned")
-    glpi.add_team_member("321", member)
+await client.add_ticket_team_member(
+    321,
+    PostTeamMember(type="User", id=42, role="assigned"),
+)
 ```
 
-Remove a group from a ticket team:
+Remove an existing membership entry:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiTeamMember
+from glpi_python_client import PostTeamMember
 
-with GlpiClient.from_env() as glpi:
-    member = GlpiTeamMember(member_type="Group", member_id=7, role="observer")
-    glpi.remove_team_member("321", member)
+await client.remove_ticket_team_member(
+    321,
+    PostTeamMember(type="User", id=42, role="assigned"),
+)
 ```
 
 ## Gotchas
 
-- The package passes `member_type`, `member_id`, and `role` through to GLPI. Use values valid for the target GLPI instance.
-- `get_team_member_records()` returns an empty list when the API response is not a successful list payload.
-- `add_team_member()` and `remove_team_member()` return `None`; they do not refetch the ticket team.
-- `AsyncGlpiClient` exposes the same ticket-team methods with `await`.
-- If the user provides a name rather than an ID, search users or groups first and confirm the exact ID before changing membership.
+- The OpenAPI contract marks `PostTeamMember.id` as read-only, but the live GLPI server requires it on the `POST` body. The client honours the live behaviour and exposes `id` as a writable field; this is a deliberate "behaviour wins over the contract" decision.
+- The server returns extra fields such as `display_name`, `firstname`, `realname`, and `href` on `GetTeamMember`. These flow into `member.extra_payload`.
+- All methods are async; always `await` them.
+- If the user provides a name rather than an ID, look the user or group up first with `search_users` (or the equivalent group search) and confirm the ID before changing membership.

@@ -36,7 +36,7 @@ class FakeResponse:
         content: bytes | None = None,
     ) -> None:
         self.status_code = status_code
-        self._payload = {"id": "321"} if payload is None else payload
+        self._payload = {"id": 321} if payload is None else payload
         self.headers = headers or {}
         self.text = str(self._payload) if text is None else text
         self.content = self.text.encode() if content is None else content
@@ -106,64 +106,3 @@ def make_client(**overrides: object) -> GlpiClient:
     config = dict(_DEFAULT_CLIENT_CONFIG)
     config.update(overrides)
     return GlpiClient(**config)  # type: ignore[arg-type]
-
-
-def make_followup_record(**overrides: object) -> dict[str, Any]:
-    """Return a representative raw GLPI followup payload.
-
-    The payload includes attachment references so content and document-link
-    parsing tests can exercise both code paths.
-    """
-
-    payload: dict[str, Any] = {
-        "id": 12,
-        "content": (
-            "<p>Hello</p>"
-            '<a href="/front/document.send.php?docid=45">attachment</a>'
-            '<img src="/front/document.send.php?docid=46" />'
-        ),
-        "users_id": 5,
-        "is_private": "1",
-    }
-    payload.update(overrides)
-    return payload
-
-
-def make_task_record(**overrides: object) -> dict[str, Any]:
-    """Return a representative raw GLPI task payload.
-
-    The payload captures the task fields needed by timeline and global task
-    search tests while still allowing targeted overrides.
-    """
-
-    payload: dict[str, Any] = {
-        "id": 14,
-        "tickets_id": 321,
-        "users_id": 7,
-        "user": {"id": 7, "name": "jdoe"},
-        "actiontime": 1800,
-        "date": "2026-01-15 10:30:00",
-        "content": "<p>Task body</p>",
-    }
-    payload.update(overrides)
-    return payload
-
-
-def make_ticket_record(**overrides: object) -> dict[str, Any]:
-    """Return a representative raw GLPI ticket payload.
-
-    The payload captures the common ticket fields needed by parsing and client
-    behavior tests while still allowing targeted overrides.
-    """
-
-    payload: dict[str, Any] = {
-        "id": 123,
-        "name": "Need help",
-        "content": "<p>Body with <strong>formatting</strong></p>",
-        "status": {"id": 2, "name": "Processing"},
-        "entity": {"id": 7, "name": "Root"},
-        "location": {"id": 8, "name": "Paris"},
-        "user_recipient": {"id": 9, "name": "Requester"},
-    }
-    payload.update(overrides)
-    return payload

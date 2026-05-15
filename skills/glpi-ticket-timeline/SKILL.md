@@ -1,88 +1,71 @@
 ---
 name: glpi-ticket-timeline
-description: "Read GLPI ticket timelines and create or update public/private followups plus create solutions with glpi_python_client. Use when handling ticket notes, followups, tasks, solutions, timeline documents, attachment document IDs, or Markdown support responses."
+description: "Read GLPI ticket timeline records and create or update followups, tasks, solutions, and timeline document links with the asynchronous glpi_python_client.GlpiClient. Use when handling ticket notes, followups, tasks, solutions, or attached documents on a GLPI ticket timeline."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI high-level API, and optional legacy v1 credentials for attachment ID lookup."
+compatibility: "Requires Python 3.10+, glpi-python-client, and network access to the GLPI v2 API."
 metadata:
   package: glpi-python-client
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # GLPI Ticket Timeline
 
-After the timeline refactor, keep imports on the public package root. Timeline behavior now lives in `glpi_python_client.clients.v2.sync.timeline`, `glpi_python_client.clients.v2.async_.timeline`, and `glpi_python_client.content.records.parsers.timeline`.
-
-Use this skill for ticket timeline records: followups, tasks, solutions, linked documents, and attachment IDs. In async code, use the same method names on `AsyncGlpiClient` with `await`.
+The ticket timeline is exposed by four resource families under `/Assistance/Ticket/{id}/Timeline/{Followup|Task|Solution|Document}`. Each family has matching `Get`/`Post`/`Patch`/`Delete` Pydantic models and the same `list_/get_/create_/update_/delete_` (or `link_`/`unlink_` for documents) shape on `GlpiClient`.
 
 ## Procedure
 
-1. Create a `GlpiClient` or `AsyncGlpiClient`.
-2. Fetch timeline data with the method matching the record type: `get_followup_records()`, `get_task_records()`, `get_solution_records()`, or `get_document_records()`.
-3. To add a note, create `GlpiFollowup(content=..., is_private=...)` and call `create_followup(ticket_id, followup)`. The method returns the created `followup_id`.
-4. To update a note, call `update_followup(ticket_id, followup_id, followup)`. The method returns `None` on success.
-5. To add a resolution, create `GlpiSolution(content=...)` and call `create_solution(ticket_id, solution)`. The method returns the created `solution_id`.
-6. Use `get_followup_attachment_document_ids()` or `get_solution_attachment_document_ids()` only when legacy v1 credentials are configured.
-7. Refetch followups or solutions after writes when the task needs hydrated records instead of the created IDs.
+1. Create a `GlpiClient` from the `glpi-client-setup` skill.
+2. Read collections with `list_ticket_followups`, `list_ticket_tasks`, `list_ticket_solutions`, and `list_ticket_timeline_documents`.
+3. Read individual records with `get_ticket_followup`, `get_ticket_task`, `get_ticket_solution`, `get_ticket_timeline_document`.
+4. Create entries with `create_ticket_followup`, `create_ticket_task`, `create_ticket_solution` or `link_ticket_timeline_document`. Each returns the new identifier as `int`.
+5. Update entries with `update_ticket_followup`, `update_ticket_task`, `update_ticket_solution`, `update_ticket_timeline_document`.
+6. Delete with `delete_ticket_followup`, `delete_ticket_task`, `delete_ticket_solution`, or `unlink_ticket_timeline_document`. Pass `force=True` to permanently delete instead of moving to the trash.
 
 ## Examples
 
-Read timeline records:
+Read every timeline list for one ticket:
 
 ```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    ticket_id = "321"
-    followups = glpi.get_followup_records(ticket_id)
-    tasks = glpi.get_task_records(ticket_id)
-    solutions = glpi.get_solution_records(ticket_id)
-    documents = glpi.get_document_records(ticket_id)
+followups = await client.list_ticket_followups(321)
+tasks = await client.list_ticket_tasks(321)
+solutions = await client.list_ticket_solutions(321)
+documents = await client.list_ticket_timeline_documents(321)
 ```
 
-Post a private followup:
+Add a followup, a task, and a solution:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiFollowup
+from glpi_python_client import PostFollowup, PostSolution, PostTicketTask
 
-with GlpiClient.from_env() as glpi:
-    followup_id = glpi.create_followup(
-        "321",
-        GlpiFollowup(
-            content="Internal check: replacement toner is available.",
-            is_private=True,
-        ),
-    )
-    print(followup_id)
+followup_id = await client.create_ticket_followup(
+    321,
+    PostFollowup(content="<p>Triaged: investigation in progress.</p>"),
+)
+task_id = await client.create_ticket_task(
+    321,
+    PostTicketTask(content="<p>On-site visit</p>", duration=900),
+)
+solution_id = await client.create_ticket_solution(
+    321,
+    PostSolution(content="<p>Replaced the access point.</p>"),
+)
 ```
 
-Create a solution:
+Link an existing GLPI document to the ticket timeline:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiSolution
+from glpi_python_client import PostTimelineDocument
 
-with GlpiClient.from_env() as glpi:
-    solution_id = glpi.create_solution(
-        "321",
-        GlpiSolution(content="Reconnected the printer and validated a test page."),
-    )
-    print(solution_id)
-```
-
-Read document IDs attached directly to a followup:
-
-```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    document_ids = glpi.get_followup_attachment_document_ids("987")
+link_id = await client.link_ticket_timeline_document(
+    321,
+    PostTimelineDocument(),
+)
 ```
 
 ## Gotchas
 
-- `GlpiTask` is read-only through the high-level client today; there is no public `create_task()` method.
-- `create_followup()` and `create_solution()` return created IDs. `update_followup()` returns `None`.
-- `GlpiSolution` is writable for create/delete workflows, but there is no public `update_solution()` helper today.
-- Followup and solution content should be Markdown in Python. The package renders it to GLPI HTML for outgoing payloads.
-- Timeline read methods return an empty list on non-success responses instead of raising for most record types.
-- Attachment ID lookup uses the configured legacy v1 session and returns an empty tuple when v1 is unavailable or fails.
-- `AsyncGlpiClient` exposes the same timeline methods with `await`.
+- The live GLPI v2 server returns each timeline list entry wrapped in `{"type": ..., "item": {...}}` even though the OpenAPI contract documents a flat array. The client unwraps that envelope transparently for the four `list_*` helpers; you receive plain `Get<Entity>` instances.
+- `create_*` methods return new identifiers as plain `int`. `update_*` and `delete_*`/`unlink_*` return `None`.
+- Timeline content fields accept GLPI HTML directly.
+- Extra server fields (e.g. plugin keys) flow into `record.extra_payload` rather than raising.
+- `delete_ticket_*` and `unlink_ticket_timeline_document` accept a keyword-only `force` parameter; pass `force=True` to permanently delete.

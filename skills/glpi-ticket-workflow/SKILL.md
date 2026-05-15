@@ -1,92 +1,75 @@
 ---
 name: glpi-ticket-workflow
-description: "Search, fetch, create, and update GLPI tickets with glpi_python_client GlpiClient, AsyncGlpiClient, and GlpiTicket. Use for GLPI ticket records, ticket filters, fields, pagination, Markdown content, status, priority, category, location, or instance-specific extra_payload values."
+description: "Search, fetch, create, update, and delete GLPI tickets with the asynchronous glpi_python_client.GlpiClient and the GetTicket/PostTicket/PatchTicket/DeleteTicket models. Use for GLPI ticket records, ticket filters, fields, pagination, status, priority, category, location, or instance-specific extra_payload values."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI high-level API, and credentials accepted by GlpiClient."
+compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
 metadata:
   package: glpi-python-client
-  version: "0.1.0"
+  version: "0.3.0"
 ---
 
 # GLPI Ticket Workflow
 
-After the ticket refactor, keep imports on the public package root. Ticket behavior now lives in `glpi_python_client.clients.v2.sync.tickets`, `glpi_python_client.clients.v2.async_.tickets`, and `glpi_python_client.content.records.parsers.tickets`, but callers should keep using `GlpiClient`, `AsyncGlpiClient`, and `GlpiTicket`.
-
-Use this skill for ticket reads and writes through the public client and model APIs. In async code, use the same method names on `AsyncGlpiClient` with `await`.
+Use this skill for ticket reads and writes through the public asynchronous client. Tickets live under `/Assistance/Ticket` on the GLPI v2 API and are exposed by five `GlpiClient` methods: `search_tickets`, `get_ticket`, `create_ticket`, `update_ticket`, and `delete_ticket`.
 
 ## Procedure
 
-1. Create a `GlpiClient` or `AsyncGlpiClient` with `from_env()` or the explicit setup from the `glpi-client-setup` skill.
-2. For reads, call `search_ticket_records()` for lists and `get_ticket_record(ticket_id)` for one ticket.
-3. For creates, build a `GlpiTicket` with model field names such as `status`, `category`, and `location`, then call `create_ticket(ticket)`.
-4. For updates, build a `GlpiTicket` containing only desired values when possible, then call `update_ticket(ticket_id, ticket, field_mask=(...))` when the update must be constrained.
-5. `create_ticket()` returns the new GLPI `ticket_id`. `update_ticket()` returns `None`; refetch with `get_ticket_record()` when the task needs a populated model after a write.
+1. Create a `GlpiClient` from the `glpi-client-setup` skill.
+2. For reads, call `await client.search_tickets(rsql_filter, limit=..., start=...)` for lists and `await client.get_ticket(ticket_id)` for one ticket.
+3. For creates, build a `PostTicket(name=..., content=...)` and call `await client.create_ticket(ticket)`. The method returns the new GLPI ticket ID.
+4. For updates, build a `PatchTicket` containing only the fields you intend to change and call `await client.update_ticket(ticket_id, ticket)`. The method returns `None`.
+5. For deletes, call `await client.delete_ticket(ticket_id, force=True|False|None)`. `force=True` permanently deletes; `False`/`None` move the record to the trash.
+6. Refetch with `get_ticket()` when the task needs a populated model after a write.
 
 ## Examples
 
-Search open tickets and request an additional field:
+Search open tickets:
 
 ```python
-from glpi_python_client import GlpiClient
-
-with GlpiClient.from_env() as glpi:
-    tickets = glpi.search_ticket_records(
-        query='status.id=in=(1,2)',
-        fields=("request_type",),
-        sort="-date_mod",
-    )
+tickets = await client.search_tickets("status==1", limit=20)
 ```
 
-Create a ticket. Markdown content is rendered to GLPI HTML by `to_api_payload()` inside the client:
+Create a ticket. Content fields accept GLPI HTML directly:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiTicket
+from glpi_python_client import PostTicket
 
-with GlpiClient.from_env() as glpi:
-    ticket_id = glpi.create_ticket(
-        GlpiTicket(
-            name="Printer issue",
-            content="Printer is unreachable from **accounting**.",
-            urgency=3,
-            impact=3,
-            category=10,
-            location="12",
-        )
+ticket_id = await client.create_ticket(
+    PostTicket(
+        name="Printer issue",
+        content="<p>Printer is unreachable from <strong>accounting</strong>.</p>",
     )
-    created = glpi.get_ticket_record(ticket_id)
-    print(created.id)
+)
+created = await client.get_ticket(ticket_id)
 ```
 
-Update only specific fields:
+Patch only specific fields:
 
 ```python
-from glpi_python_client import GlpiClient, GlpiTicket
+from glpi_python_client import PatchTicket
 
-with GlpiClient.from_env() as glpi:
-    glpi.update_ticket(
-        "321",
-        GlpiTicket(status=3, priority=4),
-        field_mask=("status", "priority"),
-    )
+await client.update_ticket(
+    321,
+    PatchTicket(content="<p>Updated diagnosis</p>"),
+)
 ```
 
-Send site-specific GLPI fields through the public `extra_payload` field:
+Send instance-specific GLPI fields through the public `extra_payload`:
 
 ```python
-from glpi_python_client import GlpiTicket
+from glpi_python_client import PostTicket
 
-ticket = GlpiTicket(
+ticket = PostTicket(
     name="Badge reader offline",
+    content="<p>Badge reader is offline.</p>",
     extra_payload={"_room_code": "PAR-3F-12", "_asset_tag": "BADGE-044"},
 )
 ```
 
 ## Gotchas
 
-- `search_ticket_records()` paginates internally and filters deleted tickets out of results unless `include_deleted_ticket=True` is passed. When `batch_size` is set, it returns an iterator of batches instead of one materialized list.
-- `get_ticket_record()` raises `ValueError` when the ticket is deleted unless `include_deleted_ticket=True` is passed, or when it is missing or returned in an unexpected shape.
-- `create_ticket()` returns the created ticket ID. `update_ticket()` returns `None`.
-- `field_mask` accepts model field names such as `status` and `priority`; the package maps them to the outgoing GLPI payload keys.
-- Model content fields use Markdown in Python. Do not pre-render HTML unless the user explicitly needs raw GLPI HTML.
-- Put instance-specific payload keys in `extra_payload`; do not reach into protected payload builders.
-- `AsyncGlpiClient` exposes the same ticket methods with `await`.
+- All ticket methods are async; always `await` them.
+- `search_tickets` accepts a raw RSQL filter string; pagination is via `limit` and `start`. There is no batch iterator.
+- `create_ticket` returns the new ticket ID. `update_ticket` and `delete_ticket` return `None`.
+- The GLPI server is the authoritative validator. Extra keys returned by the server flow into `ticket.extra_payload` rather than raising. Caller-provided `extra_payload` keys win on conflicts.
+- Read-only fields such as `status` are intentionally absent from `PostTicket`/`PatchTicket`; the server controls those transitions.
