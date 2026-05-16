@@ -21,9 +21,6 @@ I cannot make any guarantee of the behaviour on previous versions.
 
 While the package is preparing for 1.0, alot of potential breaking change might happen between versions. A deprecation policy will be put in place once 1.0 is out and the package have been stabilized.
 
-For now, I provide only an async client, but if necessary, could
-duplicate the code to make a sync client.
-
 ## Installation
 
 ```bash
@@ -76,8 +73,9 @@ If your application already provides `GLPI_` environment variables,
 `GlpiClient.from_env()` is also available.
 
 ### Calling from synchronous code
-
-The client is async-only, but it works from sync programs through
+For now, I provide only an async client, but if necessary, could
+duplicate the code to make a sync client. Until then you can make
+it works from sync programs through
 `asyncio.run`. Wrap the calls in a coroutine and execute it once:
 
 ```python
