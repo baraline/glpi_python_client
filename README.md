@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/baraline/glpi_python_client)
 [![Docs](https://readthedocs.org/projects/glpi-python-client/badge/?version=latest)](https://glpi-python-client.readthedocs.io/en/latest/)
 
-`glpi-python-client` is a typed Python client for GLPI ITSM APIs.
+`glpi-python-client` is a typed Python client for the GLPI REST API.
 
 The goal is to let GLPI integrations work with domain objects instead of raw
 JSON payloads. The package exposes Pydantic models for tickets, users,
@@ -16,6 +16,8 @@ back to HTML for outgoing payloads.
 
 It currently focuses on ticket-centric workflows and exposes a single
 asynchronous high-level client built on top of the GLPI v2 REST API.
+Note that all integration tests using this package are made on GLPI 11.
+I cannot make any guarantee of the behaviour on previous versions.
 
 While the package is preparing for 1.0, alot of potential breaking change might happen between versions. A deprecation policy will be put in place once 1.0 is out and the package have been stabilized.
 
