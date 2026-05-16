@@ -10,10 +10,34 @@ document uploads.
 The whole client is async-only. Public methods always return Pydantic
 models (or simple Python types) and never raw dictionaries.
 
+.. contents::
+   :local:
+   :depth: 2
+
+How this guide is organised
+---------------------------
+
+The guide is split into the following sections:
+
+1. **Creating a client** — how to instantiate :class:`GlpiClient` from
+   explicit parameters or from environment variables.
+2. **Calling the client from synchronous code** — recommended patterns
+   for one-shot scripts, long-lived sync services, and tests.
+3. **Seed data for the examples** — a self-contained snippet that
+   creates the records reused by every later example. Run it once on a
+   throwaway GLPI instance to follow along.
+4. **GLPI API interface** — the contract-aligned helpers that map
+   one-to-one to GLPI v2 endpoints (tickets, timeline, team members,
+   users, locations, entities, documents).
+5. **Added functionalities** — helpers built on top of the API mixins:
+   the aggregated ticket context view and the reporting helpers.
+6. **End-to-end examples** — full workflows that combine the previous
+   building blocks.
+
 .. _create-a-client:
 
-Create a Client
----------------
+1. Create a client
+------------------
 
 Provide the GLPI v2 API URL and at least one complete authentication
 pair. The OAuth password grant accepts either ``client_id`` /
@@ -53,10 +77,46 @@ The client is also usable as an async context manager:
    async with GlpiClient(glpi_api_url="...", client_id="...", client_secret="...") as client:
        tickets = await client.search_tickets("status==1")
 
+Optional constructor arguments
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``glpi_entity`` — numeric GLPI entity ID sent as the ``GLPI-Entity`` header.
+* ``glpi_profile`` — numeric GLPI profile ID sent as the ``GLPI-Profile`` header.
+* ``entity_recursive`` — when ``True`` the request scope includes child
+  entities.
+* ``language`` — value of the ``Accept-Language`` header (defaults to
+  ``"en_GB"``).
+* ``verify_ssl`` — set to ``False`` only on test instances with
+  self-signed certificates.
+* ``auth_token_refresh`` — number of seconds before token expiry at
+  which the auth manager proactively refreshes the OAuth access token.
+* ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
+  fallback used by :meth:`GlpiClient.upload_document`.
+
+``from_env``
+~~~~~~~~~~~~
+
+When the same configuration is already exposed through environment
+variables, :meth:`GlpiClient.from_env` reads the ``GLPI_``-prefixed
+keys and builds the client for you:
+
+* ``GLPI_API_URL``
+* ``GLPI_CLIENT_ID`` and ``GLPI_CLIENT_SECRET``
+* ``GLPI_USERNAME`` and ``GLPI_PASSWORD``
+* ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``
+* ``GLPI_LANGUAGE``, ``GLPI_VERIFY_SSL``
+* ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiClient
+
+   client = GlpiClient.from_env()
+
 .. _calling-from-sync-code:
 
-Calling the Client from Synchronous Code
-----------------------------------------
+2. Calling the client from synchronous code
+-------------------------------------------
 
 The client is async-only by design, but every public coroutine can be
 driven from a synchronous program. The recommended patterns are listed
@@ -90,6 +150,10 @@ call in a coroutine and hand it to :func:`asyncio.run`:
    if __name__ == "__main__":
        print(fetch_open_tickets())
 
+Example output::
+
+   [42, 43, 47, 51, 58, 60, 64, 68, 70, 72]
+
 :func:`asyncio.run` creates a fresh event loop, runs the coroutine to
 completion, and closes the loop. It must **not** be called while another
 event loop is already running in the same thread (for example inside
@@ -97,7 +161,7 @@ Jupyter, FastAPI, or another async framework); use one of the patterns
 below instead.
 
 Long-lived sync applications: a dedicated event loop
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If a synchronous service needs to issue many GLPI calls during its
 lifetime, building and tearing down a loop on every call is wasteful.
@@ -157,6 +221,10 @@ coroutines to it from any synchronous thread:
        finally:
            glpi.close()
 
+Example output::
+
+   created ticket 123
+
 This pattern keeps the OAuth token cache and the underlying HTTP
 connection pool alive across calls while exposing a regular blocking
 API to the rest of the application.
@@ -202,43 +270,120 @@ For ``pytest``-style async tests, install ``pytest-asyncio`` and mark
 the coroutine directly with ``@pytest.mark.asyncio`` instead of
 wrapping with ``asyncio.run``.
 
-Optional constructor arguments include:
+.. _seed-data:
 
-* ``glpi_entity`` — numeric GLPI entity ID sent as the ``GLPI-Entity`` header.
-* ``glpi_profile`` — numeric GLPI profile ID sent as the ``GLPI-Profile`` header.
-* ``entity_recursive`` — when ``True`` the request scope includes child
-  entities.
-* ``language`` — value of the ``Accept-Language`` header (defaults to
-  ``"en_GB"``).
-* ``verify_ssl`` — set to ``False`` only on test instances with
-  self-signed certificates.
-* ``auth_token_refresh`` — number of seconds before token expiry at
-  which the auth manager proactively refreshes the OAuth access token.
-* ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
-  fallback used by :meth:`GlpiClient.upload_document`.
+3. Seed data for the examples
+-----------------------------
 
-``from_env``
-~~~~~~~~~~~~
+Every later snippet operates on a small, predictable set of records.
+Run the seed coroutine below once against a throwaway GLPI instance to
+materialise the records; the rest of the guide assumes the identifiers
+it prints are available under the variable names ``location_id``,
+``alice_id``, ``bob_id``, and ``ticket_id``.
 
-When the same configuration is already exposed through environment
-variables, :meth:`GlpiClient.from_env` reads the ``GLPI_``-prefixed
-keys and builds the client for you:
+.. warning::
 
-* ``GLPI_API_URL``
-* ``GLPI_CLIENT_ID`` and ``GLPI_CLIENT_SECRET``
-* ``GLPI_USERNAME`` and ``GLPI_PASSWORD``
-* ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``
-* ``GLPI_LANGUAGE``, ``GLPI_VERIFY_SSL``
-* ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``
+   This guide intentionally creates and deletes real records. Always
+   target a development or sandbox GLPI environment, never a production
+   tenant.
 
 .. code-block:: python
 
-   from glpi_python_client import GlpiClient
+   import asyncio
 
-   client = GlpiClient.from_env()
+   from glpi_python_client import (
+       GlpiClient,
+       PostFollowup,
+       PostLocation,
+       PostTeamMember,
+       PostTicket,
+       PostUser,
+   )
 
-Get / Post / Patch / Delete Models
-----------------------------------
+
+   async def seed() -> dict[str, int]:
+       """Create the demo records reused by the rest of the user guide."""
+
+       async with GlpiClient.from_env() as client:
+           location_id = await client.create_location(
+               PostLocation(name="HQ Paris")
+           )
+           alice_id = await client.create_user(
+               PostUser(
+                   username="alice.dupont",
+                   password="initial-pwd",
+                   password2="initial-pwd",
+                   realname="Dupont",
+                   firstname="Alice",
+               )
+           )
+           bob_id = await client.create_user(
+               PostUser(
+                   username="bob.martin",
+                   password="initial-pwd",
+                   password2="initial-pwd",
+                   realname="Martin",
+                   firstname="Bob",
+               )
+           )
+           ticket_id = await client.create_ticket(
+               PostTicket(
+                   name="Wi-Fi unreachable",
+                   content="802.1X handshake fails on the 5 GHz radio.",
+               )
+           )
+           await client.add_ticket_team_member(
+               ticket_id,
+               PostTeamMember(type="User", id=bob_id, role="assigned"),
+           )
+           await client.create_ticket_followup(
+               ticket_id,
+               PostFollowup(content="Reproduced on the lab laptop."),
+           )
+           return {
+               "location_id": location_id,
+               "alice_id": alice_id,
+               "bob_id": bob_id,
+               "ticket_id": ticket_id,
+           }
+
+
+   if __name__ == "__main__":
+       print(asyncio.run(seed()))
+
+Example output (identifiers vary across instances)::
+
+   {'location_id': 7, 'alice_id': 21, 'bob_id': 22, 'ticket_id': 123}
+
+A teardown snippet to drop the seed records once the walkthrough is
+complete:
+
+.. code-block:: python
+
+   async def cleanup(ids: dict[str, int]) -> None:
+       """Delete the seed records previously created by ``seed``."""
+
+       async with GlpiClient.from_env() as client:
+           await client.delete_ticket(ids["ticket_id"], force=True)
+           await client.delete_user(ids["alice_id"], force=True)
+           await client.delete_user(ids["bob_id"], force=True)
+           await client.delete_location(ids["location_id"], force=True)
+
+In the rest of the guide every snippet is wrapped in an
+``async with GlpiClient.from_env() as client:`` block. The integer
+variables ``ticket_id``, ``alice_id``, ``bob_id``, and ``location_id``
+are assumed to come from the seed dictionary above.
+
+.. _api-interface:
+
+4. GLPI API interface
+---------------------
+
+The helpers in this section map one-to-one to GLPI v2 endpoints. They
+all return Pydantic models from the public package root.
+
+Get / Post / Patch / Delete models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each GLPI resource is represented by four Pydantic models named after
 the verb of the HTTP operation:
@@ -273,43 +418,52 @@ ambient extras when both are present.
        content="The third-floor printer cannot be reached.",
        extra_payload={"_room_code": "PAR-3F-12"},
    )
-   ticket_id = await client.create_ticket(ticket)
+   new_id = await client.create_ticket(ticket)
 
-   fetched = await client.get_ticket(ticket_id)
+   fetched = await client.get_ticket(new_id)
    print(fetched.id, fetched.name)
-   print(fetched.extra_payload)  # plugin keys returned by the server
+   print(fetched.extra_payload)
+
+Example output::
+
+   124 Printer offline
+   {'_room_code': 'PAR-3F-12'}
 
 Tickets
--------
+~~~~~~~
 
 The ticket mixin exposes search, fetch, create, update, and delete
 helpers under ``/Assistance/Ticket``.
 
 .. code-block:: python
 
-   from glpi_python_client import PatchTicket, PostTicket
+   from glpi_python_client import PatchTicket
 
-   ticket_id = await client.create_ticket(
-       PostTicket(name="Wi-Fi unreachable", content="802.1X failure")
+   await client.update_ticket(
+       ticket_id,
+       PatchTicket(content="Updated diagnosis: radius timeout."),
    )
-   try:
-       await client.update_ticket(
-           ticket_id,
-           PatchTicket(content="Updated diagnosis"),
-       )
-       ticket = await client.get_ticket(ticket_id)
-       results = await client.search_tickets("status==1", limit=20)
-   finally:
-       await client.delete_ticket(ticket_id, force=True)
+   ticket = await client.get_ticket(ticket_id)
+   print(ticket.id, ticket.name, ticket.status)
 
-``force=True`` permanently deletes the ticket; omit it (or pass
-``force=False``) to send the record to the GLPI trash.
+   results = await client.search_tickets("status==1", limit=3)
+   for t in results:
+       print(t.id, t.name)
 
-``search_tickets`` accepts a raw RSQL filter string and forwards
-``limit`` / ``start`` to the API for pagination.
+Example output::
 
-Ticket Timeline
----------------
+   123 Wi-Fi unreachable id=1 name='New'
+   123 Wi-Fi unreachable
+   124 Printer offline
+   125 VPN drops
+
+``force=True`` on :meth:`GlpiClient.delete_ticket` permanently deletes
+the ticket; omit it (or pass ``force=False``) to send the record to the
+GLPI trash. ``search_tickets`` accepts a raw RSQL filter string and
+forwards ``limit`` / ``start`` to the API for pagination.
+
+Ticket timeline
+~~~~~~~~~~~~~~~
 
 The ticket timeline groups followups, tasks, solutions, and document
 links under ``/Assistance/Ticket/{id}/Timeline/{Followup|Task|Solution|Document}``.
@@ -341,6 +495,14 @@ delete_`` shape (``link_`` / ``unlink_`` for documents).
    tasks = await client.list_ticket_tasks(ticket_id)
    solutions = await client.list_ticket_solutions(ticket_id)
 
+   print(len(followups), len(tasks), len(solutions))
+   print(followups[0].content)
+
+Example output::
+
+   2 1 1
+   Reproduced on the lab laptop.
+
 .. note::
 
    The live GLPI v2 server returns each timeline list entry wrapped in a
@@ -349,8 +511,8 @@ delete_`` shape (``link_`` / ``unlink_`` for documents).
    transparently for ``list_ticket_followups``, ``list_ticket_tasks``,
    ``list_ticket_solutions``, and ``list_ticket_timeline_documents``.
 
-Team Members
-------------
+Team members
+~~~~~~~~~~~~
 
 Team members are managed via ``/Assistance/Ticket/{id}/TeamMember``.
 
@@ -360,48 +522,58 @@ Team members are managed via ``/Assistance/Ticket/{id}/TeamMember``.
 
    await client.add_ticket_team_member(
        ticket_id,
-       PostTeamMember(type="User", id=42, role="assigned"),
+       PostTeamMember(type="User", id=alice_id, role="observer"),
    )
-
    members = await client.list_ticket_team_members(ticket_id)
+   for m in members:
+       print(m.id, m.type, m.name, m.role)
 
    await client.remove_ticket_team_member(
        ticket_id,
        team_member_id=members[0].id,
    )
 
+Example output::
+
+   22 User bob.martin assigned
+   21 User alice.dupont observer
+
 The OpenAPI contract marks the ``id`` field as read-only, but the live
 server requires it on the ``POST`` body. The client honours the live
 behaviour and exposes ``id`` as a writable field on
 :class:`glpi_python_client.PostTeamMember`.
 
-Users, Locations, Entities
---------------------------
+Users, locations, entities
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each of these resources exposes the same ``search_ / get_ / create_ /
 update_ / delete_`` shape:
 
 .. code-block:: python
 
-   from glpi_python_client import PostLocation, PostUser
+   alice = await client.get_user(alice_id)
+   print(alice.id, alice.username, alice.realname, alice.firstname)
 
-   user_id = await client.create_user(
-       PostUser(
-           username="alice.dupont",
-           password="initial-pwd",
-           password2="initial-pwd",
-           realname="Dupont",
-           firstname="Alice",
-       )
-   )
-   location_id = await client.create_location(PostLocation(name="HQ Paris"))
+   matches = await client.search_users(f"username=={alice.username}")
+   print([(u.id, u.username) for u in matches])
 
-   user = await client.get_user(user_id)
-   users = await client.search_users(f"username=={user.username}")
-   entities = await client.search_entities("name==Root entity")
+   location = await client.get_location(location_id)
+   print(location.id, location.name)
+
+   entities = await client.search_entities(limit=2)
+   for e in entities:
+       print(e.id, e.name, e.completename)
+
+Example output::
+
+   21 alice.dupont Dupont Alice
+   [(21, 'alice.dupont')]
+   7 HQ Paris
+   0 Root entity Root entity
+   1 Paris Root entity > Paris
 
 Documents
----------
+~~~~~~~~~
 
 Document metadata is handled with the standard ``Get/Post/Patch/Delete``
 helpers under ``/Management/Document``. Binary content goes through two
@@ -409,21 +581,63 @@ dedicated helpers:
 
 .. code-block:: python
 
-   raw_bytes = await client.download_document_content(document_id)
-
-   uploaded = await client.upload_document(
-       filename="diagnostic.png",
-       content=raw_bytes,
-       mime_type="image/png",
+   uploaded_id = await client.upload_document(
+       filename="diagnostic.txt",
+       content=b"link layer ok\nradius timeout 3s\n",
+       mime_type="text/plain",
        ticket_id=ticket_id,
    )
+   print("uploaded document", uploaded_id)
+
+   raw_bytes = await client.download_document_content(uploaded_id)
+   print(len(raw_bytes), "bytes downloaded")
+
+Example output::
+
+   uploaded document 88
+   34 bytes downloaded
 
 ``upload_document`` requires the legacy v1 session to be configured on
 the client (``v1_base_url`` and ``v1_user_token``) because the GLPI v2
 contract does not advertise a binary upload endpoint.
 
-Aggregated Ticket Context
--------------------------
+Enums
+~~~~~
+
+Public IntEnum classes mirror the GLPI numeric constants and stay at
+the package root for easy use in RSQL filters:
+:class:`glpi_python_client.GlpiTicketStatus`,
+:class:`glpi_python_client.GlpiTicketType`,
+:class:`glpi_python_client.GlpiPriority`,
+:class:`glpi_python_client.GlpiTaskState`,
+:class:`glpi_python_client.GlpiSolutionStatus`,
+:class:`glpi_python_client.GlpiTimelinePosition`,
+:class:`glpi_python_client.GlpiUserAuthType`, and
+:class:`glpi_python_client.GlpiGlobalValidation`.
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiTicketStatus
+
+   solved = await client.search_tickets(
+       f"status=={int(GlpiTicketStatus.SOLVED)}", limit=2
+   )
+   print([(t.id, t.name) for t in solved])
+
+Example output::
+
+   [(120, 'Replaced toner cartridge'), (121, 'Reset VPN profile')]
+
+.. _added-functionalities:
+
+5. Added functionalities
+------------------------
+
+The helpers in this section are not part of the GLPI contract. They are
+small utilities the client builds on top of the API mixins.
+
+Aggregated ticket context
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :meth:`GlpiClient.get_ticket_context` runs the ticket fetch and the four
 timeline list calls concurrently and returns a single
@@ -433,29 +647,150 @@ timeline list calls concurrently and returns a single
 
    bundle = await client.get_ticket_context(ticket_id)
    print(bundle.ticket.id, bundle.ticket.name)
-   print(len(bundle.followups), len(bundle.tasks))
-   print(len(bundle.solutions), len(bundle.documents))
+   print(
+       len(bundle.followups),
+       len(bundle.tasks),
+       len(bundle.solutions),
+       len(bundle.documents),
+   )
 
-The context exposes :meth:`GlpiTicketContext.to_markdown` which renders
-the ticket title, a metadata subtitle, and every timeline event
-(followups, tasks, solutions, document links) as a single Markdown
-transcript. Events are always ordered by ``date_creation``;
-``timeline_position`` remains only the left/right anchoring hint used
-by the GLPI UI:
+Example output::
+
+   123 Wi-Fi unreachable
+   2 1 1 1
+
+:meth:`GlpiTicketContext.to_markdown` renders the ticket title, a
+metadata subtitle, and every timeline event (followups, tasks,
+solutions, document links) as a single Markdown transcript. Events are
+always ordered by ``date_creation``:
 
 .. code-block:: python
 
-   bundle = await client.get_ticket_context(ticket_id)
    print(bundle.to_markdown())
 
-Focused Workflow Examples
--------------------------
+Example output::
 
-The snippets below each exercise one focused workflow and end by
-rendering the resulting :class:`GlpiTicketContext` as Markdown. Every
-example is mirrored by an integration test in
-``integration_tests/test_integration.py`` (named
-``test_example_*``).
+   # Ticket #123 — Wi-Fi unreachable
+   > Status: New | Requester: Alice Dupont | Last edited by: Bob Martin | Created at: 2026-01-02T09:00:00+00:00 | Updated at: 2026-01-02T09:20:00+00:00
+
+   ## Description
+
+   802.1X handshake fails on the 5 GHz radio.
+
+   ## Timeline
+
+   ### Followup #45
+   > Created by: Bob Martin | Created at: 2026-01-02T09:05:00+00:00
+
+   Reproduced on the lab laptop.
+
+   ### Task #12
+   > Created by: Bob Martin | Created at: 2026-01-02T09:10:00+00:00 | Duration: 900s | State: Todo
+
+   On-site visit.
+
+   ### Solution #7
+   > Created by: Bob Martin | Created at: 2026-01-02T09:20:00+00:00 | Status: Approved
+
+   Replaced the access point.
+
+   ## Documents
+   - diagnostic.txt
+
+Reporting helpers
+~~~~~~~~~~~~~~~~~
+
+The custom statistics mixin exposes two helpers that aggregate the
+ticket and ticket-task records returned by the contract-aligned mixins.
+Both return plain Python dictionaries so they can be serialised or
+forwarded as-is.
+
+``get_ticket_statistics``
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Counts tickets created within an ISO date window and groups them by
+entity, status, priority, and type.
+
+.. code-block:: python
+
+   stats = await client.get_ticket_statistics(
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+   )
+   print(stats)
+
+Returned shape (the outer key is always ``"entities"``; entity keys are
+the GLPI numeric identifier as a string, ``"unknown"`` when missing)::
+
+   {
+       "entities": {
+           "0": {
+               "total": 12,
+               "by_status": {"1": 5, "2": 3, "5": 4},
+               "by_priority": {"LOW": 2, "MEDIUM": 7, "HIGH": 3},
+               "by_type": {"INCIDENT": 9, "REQUEST": 3},
+           },
+           "1": {
+               "total": 4,
+               "by_status": {"1": 1, "5": 3},
+               "by_priority": {"MEDIUM": 4},
+               "by_type": {"INCIDENT": 4},
+           },
+       }
+   }
+
+* ``total`` — number of tickets in the entity bucket.
+* ``by_status`` — keyed by the GLPI numeric status as a string; resolve
+  with :class:`glpi_python_client.GlpiTicketStatus`.
+* ``by_priority`` / ``by_type`` — keyed by the matching IntEnum member
+  name (``"LOW"``, ``"INCIDENT"``, …); unknown values fall back to the
+  raw numeric value as a string.
+
+``get_task_statistics``
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Aggregates task durations across a caller-supplied list of ticket
+identifiers. GLPI does not expose a global task collection endpoint, so
+callers typically collect the relevant ticket IDs through
+``search_tickets`` first.
+
+.. code-block:: python
+
+   ticket_ids = [
+       t.id for t in await client.search_tickets("status==2", limit=200)
+   ]
+   tasks = await client.get_task_statistics(ticket_ids)
+   print(tasks)
+
+Returned shape (durations are integer seconds, matching the GLPI
+``duration`` field; user keys are the GLPI numeric user identifier as a
+string, ``"unknown"`` when missing)::
+
+   {
+       "ticket_count": 3,
+       "task_count": 5,
+       "total_duration": 6300,
+       "duration_by_user": {"22": 4500, "21": 1800},
+       "duration_by_ticket": {123: 2700, 124: 1800, 125: 1800},
+   }
+
+Returned identifiers are the raw GLPI numeric values; resolve them with
+the appropriate ``search_*`` helpers when human-readable labels are
+needed (for example
+``await client.get_user(22)`` to turn user key ``"22"`` into a full
+:class:`GetUser` model).
+
+.. _end-to-end-examples:
+
+6. End-to-end examples
+----------------------
+
+The snippets below combine the building blocks of the previous
+sections. Every example is mirrored by an integration test in
+``integration_tests/test_integration.py`` (named ``test_example_*``).
+They all assume the seed step from :ref:`seed-data` has been executed
+and that ``ticket_id`` / ``alice_id`` / ``bob_id`` are bound to the
+matching identifiers.
 
 Example 1 — Create a ticket and read it back
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -465,23 +800,23 @@ Example 1 — Create a ticket and read it back
    from glpi_python_client import GlpiClient, PostTicket
 
    async with GlpiClient.from_env() as client:
-       ticket_id = await client.create_ticket(
+       new_id = await client.create_ticket(
            PostTicket(
-               name="Wi-Fi unreachable",
-               content="802.1X handshake fails on the 5 GHz radio.",
+               name="Printer offline",
+               content="The third-floor printer cannot be reached.",
            )
        )
-       context = await client.get_ticket_context(ticket_id)
+       context = await client.get_ticket_context(new_id)
        print(context.to_markdown())
 
 Expected Markdown (abridged)::
 
-   # Ticket #123 — Wi-Fi unreachable
-    > Status: New
+   # Ticket #124 — Printer offline
+   > Status: New
 
-    ## Description
+   ## Description
 
-   802.1X handshake fails on the 5 GHz radio.
+   The third-floor printer cannot be reached.
 
 Example 2 — Add a followup response
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -492,7 +827,7 @@ Example 2 — Add a followup response
 
    await client.create_ticket_followup(
        ticket_id,
-       PostFollowup(content="Reproduced on the lab laptop, capturing logs."),
+       PostFollowup(content="Capturing radius logs."),
    )
    context = await client.get_ticket_context(ticket_id)
    print(context.to_markdown())
@@ -501,12 +836,12 @@ Expected Markdown (abridged)::
 
    # Ticket #123 — Wi-Fi unreachable
 
-    ## Timeline
+   ## Timeline
 
-    ### Followup #45
-    > Created at: 2025-01-02T10:15:00+00:00
+   ### Followup #46
+   > Created at: 2026-01-02T10:15:00+00:00
 
-   Reproduced on the lab laptop, capturing logs.
+   Capturing radius logs.
 
 Example 3 — Add a task with a duration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -527,8 +862,8 @@ Example 3 — Add a task with a duration
 
 Expected Markdown (abridged)::
 
-    ### Task #12
-    > Duration: 1800s
+   ### Task #13
+   > Duration: 1800s
 
    On-site visit to swap the access point.
 
@@ -553,11 +888,11 @@ status from the v2 API.
 Expected Markdown (abridged)::
 
    # Ticket #123 — Wi-Fi unreachable
-    > Status: Solved
+   > Status: Solved
 
-    ## Timeline
+   ## Timeline
 
-    ### Solution #7
+   ### Solution #8
 
    Replaced the access point firmware.
 
@@ -584,49 +919,12 @@ Expected Markdown (abridged)::
    ## Documents
    - diagnostic.txt
 
-Reporting Helpers
------------------
+Example 6 — Full ticket workflow with a dedicated technician
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The custom statistics mixin exposes two helpers built on top of the
-contract-aligned mixins:
-
-.. code-block:: python
-
-   from glpi_python_client import GlpiTicketStatus, GlpiTicketType
-
-   ticket_stats = await client.get_ticket_statistics(
-       start_date="2026-01-01",
-       end_date="2026-01-31",
-   )
-
-   ticket_ids = [t.id for t in await client.search_tickets("status==2", limit=200)]
-   task_stats = await client.get_task_statistics(ticket_ids)
-
-   print(ticket_stats["entities"])
-   print(task_stats["total_duration"], task_stats["duration_by_user"])
-
-Returned identifiers are the raw GLPI numeric values; resolve them with
-the appropriate ``search_*`` helpers when human-readable labels are
-needed.
-
-Enums
------
-
-Public IntEnum classes mirror the GLPI numeric constants and stay at
-the package root for easy use in RSQL filters:
-:class:`glpi_python_client.GlpiTicketStatus`,
-:class:`glpi_python_client.GlpiTicketType`,
-:class:`glpi_python_client.GlpiPriority`,
-:class:`glpi_python_client.GlpiTaskState`,
-:class:`glpi_python_client.GlpiSolutionStatus`,
-:class:`glpi_python_client.GlpiTimelinePosition`,
-:class:`glpi_python_client.GlpiUserAuthType`, and
-:class:`glpi_python_client.GlpiGlobalValidation`.
-
-End-to-End Example
-------------------
-
-The following example mirrors the integration test suite:
+The following script mirrors the integration test suite. It creates a
+fresh ticket, exercises every timeline subresource, assigns a
+technician, and tears the records down at the end.
 
 .. code-block:: python
 
@@ -647,38 +945,94 @@ The following example mirrors the integration test suite:
        async with GlpiClient.from_env() as client:
            user_id = await client.create_user(
                PostUser(
-                   username="bob.martin",
+                   username="bob.workflow",
                    password="initial-pwd",
                    password2="initial-pwd",
-                   realname="Martin",
+                   realname="Workflow",
                    firstname="Bob",
                )
            )
-           ticket_id = await client.create_ticket(
+           new_ticket_id = await client.create_ticket(
                PostTicket(name="VPN drops", content="Daily VPN drops at 11:00")
            )
            try:
                await client.create_ticket_followup(
-                   ticket_id,
+                   new_ticket_id,
                    PostFollowup(content="Reproduced on lab laptop"),
                )
                await client.create_ticket_task(
-                   ticket_id,
+                   new_ticket_id,
                    PostTicketTask(content="Capture VPN logs", duration=1800),
                )
                await client.add_ticket_team_member(
-                   ticket_id,
+                   new_ticket_id,
                    PostTeamMember(type="User", id=user_id, role="assigned"),
                )
                await client.create_ticket_solution(
-                   ticket_id,
+                   new_ticket_id,
                    PostSolution(content="Upgraded VPN client"),
                )
-               context = await client.get_ticket_context(ticket_id)
+               context = await client.get_ticket_context(new_ticket_id)
                print(context.ticket.name, len(context.followups))
            finally:
-               await client.delete_ticket(ticket_id, force=True)
+               await client.delete_ticket(new_ticket_id, force=True)
                await client.delete_user(user_id, force=True)
 
 
    asyncio.run(workflow())
+
+Example output::
+
+   VPN drops 1
+
+Example 7 — Build a monthly report
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Combines :meth:`get_ticket_statistics` and :meth:`get_task_statistics`
+to summarise a calendar month.
+
+.. code-block:: python
+
+   import asyncio
+
+   from glpi_python_client import GlpiClient
+
+
+   async def monthly_report(start: str, end: str) -> dict[str, object]:
+       async with GlpiClient.from_env() as client:
+           ticket_stats = await client.get_ticket_statistics(
+               start_date=start, end_date=end
+           )
+           solved_tickets = await client.search_tickets(
+               "status==5", limit=200
+           )
+           task_stats = await client.get_task_statistics(
+               [t.id for t in solved_tickets]
+           )
+           return {"tickets": ticket_stats, "tasks": task_stats}
+
+
+   if __name__ == "__main__":
+       print(asyncio.run(monthly_report("2026-01-01", "2026-01-31")))
+
+Example output::
+
+   {
+       'tickets': {
+           'entities': {
+               '0': {
+                   'total': 12,
+                   'by_status': {'1': 5, '2': 3, '5': 4},
+                   'by_priority': {'MEDIUM': 9, 'HIGH': 3},
+                   'by_type': {'INCIDENT': 9, 'REQUEST': 3},
+               }
+           }
+       },
+       'tasks': {
+           'ticket_count': 4,
+           'task_count': 5,
+           'total_duration': 6300,
+           'duration_by_user': {'22': 4500, '21': 1800},
+           'duration_by_ticket': {120: 1800, 121: 900, 122: 1800, 123: 1800},
+       },
+   }
