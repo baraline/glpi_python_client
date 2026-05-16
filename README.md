@@ -21,6 +21,9 @@ I cannot make any guarantee of the behaviour on previous versions.
 
 While the package is preparing for 1.0, alot of potential breaking change might happen between versions. A deprecation policy will be put in place once 1.0 is out and the package have been stabilized.
 
+For now, I provide only an async client, but if necessary, could
+duplicate the code to make a sync client.
+
 ## Installation
 
 ```bash
