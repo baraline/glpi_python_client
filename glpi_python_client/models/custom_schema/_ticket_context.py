@@ -29,7 +29,6 @@ from glpi_python_client.models.api_schema.assistance.timeline._solution import (
 from glpi_python_client.models.api_schema.assistance.timeline._task import (
     GetTicketTask,
 )
-from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
 
 _MAX_DATETIME = datetime.max
 
@@ -91,21 +90,17 @@ def _subtitle_line(*parts: tuple[str, object | None]) -> str | None:
     return f"> {' | '.join(rendered_parts)}"
 
 
-def _event_sort_key(event: Any) -> tuple[int, int, datetime]:
+def _event_sort_key(event: Any) -> datetime:
     """Compute the sort key used to order timeline events for rendering.
 
-    Events with a meaningful ``timeline_position`` (a positive
-    :class:`GlpiTimelinePosition` member) come first in position order so
-    the rendered transcript matches the GLPI UI layout. The remaining
-    events fall back to ``date_creation``; events missing both attributes
-    are pushed to the end with a stable ordering.
+    Ticket context rendering must follow the actual activity chronology,
+    not the left/right anchoring hint used by the GLPI chat UI. Entries
+    are therefore always ordered by ``date_creation`` and items missing a
+    creation timestamp are pushed to the end while preserving the sort's
+    stability.
     """
 
-    position = getattr(event, "timeline_position", None)
-    fallback_date = getattr(event, "date_creation", None) or _MAX_DATETIME
-    if isinstance(position, GlpiTimelinePosition) and position.value > 0:
-        return (0, position.value, fallback_date)
-    return (1, 0, fallback_date)
+    return getattr(event, "date_creation", None) or _MAX_DATETIME
 
 
 class GlpiTicketContext(GlpiModel):
@@ -139,10 +134,11 @@ class GlpiTicketContext(GlpiModel):
         key timestamps exposed by the public ticket model. The ticket
         body is separated from the timeline itself, and each followup,
         task, and solution receives its own heading plus a metadata
-        subtitle. Timeline entries remain sorted by ``timeline_position``
-        when set and otherwise by ``date_creation``. Linked documents are
-        still appended in a dedicated section because the document-link
-        payload does not expose the same authoring metadata.
+        subtitle. Timeline entries are always sorted by ``date_creation``
+        so the transcript follows the actual chronology rather than the
+        GLPI UI anchoring hints. Linked documents are still appended in a
+        dedicated section because the document-link payload does not
+        expose the same authoring metadata.
 
         Returns
         -------

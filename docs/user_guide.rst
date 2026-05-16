@@ -439,8 +439,9 @@ timeline list calls concurrently and returns a single
 The context exposes :meth:`GlpiTicketContext.to_markdown` which renders
 the ticket title, a metadata subtitle, and every timeline event
 (followups, tasks, solutions, document links) as a single Markdown
-transcript. Events are ordered by ``timeline_position`` when set and
-otherwise by ``date_creation``:
+transcript. Events are always ordered by ``date_creation``;
+``timeline_position`` remains only the left/right anchoring hint used
+by the GLPI UI:
 
 .. code-block:: python
 

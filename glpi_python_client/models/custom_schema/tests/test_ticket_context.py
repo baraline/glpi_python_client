@@ -110,8 +110,8 @@ def test_to_markdown_orders_events_by_creation_when_no_position() -> None:
     assert rendered.index("first note") < rendered.index("second note")
 
 
-def test_to_markdown_prefers_timeline_position_over_creation() -> None:
-    """Events carrying a positive ``timeline_position`` come first in order."""
+def test_to_markdown_ignores_timeline_position_for_ordering() -> None:
+    """Timeline anchoring does not override chronological ordering."""
 
     context = GlpiTicketContext.model_validate(
         {
@@ -134,7 +134,7 @@ def test_to_markdown_prefers_timeline_position_over_creation() -> None:
         }
     )
     rendered = context.to_markdown()
-    assert rendered.index("left positioned") < rendered.index("no position late")
+    assert rendered.index("no position late") < rendered.index("left positioned")
     assert "## Timeline" in rendered
     assert "### Task #2" in rendered
     assert "### Followup #1" in rendered
