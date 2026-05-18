@@ -1,7 +1,7 @@
-"""GLPI ``/Management`` mixins for the asynchronous client."""
+"""GLPI ``/Management`` mixins for the Synchronous client."""
 
 from __future__ import annotations
 
-from glpi_python_client.clients.api.management._document import AsyncDocumentMixin
+from glpi_python_client.clients.api.management._document import DocumentMixin
 
-__all__ = ["AsyncDocumentMixin"]
+__all__ = ["DocumentMixin"]

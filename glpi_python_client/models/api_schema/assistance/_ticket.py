@@ -34,16 +34,21 @@ from glpi_python_client.models.api_schema.enums import (
 class _TicketTeamMember(GlpiModel):
     """One inline team-member entry of the ``Ticket.team`` array.
 
+    The contract does not provide per-field ``description`` values for
+    this inline object. The parameters below are documented by field name
+    and context.
+
     Parameters
     ----------
     id : int | None, optional
-        Native GLPI member identifier.
+        Native GLPI identifier of the team-member link.
     name : str | None, optional
-        Member display name.
+        Display name of the actor (typically the user or group name).
     type : str | None, optional
-        GLPI member type, such as ``"User"`` or ``"Group"``.
+        GLPI actor type, such as ``"User"`` or ``"Group"``.
     role : str | None, optional
-        GLPI ticket role assigned to the member.
+        Ticket role assigned to the actor, such as ``"Requester"``,
+        ``"Observer"`` or ``"Assigned to"``.
     """
 
     id: int | None = None
@@ -55,7 +60,124 @@ class _TicketTeamMember(GlpiModel):
 class GetTicket(GlpiModel):
     """Response shape returned by ``GET /Assistance/Ticket`` endpoints.
 
-    Mirrors ``components.schemas.Ticket``.
+    Mirrors ``components.schemas.Ticket``. Fields marked ``readOnly`` in
+    the contract are excluded from the write models.
+
+    Parameters
+    ----------
+    id : int | None, optional
+        Native GLPI identifier (``readOnly``).
+    name : str | None, optional
+        Title of the ticket.
+    content : GlpiMarkdownContent
+        Body of the ticket exchanged as HTML over the wire
+        (``format: html``); transparent Markdown conversion is applied
+        on the model boundary. Defaults to :data:`None`.
+    user_recipient : IdNameRef | None, optional
+        Reference to the user designated as the ticket recipient (no
+        contract description).
+    user_editor : IdNameRef | None, optional
+        Reference to the user who last edited the ticket.
+    is_deleted : bool | None, optional
+        Whether the ticket has been moved to the trash.
+    category : IdNameRef | None, optional
+        Reference to the ITIL category of the ticket.
+    location : IdNameRef | None, optional
+        Reference to the location associated with the ticket.
+    urgency : GlpiPriority | None, optional
+        Urgency level (contract enumeration: ``1`` Very Low, ``2`` Low,
+        ``3`` Medium, ``4`` High, ``5`` Very High).
+    impact : GlpiPriority | None, optional
+        Impact level (contract enumeration: ``1`` Very Low, ``2`` Low,
+        ``3`` Medium, ``4`` High, ``5`` Very High).
+    priority : GlpiPriority | None, optional
+        Computed or manually overridden priority (contract enumeration:
+        ``1`` Very Low, ``2`` Low, ``3`` Medium, ``4`` High,
+        ``5`` Very High).
+    actiontime : int | None, optional
+        Total action time in seconds (``readOnly``).
+    begin_waiting_date : datetime | None, optional
+        Timestamp at which the ticket entered the pending state
+        (``readOnly``).
+    waiting_duration : int | None, optional
+        Total waiting duration in seconds (contract field
+        ``waiting_duration`` — ``Total waiting duration in seconds``,
+        ``readOnly``).
+    resolution_duration : int | None, optional
+        Total resolution duration in seconds (contract field
+        ``resolution_duration`` — ``Total resolution duration in
+        seconds``, ``readOnly``).
+    close_duration : int | None, optional
+        Total close duration in seconds (contract field
+        ``close_duration`` — ``Total close duration in seconds``,
+        ``readOnly``).
+    resolution_date : datetime | None, optional
+        Timestamp at which the ticket was resolved (``readOnly``).
+    date_creation : datetime | None, optional
+        Creation timestamp of the ticket record.
+    date_mod : datetime | None, optional
+        Last modification timestamp of the ticket record.
+    date : datetime | None, optional
+        Opening date of the ticket.
+    date_solve : datetime | None, optional
+        Date the ticket was marked as solved.
+    date_close : datetime | None, optional
+        Date the ticket was closed.
+    type : GlpiTicketType | None, optional
+        Ticket category (contract field ``type`` — ``The type of the
+        ticket``; enumeration: ``1`` Incident, ``2`` Request).
+    external_id : str | None, optional
+        Identifier assigned by an external system.
+    request_type : IdNameRef | None, optional
+        Reference to the request type or channel.
+    take_into_account_date : datetime | None, optional
+        Timestamp at which a technician first acknowledged the ticket
+        (``readOnly``).
+    take_into_account_duration : int | None, optional
+        Total take-into-account duration in seconds (contract field
+        ``take_into_account_duration`` — ``Total take into account
+        duration in seconds``, ``readOnly``).
+    sla_ttr : IdNameRef | None, optional
+        SLA applied for time-to-resolve.
+    sla_tto : IdNameRef | None, optional
+        SLA applied for time-to-own.
+    ola_ttr : IdNameRef | None, optional
+        OLA applied for time-to-resolve.
+    ola_tto : IdNameRef | None, optional
+        OLA applied for time-to-own.
+    sla_level_ttr : IdNameRef | None, optional
+        SLA level escalation step for time-to-resolve.
+    ola_level_ttr : IdNameRef | None, optional
+        OLA level escalation step for time-to-resolve.
+    sla_waiting_duration : int | None, optional
+        Total SLA waiting duration in seconds (contract field
+        ``sla_waiting_duration`` — ``Total SLA waiting duration in
+        seconds``, ``readOnly``).
+    ola_waiting_duration : int | None, optional
+        Total OLA waiting duration in seconds (contract field
+        ``ola_waiting_duration`` — ``Total OLA waiting duration in
+        seconds``, ``readOnly``).
+    ola_ttr_begin_date : datetime | None, optional
+        Timestamp at which the OLA TTR clock started (``readOnly``).
+    ola_tto_begin_date : datetime | None, optional
+        Timestamp at which the OLA TTO clock started (``readOnly``).
+    internal_resolution_date : datetime | None, optional
+        Internal resolution date used for OLA computations (``readOnly``;
+        no contract description).
+    internal_take_into_account_date : datetime | None, optional
+        Internal take-into-account date used for OLA computations
+        (``readOnly``).
+    global_validation : GlpiGlobalValidation | None, optional
+        Aggregated validation status of the ticket (contract field
+        ``global_validation`` — ``The global status of the
+        validation``; enumeration: ``1`` None, ``2`` Waiting,
+        ``3`` Accepted, ``4`` Refused).
+    status : IdNameRef | None, optional
+        Current ticket status as an id/name reference.
+    entity : IdNameCompletenameRef | None, optional
+        Reference to the GLPI entity that owns the ticket.
+    team : list[_TicketTeamMember] | None, optional
+        Inline list of actors assigned to the ticket.
     """
 
     id: int | None = None
@@ -106,9 +228,68 @@ class GetTicket(GlpiModel):
 class PostTicket(GlpiModel):
     """Request body for ``POST /Assistance/Ticket``.
 
-    Read-only contract fields are excluded. ``status`` is read-only on the
-    contract because GLPI manages ticket lifecycle through dedicated routes
-    (followups, solutions, validation), so it is omitted from write models.
+    Read-only contract fields are excluded. ``status`` is also excluded
+    because GLPI manages the ticket lifecycle through dedicated timeline
+    routes (followups, solutions, validation).
+
+    Parameters
+    ----------
+    name : str | None, optional
+        Title of the ticket.
+    content : GlpiMarkdownContent
+        Body of the ticket; Markdown is converted to HTML on
+        serialisation (``format: html``). Defaults to :data:`None`.
+    is_deleted : bool | None, optional
+        Whether to create the ticket in the trashed state.
+    category : IdNameRef | None, optional
+        Reference to the ITIL category of the ticket.
+    location : IdNameRef | None, optional
+        Reference to the location associated with the ticket.
+    urgency : GlpiPriority | None, optional
+        Urgency level (contract enumeration: ``1`` Very Low, ``2`` Low,
+        ``3`` Medium, ``4`` High, ``5`` Very High).
+    impact : GlpiPriority | None, optional
+        Impact level (contract enumeration: ``1`` Very Low, ``2`` Low,
+        ``3`` Medium, ``4`` High, ``5`` Very High).
+    priority : GlpiPriority | None, optional
+        Priority override (contract enumeration: ``1`` Very Low, ``2``
+        Low, ``3`` Medium, ``4`` High, ``5`` Very High).
+    date_creation : datetime | None, optional
+        Creation timestamp to set on the ticket record.
+    date_mod : datetime | None, optional
+        Modification timestamp to set on the ticket record.
+    date : datetime | None, optional
+        Opening date to assign to the ticket.
+    date_solve : datetime | None, optional
+        Date to set as the solved timestamp.
+    date_close : datetime | None, optional
+        Date to set as the closed timestamp.
+    type : GlpiTicketType | None, optional
+        Ticket category (contract field ``type`` — ``The type of the
+        ticket``; enumeration: ``1`` Incident, ``2`` Request).
+    external_id : str | None, optional
+        Identifier assigned by an external system.
+    request_type : IdNameRef | None, optional
+        Reference to the request type or channel.
+    sla_ttr : IdNameRef | None, optional
+        SLA to apply for time-to-resolve.
+    sla_tto : IdNameRef | None, optional
+        SLA to apply for time-to-own.
+    ola_ttr : IdNameRef | None, optional
+        OLA to apply for time-to-resolve.
+    ola_tto : IdNameRef | None, optional
+        OLA to apply for time-to-own.
+    sla_level_ttr : IdNameRef | None, optional
+        SLA level escalation step for time-to-resolve.
+    ola_level_ttr : IdNameRef | None, optional
+        OLA level escalation step for time-to-resolve.
+    global_validation : GlpiGlobalValidation | None, optional
+        Aggregated validation status to set on the ticket (contract
+        field ``global_validation`` — ``The global status of the
+        validation``; enumeration: ``1`` None, ``2`` Waiting,
+        ``3`` Accepted, ``4`` Refused).
+    entity : IdNameCompletenameRef | None, optional
+        Reference to the GLPI entity that owns the ticket.
     """
 
     name: str | None = None
@@ -138,7 +319,12 @@ class PostTicket(GlpiModel):
 
 
 class PatchTicket(PostTicket):
-    """Request body for ``PATCH /Assistance/Ticket/{id}``."""
+    """Request body for ``PATCH /Assistance/Ticket/{id}``.
+
+    The contract uses the same ``Ticket`` schema for create and
+    partial-update bodies; ``PatchTicket`` is kept distinct so client
+    mixins can express the intent of the operation explicitly.
+    """
 
 
 class DeleteTicket(GlpiModel):
@@ -147,7 +333,10 @@ class DeleteTicket(GlpiModel):
     Parameters
     ----------
     force : bool | None, optional
-        Permanently delete the ticket instead of moving it to the trash.
+        When ``True``, permanently delete the ticket instead of moving
+        the record to the GLPI trash. When ``False`` or :data:`None`,
+        the server applies its default soft-delete behaviour and the
+        ticket can still be restored.
     """
 
     force: bool | None = None

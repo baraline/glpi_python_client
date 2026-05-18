@@ -40,57 +40,70 @@ python -m pytest
 
 ## Package Layout
 
-- `glpi_python_client.__init__` exposes the public import surface.
-- `glpi_python_client.clients.api_v2_client.GlpiClient` owns synchronous API
-  configuration, authentication, context-manager cleanup, and the small
-  user/location/document provisioning surface.
-- `glpi_python_client.clients.async_api_v2_client.AsyncGlpiClient` owns the
-  matching awaitable client surface and keeps blocking requests behind
-  `asyncio.to_thread()` boundaries.
-- `glpi_python_client.clients.v2` contains the internal v2 implementation
-  packages.
-- `glpi_python_client.clients.v2.common` holds reusable setup, endpoint,
-  request, pagination, payload, filter, and error helpers shared by both
-  execution models.
-- `glpi_python_client.clients.v2.sync` contains the synchronous endpoint mixins:
-  `transport`, `tickets`, `timeline`, `documents`, `team`, and `directory`.
-  `sync.api` assembles those mixins.
-- `glpi_python_client.clients.v2.async_` contains the matching asynchronous
-  endpoint mixins and keeps `asyncio.to_thread()` at the blocking request and
-  v1-session boundaries. `async_.api` assembles those mixins.
-- `glpi_python_client.clients._shared` is a compatibility module that re-exports
-  the scoped v2 helper modules for older internal imports.
-- `glpi_python_client.clients.api_v1_session` contains the legacy v1 session
-  used for document operations.
-- `glpi_python_client.models` contains typed request and response models.
-- `glpi_python_client.content.records` is a compatibility package for raw GLPI
-  payload conversion.
-- `glpi_python_client.content.records.core` contains shared normalization,
-  scalar coercion, nested-reference parsing, and timeline document-link
-  helpers.
-- `glpi_python_client.content.records.parsers` contains model-specific parsers
-  for tickets, timeline items, documents, team members, users, and locations.
+- `glpi_python_client.__init__` exposes the public import surface,
+  including both client classes and the Pydantic models.
+- `glpi_python_client.clients.sync_client.GlpiClient` is the
+  synchronous, blocking client. It is the single source of truth for
+  endpoint behaviour: each public method lives on one of the sync
+  endpoint mixins under `glpi_python_client.clients.api.*` and
+  `glpi_python_client.clients.custom.*`.
+- `glpi_python_client.clients.async_client.AsyncGlpiClient` is the
+  asynchronous facade. It inherits the same endpoint mixins and uses
+  `glpi_python_client.clients.commons._async_bridge.AsyncBridge` to wrap
+  every inherited public sync method into a coroutine dispatched on a
+  worker thread (`asyncio.to_thread` by default, or a caller-supplied
+  `concurrent.futures.Executor`).
+- `glpi_python_client.clients.commons` holds the reusable building
+  blocks shared by every endpoint mixin: configuration helpers
+  (`_config`), constants (`_constants`), errors (`_errors`), filters
+  (`_filters`), HTTP helpers (`_http`), payload builders (`_payloads`),
+  the synchronous `TransportMixin` (`_transport`), and the
+  `AsyncBridge` (`_async_bridge`). A shared `threading.Lock` in the
+  transport serialises OAuth token acquisition so concurrent
+  `asyncio.gather` fan-outs on the async client cannot race.
+- `glpi_python_client.clients.api.*` contains the contract-aligned
+  synchronous endpoint mixins, grouped by GLPI subtree (administration,
+  assistance, assistance/timeline, dropdowns, management).
+- `glpi_python_client.clients.custom` contains custom helpers built on
+  top of the API mixins. Each helper has a synchronous implementation
+  (`_ticket_context.py`, `_statistics.py`) plus an optional async
+  override (`_ticket_context_async.py`, `_statistics_async.py`) that
+  fans the underlying calls out concurrently with `asyncio.gather`.
+- `glpi_python_client.auth._v1_session` contains the legacy v1
+  session used for binary document uploads.
+- `glpi_python_client.models` contains typed request and response
+  models.
+- `glpi_python_client.content` handles HTML/Markdown conversion for
+  ticket descriptions, followups, tasks, and solutions.
+- `glpi_python_client.testing` exposes `make_client` and
+  `make_async_client` factories that produce in-memory clients with no
+  real HTTP plumbing for downstream test suites.
 - `docs` contains the Read the Docs/Sphinx documentation source.
-- `skills` contains contributor-facing Agent Skills for repository workflows.
-  The source distribution includes them for source consumers and contributors,
-  but the wheel still installs only the `glpi_python_client` runtime package.
+- `skills` contains contributor-facing Agent Skills for repository
+  workflows. The source distribution includes them for source consumers
+  and contributors, but the wheel still installs only the
+  `glpi_python_client` runtime package.
 
 ## Adding Endpoints
 
 1. Add or extend a model in `glpi_python_client.models`.
-2. Add response parsing in the matching
-  `glpi_python_client.content.records.parsers` module when the endpoint returns
-  structured data, and put shared parsing helpers in
-  `glpi_python_client.content.records.core` only when multiple parsers need
-  them.
-3. Add the client method in the matching
-  `glpi_python_client.clients.v2.sync` module and the matching
-  `glpi_python_client.clients.v2.async_` module when applicable.
-4. Put reusable endpoint names, payload builders, response handling, or
-  pagination logic in the focused `glpi_python_client.clients.v2.common`
-  helper module named for that responsibility.
-5. Add tests for payload serialization, response parsing, and client behavior.
-6. Document the new workflow in `docs/usage.md` or the README.
+2. Add the client method on the matching **synchronous** endpoint mixin
+   under `glpi_python_client.clients.api.*` (or
+   `glpi_python_client.clients.custom.*` for derived helpers). The
+   async client picks the new method up automatically through the
+   `AsyncBridge` — do not duplicate the method on a parallel async
+   mixin unless you genuinely need concurrent fan-out (`asyncio.gather`)
+   inside the method body.
+3. Put reusable endpoint names, payload builders, response handling, or
+   pagination logic in the focused
+   `glpi_python_client.clients.commons` helper module named for that
+   responsibility.
+4. Add unit tests for payload serialization, response parsing, and
+   client behavior. The parity test in
+   `glpi_python_client/clients/tests/test_parity.py` will fail if the
+   sync and async surfaces diverge.
+5. Document the new workflow in `docs/user_guide.rst` or the README.
 
-Keep organization-specific defaults outside the package core. Applications can
-map their own entities, profiles, and categories before calling the client.
+Keep organization-specific defaults outside the package core.
+Applications can map their own entities, profiles, and categories
+before calling the client.

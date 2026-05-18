@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Document`` mixin.
+"""Synchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Document`` mixin.
 
 The mixin exposes list, fetch, link, and unlink helpers for the timeline
 document endpoint that links existing GLPI documents to a ticket.
@@ -10,7 +10,7 @@ in a ``{"type": "Document_Item", "item": {...}}`` envelope, even though
 the OpenAPI contract documents a flat array of ``Document_Item``. Real
 behaviour wins over the contract, so :func:`list_ticket_timeline_documents`
 unwraps the envelope through the shared
-:meth:`~glpi_python_client.clients.commons._transport.AsyncTransportMixin._resource_list`
+:meth:`~glpi_python_client.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 
@@ -21,7 +21,7 @@ from glpi_python_client.clients.commons._constants import (
     TIMELINE_DOCUMENT_SUFFIX,
     GlpiId,
 )
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance.timeline._document import (
     DeleteTimelineDocument,
     GetTimelineDocument,
@@ -30,10 +30,10 @@ from glpi_python_client.models.api_schema.assistance.timeline._document import (
 )
 
 
-class AsyncTimelineDocumentMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for the ticket document timeline endpoint."""
+class TimelineDocumentMixin(TransportMixin):
+    """Synchronous CRUD helpers for the ticket document timeline endpoint."""
 
-    async def list_ticket_timeline_documents(
+    def list_ticket_timeline_documents(
         self, ticket_id: GlpiId
     ) -> list[GetTimelineDocument]:
         """List all timeline documents linked to one ticket.
@@ -50,7 +50,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             envelope unwrapped where present.
         """
 
-        return await self._resource_list(
+        return self._resource_list(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TIMELINE_DOCUMENT_SUFFIX}",
             GetTimelineDocument,
             failure_message=(
@@ -59,7 +59,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             unwrap_envelope=True,
         )
 
-    async def get_ticket_timeline_document(
+    def get_ticket_timeline_document(
         self, ticket_id: GlpiId, document_link_id: GlpiId
     ) -> GetTimelineDocument:
         """Fetch one timeline document link by identifier.
@@ -82,7 +82,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}/"
             f"{TIMELINE_DOCUMENT_SUFFIX}/{document_link_id}",
             GetTimelineDocument,
@@ -92,7 +92,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             ),
         )
 
-    async def link_ticket_timeline_document(
+    def link_ticket_timeline_document(
         self, ticket_id: GlpiId, document_link: PostTimelineDocument
     ) -> int:
         """Link an existing GLPI document to one ticket timeline.
@@ -118,7 +118,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TIMELINE_DOCUMENT_SUFFIX}",
             document_link,
             failure_message=(f"Failed to link timeline document on ticket {ticket_id}"),
@@ -132,7 +132,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             ),
         )
 
-    async def update_ticket_timeline_document(
+    def update_ticket_timeline_document(
         self,
         ticket_id: GlpiId,
         document_link_id: GlpiId,
@@ -159,7 +159,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{TICKET_ENDPOINT}/{ticket_id}/"
             f"{TIMELINE_DOCUMENT_SUFFIX}/{document_link_id}",
             document_link,
@@ -173,7 +173,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             ),
         )
 
-    async def unlink_ticket_timeline_document(
+    def unlink_ticket_timeline_document(
         self,
         ticket_id: GlpiId,
         document_link_id: GlpiId,
@@ -202,7 +202,7 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{TICKET_ENDPOINT}/{ticket_id}/"
             f"{TIMELINE_DOCUMENT_SUFFIX}/{document_link_id}",
             failure_message=(
@@ -218,4 +218,4 @@ class AsyncTimelineDocumentMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncTimelineDocumentMixin"]
+__all__ = ["TimelineDocumentMixin"]

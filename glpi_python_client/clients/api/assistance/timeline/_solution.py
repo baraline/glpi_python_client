@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Solution`` mixin.
+"""Synchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Solution`` mixin.
 
 The mixin exposes list, fetch, create, update, and delete helpers for the
 ticket solution timeline endpoint using the ``api_schema`` solution models.
@@ -10,7 +10,7 @@ in a ``{"type": "ITILSolution", "item": {...}}`` envelope, even though
 the OpenAPI contract documents a flat array of ``ITILSolution``. Real
 behaviour wins over the contract, so :func:`list_ticket_solutions`
 unwraps the envelope through the shared
-:meth:`~glpi_python_client.clients.commons._transport.AsyncTransportMixin._resource_list`
+:meth:`~glpi_python_client.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 
@@ -21,7 +21,7 @@ from glpi_python_client.clients.commons._constants import (
     TICKET_ENDPOINT,
     GlpiId,
 )
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance.timeline._solution import (
     DeleteSolution,
     GetSolution,
@@ -30,10 +30,10 @@ from glpi_python_client.models.api_schema.assistance.timeline._solution import (
 )
 
 
-class AsyncSolutionMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for the ticket solution timeline endpoint."""
+class SolutionMixin(TransportMixin):
+    """Synchronous CRUD helpers for the ticket solution timeline endpoint."""
 
-    async def list_ticket_solutions(self, ticket_id: GlpiId) -> list[GetSolution]:
+    def list_ticket_solutions(self, ticket_id: GlpiId) -> list[GetSolution]:
         """List all solutions linked to one ticket.
 
         Parameters
@@ -48,14 +48,14 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             envelope unwrapped where present.
         """
 
-        return await self._resource_list(
+        return self._resource_list(
             f"{TICKET_ENDPOINT}/{ticket_id}/{SOLUTION_SUFFIX}",
             GetSolution,
             failure_message=f"Failed to list solutions for ticket {ticket_id}",
             unwrap_envelope=True,
         )
 
-    async def get_ticket_solution(
+    def get_ticket_solution(
         self, ticket_id: GlpiId, solution_id: GlpiId
     ) -> GetSolution:
         """Fetch one ticket solution by identifier.
@@ -78,7 +78,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}/{SOLUTION_SUFFIX}/{solution_id}",
             GetSolution,
             failure_message=(
@@ -86,9 +86,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             ),
         )
 
-    async def create_ticket_solution(
-        self, ticket_id: GlpiId, solution: PostSolution
-    ) -> int:
+    def create_ticket_solution(self, ticket_id: GlpiId, solution: PostSolution) -> int:
         """Create one solution on a ticket.
 
         Parameters
@@ -110,7 +108,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             f"{TICKET_ENDPOINT}/{ticket_id}/{SOLUTION_SUFFIX}",
             solution,
             failure_message=f"Failed to create solution on ticket {ticket_id}",
@@ -121,7 +119,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             ),
         )
 
-    async def update_ticket_solution(
+    def update_ticket_solution(
         self,
         ticket_id: GlpiId,
         solution_id: GlpiId,
@@ -148,7 +146,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{TICKET_ENDPOINT}/{ticket_id}/{SOLUTION_SUFFIX}/{solution_id}",
             solution,
             failure_message=(
@@ -157,7 +155,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             log_message=f"API updated solution {solution_id} on ticket {ticket_id}",
         )
 
-    async def delete_ticket_solution(
+    def delete_ticket_solution(
         self,
         ticket_id: GlpiId,
         solution_id: GlpiId,
@@ -186,7 +184,7 @@ class AsyncSolutionMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{TICKET_ENDPOINT}/{ticket_id}/{SOLUTION_SUFFIX}/{solution_id}",
             failure_message=(
                 f"Failed to delete solution {solution_id} on ticket {ticket_id}"
@@ -197,4 +195,4 @@ class AsyncSolutionMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncSolutionMixin"]
+__all__ = ["SolutionMixin"]

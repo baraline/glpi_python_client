@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Assistance/Ticket`` mixin.
+"""Synchronous GLPI ``/Assistance/Ticket`` mixin.
 
 The mixin exposes search, fetch, create, update, and delete helpers for the
 GLPI ticket resource using the ``api_schema`` Pydantic models.
@@ -7,7 +7,7 @@ GLPI ticket resource using the ``api_schema`` Pydantic models.
 from __future__ import annotations
 
 from glpi_python_client.clients.commons._constants import TICKET_ENDPOINT, GlpiId
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance._ticket import (
     DeleteTicket,
     GetTicket,
@@ -16,15 +16,15 @@ from glpi_python_client.models.api_schema.assistance._ticket import (
 )
 
 
-class AsyncTicketMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for ``/Assistance/Ticket``.
+class TicketMixin(TransportMixin):
+    """Synchronous CRUD helpers for ``/Assistance/Ticket``.
 
     The helpers exchange the contract-aligned ``GetTicket``, ``PostTicket``,
     ``PatchTicket``, and ``DeleteTicket`` models with the GLPI API and let the
     server perform all field-level validation.
     """
 
-    async def search_tickets(
+    def search_tickets(
         self,
         rsql_filter: str = "",
         *,
@@ -66,9 +66,9 @@ class AsyncTicketMixin(AsyncTransportMixin):
             params["sort"] = sort
         if fields:
             params["fields"] = ",".join(fields)
-        return await self._resource_list(TICKET_ENDPOINT, GetTicket, params=params)
+        return self._resource_list(TICKET_ENDPOINT, GetTicket, params=params)
 
-    async def get_ticket(self, ticket_id: GlpiId) -> GetTicket:
+    def get_ticket(self, ticket_id: GlpiId) -> GetTicket:
         """Fetch one GLPI ticket by identifier.
 
         Parameters
@@ -87,13 +87,13 @@ class AsyncTicketMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}",
             GetTicket,
             failure_message=f"Failed to get ticket {ticket_id}",
         )
 
-    async def create_ticket(self, ticket: PostTicket) -> int:
+    def create_ticket(self, ticket: PostTicket) -> int:
         """Create one GLPI ticket.
 
         Parameters
@@ -114,7 +114,7 @@ class AsyncTicketMixin(AsyncTransportMixin):
             HTTP status is not success.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             TICKET_ENDPOINT,
             ticket,
             failure_message="Failed to create ticket",
@@ -122,7 +122,7 @@ class AsyncTicketMixin(AsyncTransportMixin):
             log_message_factory=lambda new_id: f"GLPI API created ticket {new_id}",
         )
 
-    async def update_ticket(self, ticket_id: GlpiId, ticket: PatchTicket) -> None:
+    def update_ticket(self, ticket_id: GlpiId, ticket: PatchTicket) -> None:
         """Update one GLPI ticket with a partial body.
 
         Parameters
@@ -142,16 +142,14 @@ class AsyncTicketMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{TICKET_ENDPOINT}/{ticket_id}",
             ticket,
             failure_message=f"Failed to update ticket {ticket_id}",
             log_message=f"GLPI API updated ticket {ticket_id}",
         )
 
-    async def delete_ticket(
-        self, ticket_id: GlpiId, *, force: bool | None = None
-    ) -> None:
+    def delete_ticket(self, ticket_id: GlpiId, *, force: bool | None = None) -> None:
         """Delete one GLPI ticket by identifier.
 
         Parameters
@@ -173,7 +171,7 @@ class AsyncTicketMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{TICKET_ENDPOINT}/{ticket_id}",
             failure_message=f"Failed to delete ticket {ticket_id}",
             log_message=f"GLPI API deleted ticket {ticket_id}",
@@ -182,4 +180,4 @@ class AsyncTicketMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncTicketMixin"]
+__all__ = ["TicketMixin"]

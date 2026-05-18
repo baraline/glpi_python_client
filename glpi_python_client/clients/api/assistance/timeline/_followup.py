@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Followup`` mixin.
+"""Synchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Followup`` mixin.
 
 The mixin exposes list, fetch, create, update, and delete helpers for the
 ticket followup timeline endpoint, exchanging the ``api_schema`` followup
@@ -11,7 +11,7 @@ in a ``{"type": "ITILFollowup", "item": {...}}`` envelope, even though
 the OpenAPI contract documents a flat array of ``ITILFollowup``. Real
 behaviour wins over the contract, so :func:`list_ticket_followups`
 unwraps the envelope via the shared
-:meth:`~glpi_python_client.clients.commons._transport.AsyncTransportMixin._resource_list`
+:meth:`~glpi_python_client.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 
@@ -22,7 +22,7 @@ from glpi_python_client.clients.commons._constants import (
     TICKET_ENDPOINT,
     GlpiId,
 )
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance.timeline._followup import (
     DeleteFollowup,
     GetFollowup,
@@ -31,10 +31,10 @@ from glpi_python_client.models.api_schema.assistance.timeline._followup import (
 )
 
 
-class AsyncFollowupMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for the ticket followup timeline endpoint."""
+class FollowupMixin(TransportMixin):
+    """Synchronous CRUD helpers for the ticket followup timeline endpoint."""
 
-    async def list_ticket_followups(self, ticket_id: GlpiId) -> list[GetFollowup]:
+    def list_ticket_followups(self, ticket_id: GlpiId) -> list[GetFollowup]:
         """List all followups linked to one ticket.
 
         Parameters
@@ -49,14 +49,14 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             envelope unwrapped where present.
         """
 
-        return await self._resource_list(
+        return self._resource_list(
             f"{TICKET_ENDPOINT}/{ticket_id}/{FOLLOWUP_SUFFIX}",
             GetFollowup,
             failure_message=f"Failed to list followups for ticket {ticket_id}",
             unwrap_envelope=True,
         )
 
-    async def get_ticket_followup(
+    def get_ticket_followup(
         self, ticket_id: GlpiId, followup_id: GlpiId
     ) -> GetFollowup:
         """Fetch one ticket followup by identifier.
@@ -79,7 +79,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}/{FOLLOWUP_SUFFIX}/{followup_id}",
             GetFollowup,
             failure_message=(
@@ -87,9 +87,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             ),
         )
 
-    async def create_ticket_followup(
-        self, ticket_id: GlpiId, followup: PostFollowup
-    ) -> int:
+    def create_ticket_followup(self, ticket_id: GlpiId, followup: PostFollowup) -> int:
         """Create one followup on a ticket.
 
         Parameters
@@ -111,7 +109,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             f"{TICKET_ENDPOINT}/{ticket_id}/{FOLLOWUP_SUFFIX}",
             followup,
             failure_message=f"Failed to create followup on ticket {ticket_id}",
@@ -124,7 +122,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             ),
         )
 
-    async def update_ticket_followup(
+    def update_ticket_followup(
         self,
         ticket_id: GlpiId,
         followup_id: GlpiId,
@@ -151,7 +149,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{TICKET_ENDPOINT}/{ticket_id}/{FOLLOWUP_SUFFIX}/{followup_id}",
             followup,
             failure_message=(
@@ -160,7 +158,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             log_message=f"API updated followup {followup_id} on ticket {ticket_id}",
         )
 
-    async def delete_ticket_followup(
+    def delete_ticket_followup(
         self,
         ticket_id: GlpiId,
         followup_id: GlpiId,
@@ -189,7 +187,7 @@ class AsyncFollowupMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{TICKET_ENDPOINT}/{ticket_id}/{FOLLOWUP_SUFFIX}/{followup_id}",
             failure_message=(
                 f"Failed to delete followup {followup_id} on ticket {ticket_id}"
@@ -200,4 +198,4 @@ class AsyncFollowupMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncFollowupMixin"]
+__all__ = ["FollowupMixin"]

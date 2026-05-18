@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Management/Document`` mixin.
+"""Synchronous GLPI ``/Management/Document`` mixin.
 
 The mixin exposes JSON metadata CRUD operations on the document resource and
 a multipart upload helper that delegates to the legacy v1 session because
@@ -7,7 +7,6 @@ the v2 API does not advertise a binary upload endpoint in the contract.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from glpi_python_client.clients.commons._constants import (
@@ -15,7 +14,7 @@ from glpi_python_client.clients.commons._constants import (
     GlpiId,
 )
 from glpi_python_client.clients.commons._http import ensure_response_status
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.management._document import (
     DeleteDocument,
     GetDocument,
@@ -26,10 +25,10 @@ from glpi_python_client.models.api_schema.management._document import (
 logger = logging.getLogger(__name__)
 
 
-class AsyncDocumentMixin(AsyncTransportMixin):
-    """Asynchronous CRUD and upload helpers for ``/Management/Document``."""
+class DocumentMixin(TransportMixin):
+    """Synchronous CRUD and upload helpers for ``/Management/Document``."""
 
-    async def search_documents(
+    def search_documents(
         self,
         rsql_filter: str = "",
         *,
@@ -59,11 +58,11 @@ class AsyncDocumentMixin(AsyncTransportMixin):
         params: dict[str, object] = {"limit": limit, "start": start}
         if rsql_filter:
             params["filter"] = rsql_filter
-        return await self._resource_list(
+        return self._resource_list(
             DOCUMENT_ENDPOINT, GetDocument, params=params, skip_entity=True
         )
 
-    async def get_document(self, document_id: GlpiId) -> GetDocument:
+    def get_document(self, document_id: GlpiId) -> GetDocument:
         """Fetch one GLPI document by identifier.
 
         Parameters
@@ -82,14 +81,14 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{DOCUMENT_ENDPOINT}/{document_id}",
             GetDocument,
             failure_message=f"Failed to get document {document_id}",
             skip_entity=True,
         )
 
-    async def create_document(self, document: PostDocument) -> int:
+    def create_document(self, document: PostDocument) -> int:
         """Create one GLPI document metadata record.
 
         Binary uploads use :meth:`upload_document` instead of the JSON
@@ -112,7 +111,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             DOCUMENT_ENDPOINT,
             document,
             failure_message="Failed to create document",
@@ -121,9 +120,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             skip_entity=True,
         )
 
-    async def update_document(
-        self, document_id: GlpiId, document: PatchDocument
-    ) -> None:
+    def update_document(self, document_id: GlpiId, document: PatchDocument) -> None:
         """Update one GLPI document with a partial body.
 
         Parameters
@@ -143,14 +140,14 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{DOCUMENT_ENDPOINT}/{document_id}",
             document,
             failure_message=f"Failed to update document {document_id}",
             log_message=f"GLPI API updated document {document_id}",
         )
 
-    async def delete_document(
+    def delete_document(
         self, document_id: GlpiId, *, force: bool | None = None
     ) -> None:
         """Delete one GLPI document by identifier.
@@ -173,7 +170,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{DOCUMENT_ENDPOINT}/{document_id}",
             failure_message=f"Failed to delete document {document_id}",
             log_message=f"GLPI API deleted document {document_id}",
@@ -182,7 +179,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             skip_entity=True,
         )
 
-    async def download_document_content(self, document_id: GlpiId) -> bytes:
+    def download_document_content(self, document_id: GlpiId) -> bytes:
         """Download the raw binary payload for one GLPI document.
 
         Parameters
@@ -202,7 +199,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        response = await self._get_request(
+        response = self._get_request(
             f"{DOCUMENT_ENDPOINT}/{document_id}/Download",
             skip_entity=True,
         )
@@ -213,7 +210,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
         )
         return response.content
 
-    async def upload_document(
+    def upload_document(
         self,
         *,
         filename: str,
@@ -225,10 +222,12 @@ class AsyncDocumentMixin(AsyncTransportMixin):
     ) -> dict[str, object]:
         """Upload one binary document via the legacy v1 multipart endpoint.
 
-        The async wrapper enforces that a v1 session was configured on
-        the client and dispatches the blocking upload through
-        :func:`asyncio.to_thread` so the running event loop is never
-        blocked by the underlying HTTP library.
+        Document uploads use the legacy v1 multipart endpoint because
+        the GLPI v2 API does not advertise a binary upload route. The
+        async :class:`~glpi_python_client.clients.AsyncGlpiClient`
+        offloads this blocking call to a worker thread automatically;
+        callers using the sync :class:`~glpi_python_client.clients.GlpiClient`
+        invoke it directly.
 
         Parameters
         ----------
@@ -271,8 +270,7 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             )
 
         v1 = self._v1
-        result = await asyncio.to_thread(
-            v1.upload_document,
+        return v1.upload_document(
             filename,
             content,
             mime_type,
@@ -280,7 +278,6 @@ class AsyncDocumentMixin(AsyncTransportMixin):
             ticket_id=ticket_id,
             entity_id=entity_id,
         )
-        return result
 
 
-__all__ = ["AsyncDocumentMixin"]
+__all__ = ["DocumentMixin"]

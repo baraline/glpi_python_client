@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-user-location-provisioning
 description: "Search GLPI users, locations, and entities, or create, update, and delete users and locations and entities with the asynchronous glpi_python_client.GlpiClient and the matching Get/Post/Patch/Delete models. Use for user lookup, entity lookup, location lookup, user provisioning, location creation, GLPI entity defaults, or RSQL filters."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI User, Location, And Entity Provisioning
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 Users live under `/Administration/User`, entities under `/Administration/Entity`, and locations under `/Dropdown/Location`. Each resource family is exposed by the same `search_/get_/create_/update_/delete_` shape on `GlpiClient` with matching `Get`/`Post`/`Patch`/`Delete` Pydantic models.
 

@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-document-workflow
 description: "Manage GLPI document metadata, upload binary content via the legacy v1 fallback, download document binaries, and link documents to a ticket timeline with the asynchronous glpi_python_client.GlpiClient and the GetDocument/PostDocument/PatchDocument/DeleteDocument models. Use for ticket attachments, document binary content, document metadata, or saving downloaded files."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI Document Workflow
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 Document metadata uses the standard `Get`/`Post`/`Patch`/`Delete` shape on `/Management/Document`. Binary content uses two dedicated helpers: `download_document_content` for downloads and `upload_document` for uploads through the legacy v1 fallback session (the v2 contract does not advertise a binary upload endpoint).
 

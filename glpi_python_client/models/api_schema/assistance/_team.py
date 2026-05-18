@@ -13,7 +13,21 @@ from glpi_python_client.models._base import GlpiModel
 class GetTeamMember(GlpiModel):
     """Response shape returned by ``GET`` on ticket team-member endpoints.
 
-    Mirrors ``components.schemas.TeamMember``.
+    Mirrors ``components.schemas.TeamMember``. No field carries a
+    ``description`` in the OpenAPI contract; the parameters below are
+    documented by field name and context.
+
+    Parameters
+    ----------
+    id : int | None, optional
+        Native GLPI identifier of the team-member link (``readOnly``).
+    name : str | None, optional
+        Display name of the actor (typically the user or group name).
+    type : str | None, optional
+        GLPI actor type, such as ``"User"`` or ``"Group"``.
+    role : str | None, optional
+        Ticket role assigned to the actor, such as ``"Requester"``,
+        ``"Observer"`` or ``"Assigned to"``.
     """
 
     id: int | None = None
@@ -25,12 +39,20 @@ class GetTeamMember(GlpiModel):
 class PostTeamMember(GlpiModel):
     """Request body for ``POST`` on ticket team-member endpoints.
 
-    Notes
-    -----
-    Mirrors ``components.schemas.TeamMember`` minus the read-only ``name``
-    field. The OpenAPI contract marks ``id`` as ``readOnly`` on the request
-    body but the live GLPI server still requires the target user's ``id``
-    to identify the team member, so we expose it here.
+    The contract marks ``id`` as ``readOnly`` on the schema definition,
+    but the live GLPI server still requires the target actor's ``id``
+    to identify the team member, so the field is exposed here.
+    No field carries a ``description`` in the OpenAPI contract.
+
+    Parameters
+    ----------
+    id : int | None, optional
+        GLPI identifier of the actor to add (user or group ``id``).
+    type : str | None, optional
+        GLPI actor type, such as ``"User"`` or ``"Group"``.
+    role : str | None, optional
+        Ticket role to assign to the actor, such as ``"Requester"``,
+        ``"Observer"`` or ``"Assigned to"``.
     """
 
     id: int | None = None
@@ -39,15 +61,18 @@ class PostTeamMember(GlpiModel):
 
 
 class PatchTeamMember(PostTeamMember):
-    """Request body for ``PATCH`` on ticket team-member endpoints."""
+    """Request body for ``PATCH`` on ticket team-member endpoints.
+
+    Inherits all fields from :class:`PostTeamMember`.
+    """
 
 
 class DeleteTeamMember(GlpiModel):
     """Placeholder body for ``DELETE`` on ticket team-member endpoints.
 
-    The contract advertises the role/itemtype/user identifiers as path
-    parameters and exposes no body or query parameters; this empty model is
-    kept for parity with the rest of the ``api_schema`` package.
+    The contract advertises the role, itemtype and user identifiers as
+    path parameters and exposes no body or query parameters; this empty
+    model is kept for parity with the rest of the ``api_schema`` package.
     """
 
 

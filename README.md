@@ -14,8 +14,14 @@ followups, documents, locations, and related records, while converting GLPI
 HTML content into Markdown for Python-side workflows and rendering Markdown
 back to HTML for outgoing payloads.
 
-It currently focuses on ticket-centric workflows and exposes a single
-asynchronous high-level client built on top of the GLPI v2 REST API.
+It currently focuses on ticket-centric workflows and exposes two high-level
+clients built on top of the GLPI v2 REST API:
+
+- `GlpiClient` — synchronous, blocking client (single source of truth for
+  endpoint behaviour).
+- `AsyncGlpiClient` — asynchronous facade that wraps every synchronous
+  method into a coroutine and dispatches it to a worker thread.
+
 Note that all integration tests using this package are made on GLPI 11.
 I cannot make any guarantee of the behaviour on previous versions.
 
@@ -42,14 +48,38 @@ Create a client with your GLPI v2 API URL and at least one complete auth pair:
 - `username` and `password`
 - both pairs together
 
+### Synchronous client
+
+```python
+from glpi_python_client import GlpiClient, PostTicket
+
+with GlpiClient(
+    glpi_api_url="https://glpi.example.com/api.php/v2",
+    client_id="oauth-client-id",
+    client_secret="oauth-client-secret",
+    username="api-user",
+    password="api-password",
+) as glpi:
+    ticket_id = glpi.create_ticket(
+        PostTicket(
+            name="Printer issue",
+            content="The printer is not reachable from the office network.",
+        )
+    )
+    ticket = glpi.get_ticket(ticket_id)
+    print(ticket.id, ticket.name)
+```
+
+### Asynchronous client
+
 ```python
 import asyncio
 
-from glpi_python_client import GlpiClient, PostTicket
+from glpi_python_client import AsyncGlpiClient, PostTicket
 
 
 async def main() -> None:
-    async with GlpiClient(
+    async with AsyncGlpiClient(
         glpi_api_url="https://glpi.example.com/api.php/v2",
         client_id="oauth-client-id",
         client_secret="oauth-client-secret",
@@ -69,39 +99,22 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-If your application already provides `GLPI_` environment variables,
-`GlpiClient.from_env()` is also available.
+`GlpiClient.from_env()` and `AsyncGlpiClient.from_env()` are also available
+when the credentials are already exposed as `GLPI_`-prefixed environment
+variables.
 
-### Calling from synchronous code
-For now, I provide only an async client, but if necessary, could
-duplicate the code to make a sync client. Until then you can make
-it works from sync programs through
-`asyncio.run`. Wrap the calls in a coroutine and execute it once:
+### Sync or async?
 
-```python
-import asyncio
-
-from glpi_python_client import GlpiClient
-
-
-def fetch_open_tickets() -> list[int]:
-    async def _run() -> list[int]:
-        async with GlpiClient.from_env() as glpi:
-            tickets = await glpi.search_tickets("status==1", limit=10)
-            return [ticket.id for ticket in tickets]
-
-    return asyncio.run(_run())
-
-
-if __name__ == "__main__":
-    print(fetch_open_tickets())
-```
-
-For long-lived sync services that need many calls, run a dedicated
-event loop on a background thread and dispatch with
-`asyncio.run_coroutine_threadsafe`. See the
-[user guide](https://glpi-python-client.readthedocs.io/en/latest/user_guide.html#calling-the-client-from-synchronous-code)
-for the full pattern.
+Both clients expose the exact same endpoint surface and accept the same
+constructor arguments. The async client is a thin facade that wraps each
+synchronous method into a coroutine dispatched to a worker thread via
+`asyncio.to_thread` (or a caller-supplied `concurrent.futures.Executor`).
+A shared `threading.Lock` serialises OAuth token acquisition so concurrent
+`asyncio.gather(...)` fan-outs cannot race. Pick `GlpiClient` for plain
+scripts, CLI tools, and synchronous services; pick `AsyncGlpiClient` when
+your application already runs an event loop or when you need concurrent
+fan-out (the aggregated `get_ticket_context` and per-ticket
+`get_task_statistics` helpers use `asyncio.gather` on the async client).
 
 ## Documentation
 

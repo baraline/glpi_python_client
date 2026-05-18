@@ -18,7 +18,35 @@ from glpi_python_client.models.api_schema._common import IdNameRef
 class GetDocument(GlpiModel):
     """Response shape returned by ``GET /Management/Document`` endpoints.
 
-    Mirrors ``components.schemas.Document``.
+    Mirrors ``components.schemas.Document``. No field carries a
+    ``description`` in the OpenAPI contract. The ``filepath`` field is
+    server-managed (``readOnly``).
+
+    Parameters
+    ----------
+    id : int | None, optional
+        Native GLPI identifier (``readOnly``).
+    name : str | None, optional
+        Display name of the document.
+    comment : str | None, optional
+        Free-form comment associated with the document.
+    entity : IdNameRef | None, optional
+        Reference to the owning GLPI entity.
+    date_creation : datetime | None, optional
+        Creation timestamp of the document record (``format: date-time``).
+    date_mod : datetime | None, optional
+        Last modification timestamp of the document record
+        (``format: date-time``).
+    is_deleted : bool | None, optional
+        Whether the document has been moved to the trash.
+    filename : str | None, optional
+        Original file name of the uploaded file.
+    filepath : str | None, optional
+        Server-managed storage path of the file (``readOnly``).
+    mime : str | None, optional
+        MIME type of the uploaded file.
+    sha1sum : str | None, optional
+        SHA-1 checksum of the stored file, used for deduplication.
     """
 
     id: int | None = None
@@ -35,7 +63,34 @@ class GetDocument(GlpiModel):
 
 
 class PostDocument(GlpiModel):
-    """Request body for ``POST /Management/Document``."""
+    """Request body for ``POST /Management/Document``.
+
+    Read-only contract fields (``id``, ``filepath``) are intentionally
+    excluded because the server rejects them on input.
+
+    Parameters
+    ----------
+    name : str | None, optional
+        Display name of the document.
+    comment : str | None, optional
+        Free-form comment associated with the document.
+    entity : IdNameRef | None, optional
+        Reference to the owning GLPI entity.
+    date_creation : datetime | None, optional
+        Creation timestamp to set on the document record
+        (``format: date-time``).
+    date_mod : datetime | None, optional
+        Last modification timestamp to set on the document record
+        (``format: date-time``).
+    is_deleted : bool | None, optional
+        Whether to create the document in the trashed state.
+    filename : str | None, optional
+        Original file name of the uploaded file.
+    mime : str | None, optional
+        MIME type of the uploaded file.
+    sha1sum : str | None, optional
+        SHA-1 checksum of the stored file, used for deduplication.
+    """
 
     name: str | None = None
     comment: str | None = None
@@ -49,7 +104,12 @@ class PostDocument(GlpiModel):
 
 
 class PatchDocument(PostDocument):
-    """Request body for ``PATCH /Management/Document/{id}``."""
+    """Request body for ``PATCH /Management/Document/{id}``.
+
+    The contract uses the same ``Document`` schema for create and
+    partial-update bodies; ``PatchDocument`` is kept distinct so client
+    mixins can express the intent of the operation explicitly.
+    """
 
 
 class DeleteDocument(GlpiModel):
@@ -58,7 +118,10 @@ class DeleteDocument(GlpiModel):
     Parameters
     ----------
     force : bool | None, optional
-        Permanently delete the document instead of moving it to the trash.
+        When ``True``, permanently delete the document instead of moving
+        the record to the GLPI trash. When ``False`` or :data:`None`,
+        the server applies its default soft-delete behaviour and the
+        document can still be restored.
     """
 
     force: bool | None = None

@@ -1,17 +1,39 @@
-"""Asynchronous GLPI v2 transport mixin.
+"""Synchronous GLPI v2 transport mixin.
 
 The transport mixin owns token handling, header construction, retries, and
 HTTP request dispatch so the per-endpoint mixins under
 :mod:`glpi_python_client.clients.api` can stay focused on resource-specific
 behaviour.
+
+Concurrency model
+-----------------
+The transport is intentionally synchronous and backed by the blocking
+``requests`` library. Access to the auth token manager is serialised with
+a :class:`threading.Lock` rather than an :class:`asyncio.Lock` because:
+
+* the sync :class:`~glpi_python_client.clients.GlpiClient` can be shared
+  across user threads, and
+* the async :class:`~glpi_python_client.clients.AsyncGlpiClient` runs every
+  public call on a worker thread through
+  :func:`asyncio.to_thread`, so concurrent ``asyncio.gather`` fan-outs
+  contend across OS threads — which an :class:`asyncio.Lock` cannot
+  protect.
+
+A single :class:`threading.Lock` covers both clients with one primitive.
+The lock is held only for the short critical section that refreshes the
+token; HTTP calls themselves run without the lock so concurrent requests
+can proceed in parallel while sharing the same access token. The
+underlying :class:`requests.Session` connection pool is thread-safe for
+concurrent HTTP calls; the session is built once at construction time
+and is never mutated afterwards.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
+import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar
 
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -42,17 +64,27 @@ logger = logging.getLogger(__name__)
 ModelT = TypeVar("ModelT", bound=GlpiModel)
 
 
-class AsyncTransportMixin:
-    """Asynchronous GLPI API transport helpers shared by the API mixins.
+class TransportMixin:
+    """Synchronous GLPI API transport helpers shared by the API mixins.
 
     The class declares the runtime attributes the concrete client owns and
-    exposes the awaitable ``_get_request``, ``_post_request``,
+    exposes the blocking ``_get_request``, ``_post_request``,
     ``_update_request`` and ``_delete_request`` helpers used by every
     per-endpoint mixin.
+
+    Thread safety
+    -------------
+    Token acquisition and refresh are serialised by ``_auth_lock``
+    (:class:`threading.Lock`) so concurrent threads — whether spawned by
+    the sync client directly or by the async client through
+    :func:`asyncio.to_thread` — never race while updating shared
+    authentication state. HTTP dispatch runs outside the lock and relies
+    on the thread-safety of :class:`requests.Session` for concurrent
+    calls.
     """
 
     _auth: GLPITokenManager
-    _auth_lock: asyncio.Lock
+    _auth_lock: threading.Lock
     _closed: bool = False
     _session: requests.Session
     _v1: GLPIV1Session | None
@@ -65,43 +97,41 @@ class AsyncTransportMixin:
     def _ensure_open(self) -> None:
         """Raise when the client has already been closed.
 
-        All async transport helpers call this guard before touching the
-        shared HTTP session so closed clients fail fast and predictably.
+        All transport helpers call this guard before touching the shared
+        HTTP session so closed clients fail fast and predictably.
         """
 
         if self._closed:
             raise RuntimeError("GLPI client is closed")
 
-    async def _ensure_token(self) -> None:
+    def _ensure_token(self) -> None:
         """Ensure that a valid GLPI access token is available.
 
-        Token refresh is serialised by the async lock so concurrent awaited
-        calls do not race while updating shared authentication state.
+        Token refresh is serialised by ``_auth_lock`` so concurrent
+        callers from any thread never race while updating shared
+        authentication state.
         """
 
         self._ensure_open()
-        async with self._auth_lock:
-            await asyncio.to_thread(self._auth.ensure_token)
+        with self._auth_lock:
+            self._auth.ensure_token()
 
-    async def _send_request(
+    def _send_request(
         self,
         method: str,
         url: str,
         **kwargs: object,
     ) -> requests.Response:
-        """Dispatch one blocking ``requests`` call from the async loop.
+        """Dispatch one blocking ``requests`` call.
 
-        The blocking HTTP call is wrapped in ``asyncio.to_thread`` so the
-        async loop is never blocked by the underlying synchronous library.
+        The helper exists as an indirection seam so tests can stub HTTP
+        dispatch without monkey-patching the session attribute directly.
         """
 
         request_method = getattr(self._session, method)
-        return cast(
-            requests.Response,
-            await asyncio.to_thread(request_method, url, **kwargs),
-        )
+        return request_method(url, **kwargs)
 
-    async def _execute_request(
+    def _execute_request(
         self,
         *,
         method: str,
@@ -112,14 +142,15 @@ class AsyncTransportMixin:
         skip_entity: bool = False,
         include_content_type: bool = False,
     ) -> requests.Response:
-        """Execute one authenticated GLPI request asynchronously.
+        """Execute one authenticated GLPI request.
 
         The helper normalises the endpoint URL, headers, timeout, and
-        payload placement before dispatching the blocking HTTP call through
-        the async transport wrapper.
+        payload placement before dispatching the blocking HTTP call. It
+        guarantees a fresh access token before the request leaves the
+        process.
         """
 
-        await self._ensure_token()
+        self._ensure_token()
         access_token = require_access_token(self._auth.access_token)
         url = build_request_url(self.glpi_api_url, endpoint)
 
@@ -140,7 +171,7 @@ class AsyncTransportMixin:
         else:
             request_kwargs["json"] = json_body
 
-        response = await self._send_request(method, url, **request_kwargs)
+        response = self._send_request(method, url, **request_kwargs)
         return finalize_request_response(
             response,
             method=method,
@@ -154,20 +185,20 @@ class AsyncTransportMixin:
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
     )
-    async def _get_request(
+    def _get_request(
         self,
         endpoint: str,
         params: dict[str, object] | None = None,
         skip_entity: bool = False,
     ) -> requests.Response:
-        """Execute one authenticated GLPI ``GET`` request asynchronously.
+        """Execute one authenticated GLPI ``GET`` request.
 
         Network-level request exceptions are retried according to the
         transport retry policy before the response is returned to the
         caller.
         """
 
-        return await self._execute_request(
+        return self._execute_request(
             method="get",
             endpoint=endpoint,
             success_statuses=(200, 206),
@@ -180,19 +211,19 @@ class AsyncTransportMixin:
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
     )
-    async def _post_request(
+    def _post_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
     ) -> requests.Response:
-        """Execute one authenticated GLPI ``POST`` request asynchronously.
+        """Execute one authenticated GLPI ``POST`` request.
 
         JSON request bodies automatically include the content-type header
         needed by the GLPI API.
         """
 
-        return await self._execute_request(
+        return self._execute_request(
             method="post",
             endpoint=endpoint,
             success_statuses=(200, 201),
@@ -206,19 +237,19 @@ class AsyncTransportMixin:
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
     )
-    async def _update_request(
+    def _update_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
     ) -> requests.Response:
-        """Execute one authenticated GLPI ``PATCH`` request asynchronously.
+        """Execute one authenticated GLPI ``PATCH`` request.
 
-        The helper uses the same authenticated execution path as the other
-        HTTP verbs while targeting the success codes expected from update
-        calls.
+        The helper uses the same authenticated execution path as the
+        other HTTP verbs while targeting the success codes expected from
+        update calls.
         """
 
-        return await self._execute_request(
+        return self._execute_request(
             method="patch",
             endpoint=endpoint,
             success_statuses=(200, 204),
@@ -231,19 +262,19 @@ class AsyncTransportMixin:
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
     )
-    async def _delete_request(
+    def _delete_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
     ) -> requests.Response:
-        """Execute one authenticated GLPI ``DELETE`` request asynchronously.
+        """Execute one authenticated GLPI ``DELETE`` request.
 
-        Some delete endpoints accept a JSON body, so the content-type header
-        is enabled automatically when a body is supplied.
+        Some delete endpoints accept a JSON body, so the content-type
+        header is enabled automatically when a body is supplied.
         """
 
-        return await self._execute_request(
+        return self._execute_request(
             method="delete",
             endpoint=endpoint,
             success_statuses=(200, 204),
@@ -252,7 +283,7 @@ class AsyncTransportMixin:
             include_content_type=json_body is not None,
         )
 
-    async def _resource_list(
+    def _resource_list(
         self,
         endpoint: str,
         model: type[ModelT],
@@ -292,9 +323,7 @@ class AsyncTransportMixin:
             Validated records returned by the GLPI server.
         """
 
-        response = await self._get_request(
-            endpoint, params=params, skip_entity=skip_entity
-        )
+        response = self._get_request(endpoint, params=params, skip_entity=skip_entity)
         if failure_message is not None:
             ensure_response_status(
                 response,
@@ -309,7 +338,7 @@ class AsyncTransportMixin:
         )
         return [model_from_payload(model, item) for item in items]
 
-    async def _resource_get(
+    def _resource_get(
         self,
         endpoint: str,
         model: type[ModelT],
@@ -337,7 +366,7 @@ class AsyncTransportMixin:
             Validated record returned by the GLPI server.
         """
 
-        response = await self._get_request(endpoint, skip_entity=skip_entity)
+        response = self._get_request(endpoint, skip_entity=skip_entity)
         ensure_response_status(
             response,
             success_statuses=(200, 206),
@@ -345,7 +374,7 @@ class AsyncTransportMixin:
         )
         return model_from_payload(model, response.json())
 
-    async def _resource_create(
+    def _resource_create(
         self,
         endpoint: str,
         body_model: GlpiModel,
@@ -368,8 +397,9 @@ class AsyncTransportMixin:
             Message embedded in the ``ValueError`` raised on a non-success
             HTTP status.
         missing_message : str
-            Message embedded in the ``ValueError`` raised when the response
-            payload does not contain any of the expected identifier keys.
+            Message embedded in the ``ValueError`` raised when the
+            response payload does not contain any of the expected
+            identifier keys.
         log_message_factory : Callable[[int], str]
             Callable invoked with the new identifier to build the
             ``logger.info`` payload, allowing call sites to embed the
@@ -386,7 +416,7 @@ class AsyncTransportMixin:
             Numeric identifier assigned by the GLPI server.
         """
 
-        response = await self._post_request(
+        response = self._post_request(
             endpoint, model_to_payload(body_model), skip_entity=skip_entity
         )
         ensure_response_status(
@@ -400,7 +430,7 @@ class AsyncTransportMixin:
         logger.info("%s", log_message_factory(new_id))
         return new_id
 
-    async def _resource_update(
+    def _resource_update(
         self,
         endpoint: str,
         body_model: GlpiModel,
@@ -428,7 +458,7 @@ class AsyncTransportMixin:
         None
         """
 
-        response = await self._update_request(endpoint, model_to_payload(body_model))
+        response = self._update_request(endpoint, model_to_payload(body_model))
         ensure_response_status(
             response,
             success_statuses=(200, 204),
@@ -436,7 +466,7 @@ class AsyncTransportMixin:
         )
         logger.info("%s", log_message)
 
-    async def _resource_delete(
+    def _resource_delete(
         self,
         endpoint: str,
         *,
@@ -480,9 +510,7 @@ class AsyncTransportMixin:
         request_body = body
         if request_body is None and delete_model_cls is not None and force is not None:
             request_body = model_to_payload(delete_model_cls(force=force))  # type: ignore[call-arg]
-        response = await self._delete_request(
-            endpoint, request_body, skip_entity=skip_entity
-        )
+        response = self._delete_request(endpoint, request_body, skip_entity=skip_entity)
         ensure_response_status(
             response,
             success_statuses=(200, 204),
@@ -491,4 +519,4 @@ class AsyncTransportMixin:
         logger.info("%s", log_message)
 
 
-__all__ = ["AsyncTransportMixin"]
+__all__ = ["TransportMixin"]

@@ -2,7 +2,8 @@
 
 The helpers here own environment parsing, URL normalisation, SSL warning
 behaviour, and the construction of the runtime resources used by
-:class:`glpi_python_client.clients.glpi_client.GlpiClient`.
+:class:`glpi_python_client.clients.sync_client.GlpiClient` and
+:class:`glpi_python_client.clients.async_client.AsyncGlpiClient`.
 """
 
 from __future__ import annotations

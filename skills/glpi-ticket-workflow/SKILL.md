@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-ticket-workflow
 description: "Search, fetch, create, update, and delete GLPI tickets with the asynchronous glpi_python_client.GlpiClient and the GetTicket/PostTicket/PatchTicket/DeleteTicket models. Use for GLPI ticket records, ticket filters, fields, pagination, status, priority, category, location, or instance-specific extra_payload values."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI Ticket Workflow
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 Use this skill for ticket reads and writes through the public asynchronous client. Tickets live under `/Assistance/Ticket` on the GLPI v2 API and are exposed by five `GlpiClient` methods: `search_tickets`, `get_ticket`, `create_ticket`, `update_ticket`, and `delete_ticket`.
 

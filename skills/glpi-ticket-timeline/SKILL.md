@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-ticket-timeline
 description: "Read GLPI ticket timeline records and create or update followups, tasks, solutions, and timeline document links with the asynchronous glpi_python_client.GlpiClient. Use when handling ticket notes, followups, tasks, solutions, or attached documents on a GLPI ticket timeline."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI Ticket Timeline
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 The ticket timeline is exposed by four resource families under `/Assistance/Ticket/{id}/Timeline/{Followup|Task|Solution|Document}`. Each family has matching `Get`/`Post`/`Patch`/`Delete` Pydantic models and the same `list_/get_/create_/update_/delete_` (or `link_`/`unlink_` for documents) shape on `GlpiClient`.
 

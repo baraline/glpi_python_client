@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Administration/Entity`` mixin.
+"""Synchronous GLPI ``/Administration/Entity`` mixin.
 
 The mixin exposes the search, fetch, create, update, and delete helpers
 for the GLPI entity resource. Entity calls intentionally bypass the
@@ -8,7 +8,7 @@ client's ``GLPI-Entity`` header so cross-entity lookups remain possible.
 from __future__ import annotations
 
 from glpi_python_client.clients.commons._constants import ENTITY_ENDPOINT, GlpiId
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.administration._entity import (
     DeleteEntity,
     GetEntity,
@@ -17,10 +17,10 @@ from glpi_python_client.models.api_schema.administration._entity import (
 )
 
 
-class AsyncEntityMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for ``/Administration/Entity``."""
+class EntityMixin(TransportMixin):
+    """Synchronous CRUD helpers for ``/Administration/Entity``."""
 
-    async def search_entities(
+    def search_entities(
         self,
         rsql_filter: str = "",
         *,
@@ -50,11 +50,11 @@ class AsyncEntityMixin(AsyncTransportMixin):
             params["limit"] = limit
         if rsql_filter:
             params["filter"] = rsql_filter
-        return await self._resource_list(
+        return self._resource_list(
             ENTITY_ENDPOINT, GetEntity, params=params, skip_entity=True
         )
 
-    async def get_entity(self, entity_id: GlpiId) -> GetEntity:
+    def get_entity(self, entity_id: GlpiId) -> GetEntity:
         """Fetch one GLPI entity by identifier.
 
         Parameters
@@ -73,14 +73,14 @@ class AsyncEntityMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{ENTITY_ENDPOINT}/{entity_id}",
             GetEntity,
             failure_message=f"Failed to get entity {entity_id}",
             skip_entity=True,
         )
 
-    async def create_entity(self, entity: PostEntity) -> int:
+    def create_entity(self, entity: PostEntity) -> int:
         """Create one GLPI entity.
 
         Parameters
@@ -100,7 +100,7 @@ class AsyncEntityMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             ENTITY_ENDPOINT,
             entity,
             failure_message="Failed to create entity",
@@ -109,7 +109,7 @@ class AsyncEntityMixin(AsyncTransportMixin):
             skip_entity=True,
         )
 
-    async def update_entity(self, entity_id: GlpiId, entity: PatchEntity) -> None:
+    def update_entity(self, entity_id: GlpiId, entity: PatchEntity) -> None:
         """Update one GLPI entity with a partial body.
 
         Parameters
@@ -129,16 +129,14 @@ class AsyncEntityMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{ENTITY_ENDPOINT}/{entity_id}",
             entity,
             failure_message=f"Failed to update entity {entity_id}",
             log_message=f"GLPI API updated entity {entity_id}",
         )
 
-    async def delete_entity(
-        self, entity_id: GlpiId, *, force: bool | None = None
-    ) -> None:
+    def delete_entity(self, entity_id: GlpiId, *, force: bool | None = None) -> None:
         """Delete one GLPI entity by identifier.
 
         Parameters
@@ -159,7 +157,7 @@ class AsyncEntityMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{ENTITY_ENDPOINT}/{entity_id}",
             failure_message=f"Failed to delete entity {entity_id}",
             log_message=f"GLPI API deleted entity {entity_id}",
@@ -169,4 +167,4 @@ class AsyncEntityMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncEntityMixin"]
+__all__ = ["EntityMixin"]
