@@ -19,7 +19,29 @@ from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
 class GetTimelineDocument(GlpiModel):
     """Response shape returned by ``GET`` on ticket timeline document endpoints.
 
-    Mirrors ``components.schemas.Document_Item``.
+    Mirrors ``components.schemas.Document_Item``. Most fields are marked
+    ``readOnly`` in the contract and are never accepted on write requests.
+    Only ``timeline_position`` is writable.
+
+    Parameters
+    ----------
+    id : int | None, optional
+        Native GLPI identifier of the document-item link (``readOnly``).
+    itemtype : str | None, optional
+        GLPI item type the document is attached to (``readOnly``).
+    items_id : int | None, optional
+        Identifier of the parent GLPI item (``readOnly``).
+    documents_id : int | None, optional
+        Identifier of the referenced ``Document`` record (``readOnly``;
+        no contract description).
+    filepath : str | None, optional
+        Server-managed storage path of the linked file (``readOnly``;
+        no contract description).
+    timeline_position : GlpiTimelinePosition | None, optional
+        Horizontal position of the document in the GLPI ticket timeline
+        widget (contract field ``timeline_position`` — ``The position
+        in the timeline``; enumeration: ``0`` No timeline, ``1`` Not
+        set, ``2`` Left, ``3`` Mid left, ``4`` Mid right, ``5`` Right).
     """
 
     id: int | None = None
@@ -31,13 +53,30 @@ class GetTimelineDocument(GlpiModel):
 
 
 class PostTimelineDocument(GlpiModel):
-    """Request body for ``POST`` on ticket timeline document endpoints."""
+    """Request body for ``POST`` on ticket timeline document endpoints.
+
+    All read-only contract fields (``id``, ``itemtype``, ``items_id``,
+    ``documents_id``, ``filepath``) are excluded; only the writable
+    ``timeline_position`` field is exposed.
+
+    Parameters
+    ----------
+    timeline_position : GlpiTimelinePosition | None, optional
+        Horizontal position of the document in the GLPI ticket timeline
+        widget (contract field ``timeline_position`` — ``The position
+        in the timeline``; enumeration: ``0`` No timeline, ``1`` Not
+        set, ``2`` Left, ``3`` Mid left, ``4`` Mid right, ``5`` Right).
+    """
 
     timeline_position: GlpiTimelinePosition | None = None
 
 
 class PatchTimelineDocument(PostTimelineDocument):
-    """Request body for ``PATCH`` on ticket timeline document endpoints."""
+    """Request body for ``PATCH`` on ticket timeline document endpoints.
+
+    Inherits the single writable field (``timeline_position``) from
+    :class:`PostTimelineDocument`.
+    """
 
 
 class DeleteTimelineDocument(GlpiModel):
@@ -46,7 +85,10 @@ class DeleteTimelineDocument(GlpiModel):
     Parameters
     ----------
     force : bool | None, optional
-        Permanently delete the link instead of moving it to the trash.
+        When ``True``, permanently delete the document-item link instead
+        of moving the record to the GLPI trash. When ``False`` or
+        :data:`None`, the server applies its default soft-delete
+        behaviour and the link can still be restored.
     """
 
     force: bool | None = None

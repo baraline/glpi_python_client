@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-reporting-and-context
 description: "Aggregate GLPI ticket and task statistics and load grouped ticket contexts with the asynchronous glpi_python_client.GlpiClient. Use for operational reporting, ticket counts grouped by entity/status/priority/type, task duration totals grouped by user and ticket, or one-call ticket context retrieval bundling tickets with timeline records."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI Reporting And Context
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 Three custom helpers on `GlpiClient` build on top of the contract-aligned API mixins:
 

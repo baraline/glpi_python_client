@@ -1,4 +1,4 @@
----
+﻿---
 name: glpi-team-members
 description: "List, add, and remove GLPI ticket team members with the asynchronous glpi_python_client.GlpiClient and the GetTeamMember/PostTeamMember models. Use when assigning users or groups to tickets, inspecting ticket teams, or removing GLPI ticket participants."
 license: MIT
@@ -9,6 +9,7 @@ metadata:
 ---
 
 # GLPI Team Members
+> The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
 Ticket team members are exposed under `/Assistance/Ticket/{id}/TeamMember`. The `GlpiClient` exposes three methods: `list_ticket_team_members`, `add_ticket_team_member`, and `remove_ticket_team_member`.
 

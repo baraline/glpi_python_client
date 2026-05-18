@@ -63,14 +63,14 @@ def _ticket(
     return GetTicket(**payload)
 
 
-async def test_get_ticket_statistics_aggregates_by_entity_status_priority_type(
+def test_get_ticket_statistics_aggregates_by_entity_status_priority_type(
     client: GlpiClient,
 ) -> None:
     """All aggregation buckets are produced from the search response."""
 
     captured: dict[str, Any] = {}
 
-    async def fake_search(
+    def fake_search(
         rsql_filter: str = "", *, limit: int = 50, start: int = 0
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
@@ -92,7 +92,7 @@ async def test_get_ticket_statistics_aggregates_by_entity_status_priority_type(
         ]
 
     client.search_tickets = fake_search  # type: ignore[method-assign]
-    result = await client.get_ticket_statistics(
+    result = client.get_ticket_statistics(
         start_date="2026-01-01",
         end_date="2026-01-31",
         extra_filter="status==1",
@@ -112,42 +112,40 @@ async def test_get_ticket_statistics_aggregates_by_entity_status_priority_type(
     assert entities["unknown"]["by_status"] == {"UNKNOWN": 1}
 
 
-async def test_get_ticket_statistics_default_window_uses_today(
+def test_get_ticket_statistics_default_window_uses_today(
     client: GlpiClient,
 ) -> None:
     """When no dates are passed the helper uses today minus default_days."""
 
     captured: dict[str, Any] = {}
 
-    async def fake_search(
+    def fake_search(
         rsql_filter: str = "", *, limit: int = 50, start: int = 0
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return []
 
     client.search_tickets = fake_search  # type: ignore[method-assign]
-    await client.get_ticket_statistics(default_days=7)
+    client.get_ticket_statistics(default_days=7)
     end = date.today()
     start = end - timedelta(days=6)
     assert f"date_creation=ge={start.isoformat()}" in captured["filter"]
     assert f"date_creation=le={end.isoformat()}" in captured["filter"]
 
 
-async def test_get_ticket_statistics_rejects_invalid_window(client: GlpiClient) -> None:
+def test_get_ticket_statistics_rejects_invalid_window(client: GlpiClient) -> None:
     """Invalid date inputs raise locally before any HTTP request."""
 
     with pytest.raises(ValueError, match="default_days"):
-        await client.get_ticket_statistics(default_days=0)
+        client.get_ticket_statistics(default_days=0)
     with pytest.raises(ValueError, match="start_date"):
-        await client.get_ticket_statistics(
-            start_date="2026-02-01", end_date="2026-01-01"
-        )
+        client.get_ticket_statistics(start_date="2026-02-01", end_date="2026-01-01")
 
 
-async def test_get_task_statistics_zero_for_empty_input(client: GlpiClient) -> None:
+def test_get_task_statistics_zero_for_empty_input(client: GlpiClient) -> None:
     """An empty ticket list returns zeroed totals without any HTTP call."""
 
-    result = await client.get_task_statistics([])
+    result = client.get_task_statistics([])
     assert result == {
         "ticket_count": 0,
         "task_count": 0,
@@ -157,12 +155,12 @@ async def test_get_task_statistics_zero_for_empty_input(client: GlpiClient) -> N
     }
 
 
-async def test_get_task_statistics_aggregates_by_user_and_ticket(
+def test_get_task_statistics_aggregates_by_user_and_ticket(
     client: GlpiClient,
 ) -> None:
     """Durations group by user and parent ticket."""
 
-    async def fake_list(ticket_id: int) -> list[GetTicketTask]:
+    def fake_list(ticket_id: int) -> list[GetTicketTask]:
         if ticket_id == 1:
             return [
                 GetTicketTask(
@@ -188,7 +186,7 @@ async def test_get_task_statistics_aggregates_by_user_and_ticket(
         ]
 
     client.list_ticket_tasks = fake_list  # type: ignore[method-assign]
-    result = await client.get_task_statistics([1, 2])
+    result = client.get_task_statistics([1, 2])
     assert result["ticket_count"] == 2
     assert result["task_count"] == 3
     assert result["total_duration"] == 900

@@ -1,23 +1,23 @@
-"""GLPI ticket-timeline mixins for the asynchronous client."""
+"""GLPI ticket-timeline mixins for the Synchronous client."""
 
 from __future__ import annotations
 
 from glpi_python_client.clients.api.assistance.timeline._document import (
-    AsyncTimelineDocumentMixin,
+    TimelineDocumentMixin,
 )
 from glpi_python_client.clients.api.assistance.timeline._followup import (
-    AsyncFollowupMixin,
+    FollowupMixin,
 )
 from glpi_python_client.clients.api.assistance.timeline._solution import (
-    AsyncSolutionMixin,
+    SolutionMixin,
 )
 from glpi_python_client.clients.api.assistance.timeline._task import (
-    AsyncTicketTaskMixin,
+    TicketTaskMixin,
 )
 
 __all__ = [
-    "AsyncFollowupMixin",
-    "AsyncSolutionMixin",
-    "AsyncTicketTaskMixin",
-    "AsyncTimelineDocumentMixin",
+    "FollowupMixin",
+    "SolutionMixin",
+    "TicketTaskMixin",
+    "TimelineDocumentMixin",
 ]

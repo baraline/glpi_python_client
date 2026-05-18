@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from glpi_python_client import GlpiClient
+from glpi_python_client import AsyncGlpiClient, GlpiClient
 
 _DEFAULT_CLIENT_CONFIG: dict[str, object] = {
     "glpi_api_url": "https://glpi.example.test/api.php/",
@@ -97,7 +97,7 @@ class TokenResponse(FakeResponse):
 
 
 def make_client(**overrides: object) -> GlpiClient:
-    """Return a test client configured with sensible defaults.
+    """Return a synchronous test client configured with sensible defaults.
 
     Callers can override any constructor keyword while reusing the shared base
     configuration needed by most tests.
@@ -106,3 +106,16 @@ def make_client(**overrides: object) -> GlpiClient:
     config = dict(_DEFAULT_CLIENT_CONFIG)
     config.update(overrides)
     return GlpiClient(**config)  # type: ignore[arg-type]
+
+
+def make_async_client(**overrides: object) -> AsyncGlpiClient:
+    """Return an asynchronous test client configured with sensible defaults.
+
+    The helper mirrors :func:`make_client` but instantiates the
+    :class:`AsyncGlpiClient` so tests can exercise the async public
+    surface (and its bridge) without duplicating the base configuration.
+    """
+
+    config = dict(_DEFAULT_CLIENT_CONFIG)
+    config.update(overrides)
+    return AsyncGlpiClient(**config)  # type: ignore[arg-type]

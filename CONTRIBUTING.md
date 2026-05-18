@@ -50,7 +50,11 @@ python -m sphinx -W --keep-going -b html docs docs/_build/html
 
 ## Design Guidelines
 
-- Keep API calls behind `GlpiClient` methods.
+- Keep API calls behind `GlpiClient` / `AsyncGlpiClient` methods. Add
+  new endpoints to a sync endpoint mixin only; `AsyncGlpiClient`
+  exposes them as coroutines automatically through `AsyncBridge`. Only
+  add a dedicated async override when the method needs concurrent
+  fan-out via `asyncio.gather`.
 - Prefer field-validated Pydantic models for request and response payloads.
 - Avoid organization-specific category, entity, or profile defaults in the
   library core.

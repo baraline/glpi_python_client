@@ -57,7 +57,7 @@ class _Recorder:
     def install(self, client: GlpiClient) -> None:
         """Replace the four transport helpers with capturing stubs."""
 
-        async def _get(
+        def _get(
             endpoint: str,
             params: dict[str, Any] | None = None,
             skip_entity: bool = False,
@@ -76,7 +76,7 @@ class _Recorder:
                 content=self._get_content,
             )
 
-        async def _post(
+        def _post(
             endpoint: str,
             json_body: dict[str, Any] | None = None,
             skip_entity: bool = False,
@@ -93,7 +93,7 @@ class _Recorder:
                 status_code=self._post_status, payload=self._post_payload
             )
 
-        async def _patch(
+        def _patch(
             endpoint: str, json_body: dict[str, Any] | None = None
         ) -> FakeResponse:
             self.calls.append(
@@ -101,7 +101,7 @@ class _Recorder:
             )
             return FakeResponse(status_code=self._patch_status, payload={})
 
-        async def _delete(
+        def _delete(
             endpoint: str,
             json_body: dict[str, Any] | None = None,
             skip_entity: bool = False,
@@ -134,12 +134,12 @@ def client() -> GlpiClient:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_tickets_forwards_sort_and_fields(client: GlpiClient) -> None:
+def test_search_tickets_forwards_sort_and_fields(client: GlpiClient) -> None:
     """Sort and field selection both flow into the GET query parameters."""
 
     rec = _Recorder(get_payload=[{"id": 1, "name": "n", "content": "c"}])
     rec.install(client)
-    tickets = await client.search_tickets(
+    tickets = client.search_tickets(
         "status==1", limit=5, start=10, sort="date_mod desc", fields=("id", "name")
     )
 
@@ -151,34 +151,34 @@ async def test_search_tickets_forwards_sort_and_fields(client: GlpiClient) -> No
     assert rec.calls[0]["params"]["fields"] == "id,name"
 
 
-async def test_get_ticket_returns_validated_model(client: GlpiClient) -> None:
+def test_get_ticket_returns_validated_model(client: GlpiClient) -> None:
     """Single ticket responses are validated through ``GetTicket``."""
 
     rec = _Recorder(get_payload={"id": 7, "name": "demo", "content": "<p>c</p>"})
     rec.install(client)
-    ticket = await client.get_ticket(7)
+    ticket = client.get_ticket(7)
     assert ticket.id == 7
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7"
 
 
-async def test_update_ticket_sends_patch(client: GlpiClient) -> None:
+def test_update_ticket_sends_patch(client: GlpiClient) -> None:
     """Update sends a PATCH with the partial body."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_ticket(7, PatchTicket(content="<p>x</p>"))
+    client.update_ticket(7, PatchTicket(content="<p>x</p>"))
     call = rec.calls[0]
     assert call["method"] == "PATCH"
     assert call["endpoint"] == "Assistance/Ticket/7"
     assert call["json"] == {"content": "<p>x</p>"}
 
 
-async def test_delete_ticket_omits_body_without_force(client: GlpiClient) -> None:
+def test_delete_ticket_omits_body_without_force(client: GlpiClient) -> None:
     """``delete_ticket(force=None)`` omits the JSON body."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.delete_ticket(7)
+    client.delete_ticket(7)
     call = rec.calls[0]
     assert call["method"] == "DELETE"
     assert call["endpoint"] == "Assistance/Ticket/7"
@@ -190,33 +190,33 @@ async def test_delete_ticket_omits_body_without_force(client: GlpiClient) -> Non
 # ---------------------------------------------------------------------------
 
 
-async def test_search_users_forwards_skip_entity(client: GlpiClient) -> None:
+def test_search_users_forwards_skip_entity(client: GlpiClient) -> None:
     """``search_users`` forwards the ``skip_entity`` flag."""
 
     rec = _Recorder(get_payload=[{"id": 1, "username": "alice"}])
     rec.install(client)
-    users = await client.search_users("username==alice", skip_entity=True)
+    users = client.search_users("username==alice", skip_entity=True)
     assert len(users) == 1
     assert rec.calls[0]["skip_entity"] is True
     assert rec.calls[0]["params"]["filter"] == "username==alice"
 
 
-async def test_get_user_targets_user_endpoint(client: GlpiClient) -> None:
+def test_get_user_targets_user_endpoint(client: GlpiClient) -> None:
     """``get_user`` hits the per-id endpoint."""
 
     rec = _Recorder(get_payload={"id": 5, "username": "alice"})
     rec.install(client)
-    user = await client.get_user(5)
+    user = client.get_user(5)
     assert user.id == 5
     assert rec.calls[0]["endpoint"] == "Administration/User/5"
 
 
-async def test_update_user_sends_patch(client: GlpiClient) -> None:
+def test_update_user_sends_patch(client: GlpiClient) -> None:
     """``update_user`` issues PATCH against the user endpoint."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_user(5, PatchUser(firstname="Alice"))
+    client.update_user(5, PatchUser(firstname="Alice"))
     assert rec.calls[0]["method"] == "PATCH"
     assert rec.calls[0]["endpoint"] == "Administration/User/5"
 
@@ -226,42 +226,42 @@ async def test_update_user_sends_patch(client: GlpiClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_locations_passes_filter(client: GlpiClient) -> None:
+def test_search_locations_passes_filter(client: GlpiClient) -> None:
     """``search_locations`` forwards the RSQL filter through ``filter``."""
 
     rec = _Recorder(get_payload=[{"id": 1, "name": "Paris"}])
     rec.install(client)
-    locations = await client.search_locations("name==Paris")
+    locations = client.search_locations("name==Paris")
     assert locations[0].id == 1
     assert rec.calls[0]["endpoint"] == "Dropdowns/Location"
     assert rec.calls[0]["params"]["filter"] == "name==Paris"
 
 
-async def test_get_location_endpoint(client: GlpiClient) -> None:
+def test_get_location_endpoint(client: GlpiClient) -> None:
     """``get_location`` hits the per-id endpoint."""
 
     rec = _Recorder(get_payload={"id": 9, "name": "Paris"})
     rec.install(client)
-    loc = await client.get_location(9)
+    loc = client.get_location(9)
     assert loc.id == 9
     assert rec.calls[0]["endpoint"] == "Dropdowns/Location/9"
 
 
-async def test_update_location(client: GlpiClient) -> None:
+def test_update_location(client: GlpiClient) -> None:
     """``update_location`` patches the per-id endpoint."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_location(9, PatchLocation(name="Paris HQ"))
+    client.update_location(9, PatchLocation(name="Paris HQ"))
     assert rec.calls[0]["endpoint"] == "Dropdowns/Location/9"
 
 
-async def test_delete_location_with_force(client: GlpiClient) -> None:
+def test_delete_location_with_force(client: GlpiClient) -> None:
     """``delete_location(force=True)`` ships the force flag in the body."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.delete_location(9, force=True)
+    client.delete_location(9, force=True)
     call = rec.calls[0]
     assert call["method"] == "DELETE"
     assert call["endpoint"] == "Dropdowns/Location/9"
@@ -273,55 +273,55 @@ async def test_delete_location_with_force(client: GlpiClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_entities_skips_entity_header(client: GlpiClient) -> None:
+def test_search_entities_skips_entity_header(client: GlpiClient) -> None:
     """``search_entities`` skips the GLPI-Entity header."""
 
     rec = _Recorder(get_payload=[{"id": 1, "name": "root"}])
     rec.install(client)
-    entities = await client.search_entities("name==root", limit=None, start=0)
+    entities = client.search_entities("name==root", limit=None, start=0)
     assert entities[0].id == 1
     assert rec.calls[0]["skip_entity"] is True
     assert "limit" not in rec.calls[0]["params"]
 
 
-async def test_get_entity_skips_entity_header(client: GlpiClient) -> None:
+def test_get_entity_skips_entity_header(client: GlpiClient) -> None:
     """``get_entity`` also bypasses the entity header."""
 
     rec = _Recorder(get_payload={"id": 2, "name": "root"})
     rec.install(client)
-    entity = await client.get_entity(2)
+    entity = client.get_entity(2)
     assert entity.id == 2
     assert rec.calls[0]["endpoint"] == "Administration/Entity/2"
     assert rec.calls[0]["skip_entity"] is True
 
 
-async def test_update_entity_patch(client: GlpiClient) -> None:
+def test_update_entity_patch(client: GlpiClient) -> None:
     """``update_entity`` patches the per-id endpoint."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_entity(2, PatchEntity(name="renamed"))
+    client.update_entity(2, PatchEntity(name="renamed"))
     assert rec.calls[0]["endpoint"] == "Administration/Entity/2"
 
 
-async def test_delete_entity_with_force(client: GlpiClient) -> None:
+def test_delete_entity_with_force(client: GlpiClient) -> None:
     """``delete_entity(force=True)`` ships the force flag and skips entity."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.delete_entity(2, force=True)
+    client.delete_entity(2, force=True)
     call = rec.calls[0]
     assert call["endpoint"] == "Administration/Entity/2"
     assert call["json"] == {"force": True}
     assert call["skip_entity"] is True
 
 
-async def test_create_entity_id_returned(client: GlpiClient) -> None:
+def test_create_entity_id_returned(client: GlpiClient) -> None:
     """``create_entity`` returns the newly created identifier."""
 
     rec = _Recorder(post_payload={"id": 42})
     rec.install(client)
-    entity_id = await client.create_entity(PostEntity(name="root"))
+    entity_id = client.create_entity(PostEntity(name="root"))
     assert entity_id == 42
     assert rec.calls[0]["endpoint"] == "Administration/Entity"
     assert rec.calls[0]["skip_entity"] is True
@@ -332,12 +332,12 @@ async def test_create_entity_id_returned(client: GlpiClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_search_documents_filter_and_pagination(client: GlpiClient) -> None:
+def test_search_documents_filter_and_pagination(client: GlpiClient) -> None:
     """``search_documents`` forwards the filter, limit, start, and skip_entity."""
 
     rec = _Recorder(get_payload=[{"id": 1, "name": "doc"}])
     rec.install(client)
-    docs = await client.search_documents("name==*manual*", limit=10, start=20)
+    docs = client.search_documents("name==*manual*", limit=10, start=20)
     assert len(docs) == 1
     call = rec.calls[0]
     assert call["endpoint"] == "Management/Document"
@@ -347,77 +347,77 @@ async def test_search_documents_filter_and_pagination(client: GlpiClient) -> Non
     assert call["params"]["filter"] == "name==*manual*"
 
 
-async def test_get_document_endpoint(client: GlpiClient) -> None:
+def test_get_document_endpoint(client: GlpiClient) -> None:
     """``get_document`` hits the per-id endpoint."""
 
     rec = _Recorder(get_payload={"id": 3, "name": "doc"})
     rec.install(client)
-    document = await client.get_document(3)
+    document = client.get_document(3)
     assert document.id == 3
     assert rec.calls[0]["endpoint"] == "Management/Document/3"
 
 
-async def test_create_document_returns_id(client: GlpiClient) -> None:
+def test_create_document_returns_id(client: GlpiClient) -> None:
     """``create_document`` returns the new id and skips entity."""
 
     rec = _Recorder(post_payload={"id": 77})
     rec.install(client)
-    document_id = await client.create_document(PostDocument(name="manual"))
+    document_id = client.create_document(PostDocument(name="manual"))
     assert document_id == 77
     assert rec.calls[0]["endpoint"] == "Management/Document"
     assert rec.calls[0]["skip_entity"] is True
 
 
-async def test_update_document_patches_endpoint(client: GlpiClient) -> None:
+def test_update_document_patches_endpoint(client: GlpiClient) -> None:
     """``update_document`` issues PATCH on the per-id endpoint."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_document(3, PatchDocument(name="x"))
+    client.update_document(3, PatchDocument(name="x"))
     assert rec.calls[0]["endpoint"] == "Management/Document/3"
 
 
-async def test_delete_document_with_force(client: GlpiClient) -> None:
+def test_delete_document_with_force(client: GlpiClient) -> None:
     """``delete_document(force=True)`` adds the body and skips entity."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.delete_document(3, force=True)
+    client.delete_document(3, force=True)
     call = rec.calls[0]
     assert call["endpoint"] == "Management/Document/3"
     assert call["json"] == {"force": True}
     assert call["skip_entity"] is True
 
 
-async def test_download_document_returns_bytes(client: GlpiClient) -> None:
+def test_download_document_returns_bytes(client: GlpiClient) -> None:
     """``download_document_content`` returns the response bytes."""
 
     rec = _Recorder(
         get_status=200, get_payload={"ignored": True}, get_content=b"\x00ZZ"
     )
     rec.install(client)
-    content = await client.download_document_content(3)
+    content = client.download_document_content(3)
     assert content == b"\x00ZZ"
     assert rec.calls[0]["endpoint"] == "Management/Document/3/Download"
 
 
-async def test_download_document_raises_on_failure(client: GlpiClient) -> None:
+def test_download_document_raises_on_failure(client: GlpiClient) -> None:
     """A non-200 download status raises ``ValueError``."""
 
     rec = _Recorder(get_status=404, get_payload={"err": "missing"})
     rec.install(client)
     with pytest.raises(ValueError):
-        await client.download_document_content(3)
+        client.download_document_content(3)
 
 
-async def test_upload_document_requires_filename(client: GlpiClient) -> None:
+def test_upload_document_requires_filename(client: GlpiClient) -> None:
     """``upload_document`` rejects an empty filename before any HTTP call."""
 
     with pytest.raises(ValueError, match="filename"):
-        await client.upload_document(filename="", content=b"x")
+        client.upload_document(filename="", content=b"x")
 
 
-async def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:
+def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:
     """``upload_document`` forwards arguments to the configured v1 session."""
 
     captured: dict[str, Any] = {}
@@ -446,7 +446,7 @@ async def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:
             return {"id": 1}
 
     client._v1 = _FakeV1()  # type: ignore[assignment]
-    result = await client.upload_document(
+    result = client.upload_document(
         filename="a.txt",
         content=b"abc",
         mime_type="text/plain",
@@ -466,7 +466,7 @@ async def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_list_ticket_followups_unwraps_envelope(client: GlpiClient) -> None:
+def test_list_ticket_followups_unwraps_envelope(client: GlpiClient) -> None:
     """Live envelope ``{"type":..,"item":..}`` entries are unwrapped."""
 
     rec = _Recorder(
@@ -476,40 +476,40 @@ async def test_list_ticket_followups_unwraps_envelope(client: GlpiClient) -> Non
         ]
     )
     rec.install(client)
-    items = await client.list_ticket_followups(7)
+    items = client.list_ticket_followups(7)
     assert [i.id for i in items] == [11, 12]
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup"
 
 
-async def test_get_ticket_followup_endpoint(client: GlpiClient) -> None:
+def test_get_ticket_followup_endpoint(client: GlpiClient) -> None:
     """``get_ticket_followup`` hits the per-id endpoint."""
 
     rec = _Recorder(get_payload={"id": 11, "content": "x"})
     rec.install(client)
-    followup = await client.get_ticket_followup(7, 11)
+    followup = client.get_ticket_followup(7, 11)
     assert followup.id == 11
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup/11"
 
 
-async def test_update_ticket_followup_patch(client: GlpiClient) -> None:
+def test_update_ticket_followup_patch(client: GlpiClient) -> None:
     """``update_ticket_followup`` patches the per-id endpoint."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.update_ticket_followup(7, 11, PatchFollowup(content="<p>up</p>"))
+    client.update_ticket_followup(7, 11, PatchFollowup(content="<p>up</p>"))
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup/11"
 
 
-async def test_delete_ticket_followup_force(client: GlpiClient) -> None:
+def test_delete_ticket_followup_force(client: GlpiClient) -> None:
     """``delete_ticket_followup(force=True)`` adds the body."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.delete_ticket_followup(7, 11, force=True)
+    client.delete_ticket_followup(7, 11, force=True)
     assert rec.calls[0]["json"] == {"force": True}
 
 
-async def test_list_get_update_delete_ticket_tasks(client: GlpiClient) -> None:
+def test_list_get_update_delete_ticket_tasks(client: GlpiClient) -> None:
     """All four task helpers target the task timeline endpoint."""
 
     rec = _Recorder(
@@ -518,17 +518,17 @@ async def test_list_get_update_delete_ticket_tasks(client: GlpiClient) -> None:
         ]
     )
     rec.install(client)
-    tasks = await client.list_ticket_tasks(7)
+    tasks = client.list_ticket_tasks(7)
     assert tasks[0].id == 1
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Task"
 
     rec.calls.clear()
     rec._get_payload = {"id": 1, "content": "x"}  # type: ignore[attr-defined]
-    task = await client.get_ticket_task(7, 1)
+    task = client.get_ticket_task(7, 1)
     assert task.id == 1
 
-    await client.update_ticket_task(7, 1, PatchTicketTask(content="<p>up</p>"))
-    await client.delete_ticket_task(7, 1, force=True)
+    client.update_ticket_task(7, 1, PatchTicketTask(content="<p>up</p>"))
+    client.delete_ticket_task(7, 1, force=True)
 
     endpoints = [c["endpoint"] for c in rec.calls]
     assert endpoints == [
@@ -538,7 +538,7 @@ async def test_list_get_update_delete_ticket_tasks(client: GlpiClient) -> None:
     ]
 
 
-async def test_list_get_update_delete_ticket_solutions(client: GlpiClient) -> None:
+def test_list_get_update_delete_ticket_solutions(client: GlpiClient) -> None:
     """All four solution helpers target the solution timeline endpoint."""
 
     rec = _Recorder(
@@ -547,15 +547,15 @@ async def test_list_get_update_delete_ticket_solutions(client: GlpiClient) -> No
         ]
     )
     rec.install(client)
-    sols = await client.list_ticket_solutions(7)
+    sols = client.list_ticket_solutions(7)
     assert sols[0].id == 1
 
     rec._get_payload = {"id": 1, "content": "x"}  # type: ignore[attr-defined]
-    sol = await client.get_ticket_solution(7, 1)
+    sol = client.get_ticket_solution(7, 1)
     assert sol.id == 1
 
-    await client.update_ticket_solution(7, 1, PatchSolution(content="<p>up</p>"))
-    await client.delete_ticket_solution(7, 1, force=True)
+    client.update_ticket_solution(7, 1, PatchSolution(content="<p>up</p>"))
+    client.delete_ticket_solution(7, 1, force=True)
 
     methods = [c["method"] for c in rec.calls]
     assert methods == ["GET", "GET", "PATCH", "DELETE"]
@@ -565,7 +565,7 @@ async def test_list_get_update_delete_ticket_solutions(client: GlpiClient) -> No
     assert any("Solution" in e for e in endpoints)
 
 
-async def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
+def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
     """All four timeline document helpers target the document endpoint."""
 
     rec = _Recorder(
@@ -574,16 +574,16 @@ async def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> 
         ]
     )
     rec.install(client)
-    items = await client.list_ticket_timeline_documents(7)
+    items = client.list_ticket_timeline_documents(7)
     assert items[0].id == 1
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Document"
 
     rec._get_payload = {"id": 1, "documents_id": 99}  # type: ignore[attr-defined]
-    doc = await client.get_ticket_timeline_document(7, 1)
+    doc = client.get_ticket_timeline_document(7, 1)
     assert doc.id == 1
 
-    await client.update_ticket_timeline_document(7, 1, PatchTimelineDocument())
-    await client.unlink_ticket_timeline_document(7, 1, force=True)
+    client.update_ticket_timeline_document(7, 1, PatchTimelineDocument())
+    client.unlink_ticket_timeline_document(7, 1, force=True)
 
     methods = [c["method"] for c in rec.calls]
     assert methods == ["GET", "GET", "PATCH", "DELETE"]
@@ -594,22 +594,22 @@ async def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> 
 # ---------------------------------------------------------------------------
 
 
-async def test_list_ticket_team_members_endpoint(client: GlpiClient) -> None:
+def test_list_ticket_team_members_endpoint(client: GlpiClient) -> None:
     """``list_ticket_team_members`` hits the team-member endpoint."""
 
     rec = _Recorder(get_payload=[{"id": 1, "type": "User", "role": "assigned"}])
     rec.install(client)
-    members = await client.list_ticket_team_members(7)
+    members = client.list_ticket_team_members(7)
     assert members[0].id == 1
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/TeamMember"
 
 
-async def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None:
+def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None:
     """``remove_ticket_team_member`` issues DELETE with the member body."""
 
     rec = _Recorder()
     rec.install(client)
-    await client.remove_ticket_team_member(
+    client.remove_ticket_team_member(
         7, PostTeamMember(type="User", id=42, role="assigned")
     )
 
@@ -643,7 +643,7 @@ async def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None
         lambda c: c.list_ticket_timeline_documents(1),
     ],
 )
-async def test_get_helpers_raise_on_failure_status(
+def test_get_helpers_raise_on_failure_status(
     client: GlpiClient, call: Callable[[GlpiClient], Any]
 ) -> None:
     """Every read helper raises ``ValueError`` on a non-success status."""
@@ -651,7 +651,7 @@ async def test_get_helpers_raise_on_failure_status(
     rec = _Recorder(get_status=404, get_payload={"err": "missing"})
     rec.install(client)
     with pytest.raises(ValueError):
-        await call(client)
+        call(client)
 
 
 @pytest.mark.parametrize(
@@ -668,7 +668,7 @@ async def test_get_helpers_raise_on_failure_status(
         lambda c: c.update_ticket_timeline_document(1, 2, PatchTimelineDocument()),
     ],
 )
-async def test_update_helpers_raise_on_failure_status(
+def test_update_helpers_raise_on_failure_status(
     client: GlpiClient, call: Callable[[GlpiClient], Any]
 ) -> None:
     """Every update helper raises ``ValueError`` on a non-success status."""
@@ -676,7 +676,7 @@ async def test_update_helpers_raise_on_failure_status(
     rec = _Recorder(patch_status=500)
     rec.install(client)
     with pytest.raises(ValueError):
-        await call(client)
+        call(client)
 
 
 @pytest.mark.parametrize(
@@ -696,7 +696,7 @@ async def test_update_helpers_raise_on_failure_status(
         ),
     ],
 )
-async def test_delete_helpers_raise_on_failure_status(
+def test_delete_helpers_raise_on_failure_status(
     client: GlpiClient, call: Callable[[GlpiClient], Any]
 ) -> None:
     """Every delete helper raises ``ValueError`` on a non-success status."""
@@ -704,4 +704,4 @@ async def test_delete_helpers_raise_on_failure_status(
     rec = _Recorder(delete_status=500)
     rec.install(client)
     with pytest.raises(ValueError):
-        await call(client)
+        call(client)

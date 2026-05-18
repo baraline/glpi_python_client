@@ -10,12 +10,11 @@ caller can correlate the returned numeric identifiers with the dedicated
 
 from __future__ import annotations
 
-import asyncio
 from collections import defaultdict
 from datetime import date, timedelta
 
 from glpi_python_client.clients.commons._filters import rsql_all_filter
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema._common import (
     IdNameCompletenameRef,
     IdNameRef,
@@ -30,10 +29,10 @@ from glpi_python_client.models.api_schema.enums import (
 )
 
 
-class AsyncStatisticsMixin(AsyncTransportMixin):
-    """Asynchronous custom statistics built on the contract API mixins."""
+class StatisticsMixin(TransportMixin):
+    """Synchronous custom statistics built on the contract API mixins."""
 
-    async def get_ticket_statistics(
+    def get_ticket_statistics(
         self,
         *,
         start_date: str | None = None,
@@ -85,13 +84,13 @@ class AsyncStatisticsMixin(AsyncTransportMixin):
             f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}",
             extra_filter,
         )
-        tickets: list[GetTicket] = await self.search_tickets(  # type: ignore[attr-defined]
+        tickets: list[GetTicket] = self.search_tickets(  # type: ignore[attr-defined]
             rsql_filter=query or "",
             limit=200,
         )
         return _summarize_tickets(tickets)
 
-    async def get_task_statistics(
+    def get_task_statistics(
         self,
         ticket_ids: list[int],
     ) -> dict[str, object]:
@@ -126,12 +125,10 @@ class AsyncStatisticsMixin(AsyncTransportMixin):
                 "duration_by_ticket": {},
             }
 
-        results = await asyncio.gather(
-            *(
-                self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined]
-                for ticket_id in ticket_ids
-            )
-        )
+        results: list[list[GetTicketTask]] = [
+            self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined]
+            for ticket_id in ticket_ids
+        ]
         flattened: list[GetTicketTask] = [task for batch in results for task in batch]
         return _summarize_tasks(ticket_ids, flattened)
 
@@ -261,4 +258,4 @@ def _freeze_bucket(bucket: dict[str, object]) -> dict[str, object]:
     }
 
 
-__all__ = ["AsyncStatisticsMixin"]
+__all__ = ["StatisticsMixin"]

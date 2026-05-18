@@ -16,7 +16,7 @@ from glpi_python_client.testing.utils import make_client
 
 @pytest.fixture
 def client_factory() -> Callable[..., GlpiClient]:
-    """Return the reusable async GLPI client factory fixture.
+    """Return the reusable synchronous GLPI client factory fixture.
 
     Tests can call the returned factory with overrides to create focused
     client instances without duplicating the base configuration shared by

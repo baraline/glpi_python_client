@@ -1,13 +1,20 @@
 """Public import surface for the GLPI Python client package.
 
-The package re-exports the asynchronous :class:`GlpiClient` and the
-``api_schema`` and ``custom_schema`` Pydantic models so downstream users
-can import them from a single stable package root.
+The package re-exports two client classes:
+
+* :class:`GlpiClient` — synchronous, blocking client (single source of
+  truth for endpoint behaviour).
+* :class:`AsyncGlpiClient` — asynchronous facade that wraps each
+  synchronous method into a coroutine.
+
+The ``api_schema`` and ``custom_schema`` Pydantic models are also
+re-exported so downstream users can import them from a single stable
+package root.
 """
 
 from __future__ import annotations
 
-from glpi_python_client.clients import GlpiClient
+from glpi_python_client.clients import AsyncGlpiClient, GlpiClient
 from glpi_python_client.models import (
     DeleteDocument,
     DeleteEntity,
@@ -65,9 +72,10 @@ from glpi_python_client.models import (
     TicketMarkdownOptions,
 )
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
+    "AsyncGlpiClient",
     "DeleteDocument",
     "DeleteEntity",
     "DeleteFollowup",

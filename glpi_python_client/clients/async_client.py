@@ -1,10 +1,19 @@
 """Public asynchronous GLPI client class.
 
-The :class:`GlpiClient` class composes the per-endpoint mixins from
-:mod:`glpi_python_client.clients.api` with the custom helpers from
-:mod:`glpi_python_client.clients.custom` and the asynchronous transport
-mixin from :mod:`glpi_python_client.clients.commons` to expose the full
-public client surface.
+The :class:`AsyncGlpiClient` reuses every synchronous mixin composed
+into :class:`~glpi_python_client.clients.sync_client.GlpiClient` and
+wraps each public method into a coroutine through
+:class:`~glpi_python_client.clients.commons._async_bridge.AsyncBridge`.
+Helpers that benefit from concurrent fan-out
+(:meth:`get_ticket_context`, :meth:`get_task_statistics`) are replaced
+by their dedicated async overrides under
+:mod:`glpi_python_client.clients.custom`.
+
+The async client owns the same HTTP session and token manager as the
+synchronous client but its lifecycle is driven through ``async with`` /
+``await close()``. Token acquisition is still serialised by the shared
+:class:`threading.Lock` so concurrent ``asyncio.gather`` calls cannot
+race on the worker threads spawned by :func:`asyncio.to_thread`.
 """
 
 from __future__ import annotations
@@ -13,6 +22,8 @@ import asyncio
 import logging
 import os
 import sys
+import threading
+from concurrent.futures import Executor
 from types import TracebackType
 from typing import TYPE_CHECKING
 
@@ -22,24 +33,25 @@ else:  # pragma: no cover - fallback for Python 3.10
     from typing_extensions import Self
 
 from glpi_python_client.clients.api import (
-    AsyncDocumentMixin,
-    AsyncEntityMixin,
-    AsyncFollowupMixin,
-    AsyncLocationMixin,
-    AsyncSolutionMixin,
-    AsyncTeamMemberMixin,
-    AsyncTicketMixin,
-    AsyncTicketTaskMixin,
-    AsyncTimelineDocumentMixin,
-    AsyncUserMixin,
+    DocumentMixin,
+    EntityMixin,
+    FollowupMixin,
+    LocationMixin,
+    SolutionMixin,
+    TeamMemberMixin,
+    TicketMixin,
+    TicketTaskMixin,
+    TimelineDocumentMixin,
+    UserMixin,
 )
+from glpi_python_client.clients.commons._async_bridge import AsyncBridge
 from glpi_python_client.clients.commons._config import (
     build_client_env_config,
     build_client_resources,
 )
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
-from glpi_python_client.clients.custom import (
-    AsyncStatisticsMixin,
+from glpi_python_client.clients.commons._transport import TransportMixin
+from glpi_python_client.clients.custom._statistics_async import AsyncStatisticsMixin
+from glpi_python_client.clients.custom._ticket_context_async import (
     AsyncTicketContextMixin,
 )
 
@@ -49,25 +61,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class GlpiClient(
-    AsyncTicketMixin,
-    AsyncTicketTaskMixin,
-    AsyncFollowupMixin,
-    AsyncSolutionMixin,
-    AsyncTimelineDocumentMixin,
-    AsyncTeamMemberMixin,
-    AsyncDocumentMixin,
-    AsyncUserMixin,
-    AsyncEntityMixin,
-    AsyncLocationMixin,
+class AsyncGlpiClient(
+    AsyncBridge,
+    TicketMixin,
+    TicketTaskMixin,
+    FollowupMixin,
+    SolutionMixin,
+    TimelineDocumentMixin,
+    TeamMemberMixin,
+    DocumentMixin,
+    UserMixin,
+    EntityMixin,
+    LocationMixin,
     AsyncTicketContextMixin,
     AsyncStatisticsMixin,
-    AsyncTransportMixin,
+    TransportMixin,
 ):
-    """Asynchronous GLPI client backed by the contract-aligned API mixins.
+    """Asynchronous GLPI client built on the sync mixins via the bridge.
 
-    The client owns the shared HTTP session, OAuth token manager, and
-    optional legacy v1 session used solely for binary document uploads.
+    Every public sync method exposed by the inherited mixins is
+    automatically wrapped into a coroutine that defers the blocking call
+    to a worker thread. The custom helpers that benefit from concurrent
+    fan-out provide hand-written async overrides which are preserved as
+    coroutine functions by the bridge.
     """
 
     def __init__(
@@ -87,43 +103,22 @@ class GlpiClient(
         v1_base_url: str | None = None,
         v1_user_token: str | None = None,
         v1_app_token: str | None = None,
+        executor: Executor | None = None,
     ) -> None:
-        """Build a GLPI client and its underlying transport resources.
+        """Build an asynchronous GLPI client and its transport resources.
+
+        Parameters mirror :class:`GlpiClient` with one extra option:
 
         Parameters
         ----------
-        glpi_api_url : str
-            Base URL of the GLPI v2 REST API, e.g.
-            ``https://glpi.example.com/api.php/v2``.
-        client_id : str | None, optional
-            OAuth client identifier used to obtain access tokens.
-        client_secret : str | None, optional
-            OAuth client secret paired with ``client_id``.
-        username : str | None, optional
-            GLPI account username used for the OAuth password grant.
-        password : str | None, optional
-            GLPI account password used for the OAuth password grant.
-        glpi_entity : int | None, optional
-            Default ``GLPI-Entity`` header sent with each request.
-        glpi_profile : int | None, optional
-            Default ``GLPI-Profile`` header sent with each request.
-        entity_recursive : bool, optional
-            When ``True`` the ``GLPI-Entity-Recursive`` header is sent so
-            entity scope includes child entities.
-        language : str, optional
-            Default ``Accept-Language`` header value (e.g. ``"en_GB"``).
-        verify_ssl : bool, optional
-            Whether the HTTP session verifies the server certificate.
-        auth_token_refresh : int | None, optional
-            Number of seconds before token expiry at which the auth
-            manager proactively refreshes the access token.
-        v1_base_url : str | None, optional
-            Base URL of the legacy GLPI v1 API used as a fallback for
-            binary document uploads.
-        v1_user_token : str | None, optional
-            ``user_token`` for the v1 fallback session.
-        v1_app_token : str | None, optional
-            ``app_token`` for the v1 fallback session.
+        executor : concurrent.futures.Executor | None, optional
+            Optional executor every wrapped call is routed through. When
+            ``None`` (the default) the bridge falls back to
+            :func:`asyncio.to_thread`, which uses the loop's default
+            thread pool executor. Supply a dedicated
+            :class:`concurrent.futures.ThreadPoolExecutor` when the
+            application performs aggressive fan-outs that would
+            otherwise saturate the default pool.
 
         Raises
         ------
@@ -153,8 +148,9 @@ class GlpiClient(
         self.glpi_profile = glpi_profile
         self.entity_recursive = entity_recursive
         self.language = language
-        self._auth_lock = asyncio.Lock()
+        self._auth_lock = threading.Lock()
         self._closed = False
+        self._executor = executor
 
     @classmethod
     def from_env(
@@ -162,16 +158,10 @@ class GlpiClient(
         *,
         env: Mapping[str, str] | None = None,
         prefix: str = "GLPI_",
+        executor: Executor | None = None,
         **overrides: object,
     ) -> Self:
         """Build a client instance from environment variables.
-
-        The variables follow the conventional ``<PREFIX><NAME>`` naming
-        (``GLPI_API_URL``, ``GLPI_CLIENT_ID``, ``GLPI_CLIENT_SECRET``,
-        ``GLPI_USERNAME``, ``GLPI_PASSWORD``, ``GLPI_VERIFY_SSL``,
-        ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``,
-        ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``,
-        ``GLPI_LANGUAGE``, ``GLPI_AUTH_TOKEN_REFRESH``).
 
         Parameters
         ----------
@@ -180,19 +170,15 @@ class GlpiClient(
             :data:`os.environ`.
         prefix : str, optional
             Common prefix shared by every environment variable name.
+        executor : concurrent.futures.Executor | None, optional
+            Optional executor forwarded to the constructor.
         **overrides : object
-            Keyword overrides forwarded to :meth:`__init__`. Any value
-            given here wins over the environment lookup.
+            Keyword overrides forwarded to :meth:`__init__`.
 
         Returns
         -------
-        GlpiClient
-            A fully configured client ready to perform requests.
-
-        Raises
-        ------
-        ValueError
-            If the resolved configuration is missing a required field.
+        AsyncGlpiClient
+            A fully configured async client ready to perform requests.
         """
 
         config = build_client_env_config(
@@ -200,18 +186,15 @@ class GlpiClient(
             env=env if env is not None else os.environ,
             overrides=overrides,
         )
-        return cls(**config)  # type: ignore[arg-type]
+        return cls(executor=executor, **config)  # type: ignore[arg-type]
 
     async def close(self) -> None:
         """Release every resource owned by the client.
 
-        The shared HTTP session is closed, the optional v1 fallback session
-        is closed, and the client is marked as closed so subsequent calls
-        raise immediately. The method is idempotent.
-
-        Returns
-        -------
-        None
+        The shared HTTP session is closed off-thread, the optional v1
+        fallback session is closed off-thread, and the client is marked
+        as closed so subsequent calls raise immediately. The method is
+        idempotent.
         """
 
         if self._closed:
@@ -228,7 +211,7 @@ class GlpiClient(
 
         Returns
         -------
-        GlpiClient
+        AsyncGlpiClient
             The client itself, suitable for chaining method calls.
         """
 
@@ -250,13 +233,9 @@ class GlpiClient(
             Exception instance raised inside the block, if any.
         tb : TracebackType | None
             Traceback associated with ``exc``.
-
-        Returns
-        -------
-        None
         """
 
         await self.close()
 
 
-__all__ = ["GlpiClient"]
+__all__ = ["AsyncGlpiClient"]

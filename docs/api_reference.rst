@@ -7,12 +7,25 @@ underscore-prefixed helpers are intentionally omitted.
 
 .. currentmodule:: glpi_python_client
 
-Client
-------
+Clients
+-------
+
+The package exposes two clients with identical endpoint surfaces. The
+synchronous one is the single source of truth for endpoint behaviour;
+the asynchronous one wraps each synchronous method into a coroutine.
 
 .. autoclass:: GlpiClient
    :members:
    :inherited-members:
+   :show-inheritance:
+
+.. autoclass:: AsyncGlpiClient
+   :members:
+   :inherited-members:
+   :show-inheritance:
+
+.. autoclass:: glpi_python_client.clients.commons._async_bridge.AsyncBridge
+   :members:
    :show-inheritance:
 
 Aggregated Models

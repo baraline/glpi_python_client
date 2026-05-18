@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Task`` mixin.
+"""Synchronous GLPI ``/Assistance/Ticket/{id}/Timeline/Task`` mixin.
 
 The mixin exposes list, fetch, create, update, and delete helpers for the
 ticket task timeline endpoint using the contract-aligned ``api_schema``
@@ -11,7 +11,7 @@ in a ``{"type": "Task", "item": {...}}`` envelope, even though the
 OpenAPI contract documents a flat array of ``TicketTask``. Real behaviour
 wins over the contract, so :func:`list_ticket_tasks` unwraps the envelope
 through the shared
-:meth:`~glpi_python_client.clients.commons._transport.AsyncTransportMixin._resource_list`
+:meth:`~glpi_python_client.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 
@@ -22,7 +22,7 @@ from glpi_python_client.clients.commons._constants import (
     TICKET_ENDPOINT,
     GlpiId,
 )
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance.timeline._task import (
     DeleteTicketTask,
     GetTicketTask,
@@ -31,10 +31,10 @@ from glpi_python_client.models.api_schema.assistance.timeline._task import (
 )
 
 
-class AsyncTicketTaskMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for the ticket task timeline endpoint."""
+class TicketTaskMixin(TransportMixin):
+    """Synchronous CRUD helpers for the ticket task timeline endpoint."""
 
-    async def list_ticket_tasks(self, ticket_id: GlpiId) -> list[GetTicketTask]:
+    def list_ticket_tasks(self, ticket_id: GlpiId) -> list[GetTicketTask]:
         """List all tasks linked to one ticket.
 
         Parameters
@@ -49,16 +49,14 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             unwrapped where present.
         """
 
-        return await self._resource_list(
+        return self._resource_list(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TASK_SUFFIX}",
             GetTicketTask,
             failure_message=f"Failed to list tasks for ticket {ticket_id}",
             unwrap_envelope=True,
         )
 
-    async def get_ticket_task(
-        self, ticket_id: GlpiId, task_id: GlpiId
-    ) -> GetTicketTask:
+    def get_ticket_task(self, ticket_id: GlpiId, task_id: GlpiId) -> GetTicketTask:
         """Fetch one ticket task by identifier.
 
         Parameters
@@ -79,13 +77,13 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TASK_SUFFIX}/{task_id}",
             GetTicketTask,
             failure_message=f"Failed to get task {task_id} on ticket {ticket_id}",
         )
 
-    async def create_ticket_task(self, ticket_id: GlpiId, task: PostTicketTask) -> int:
+    def create_ticket_task(self, ticket_id: GlpiId, task: PostTicketTask) -> int:
         """Create one task on a ticket.
 
         Parameters
@@ -107,7 +105,7 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TASK_SUFFIX}",
             task,
             failure_message=f"Failed to create task on ticket {ticket_id}",
@@ -118,7 +116,7 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             ),
         )
 
-    async def update_ticket_task(
+    def update_ticket_task(
         self,
         ticket_id: GlpiId,
         task_id: GlpiId,
@@ -145,14 +143,14 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TASK_SUFFIX}/{task_id}",
             task,
             failure_message=f"Failed to update task {task_id} on ticket {ticket_id}",
             log_message=f"GLPI API updated task {task_id} on ticket {ticket_id}",
         )
 
-    async def delete_ticket_task(
+    def delete_ticket_task(
         self,
         ticket_id: GlpiId,
         task_id: GlpiId,
@@ -181,7 +179,7 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TASK_SUFFIX}/{task_id}",
             failure_message=f"Failed to delete task {task_id} on ticket {ticket_id}",
             log_message=f"GLPI API deleted task {task_id} on ticket {ticket_id}",
@@ -190,4 +188,4 @@ class AsyncTicketTaskMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncTicketTaskMixin"]
+__all__ = ["TicketTaskMixin"]

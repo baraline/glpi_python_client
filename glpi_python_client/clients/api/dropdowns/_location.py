@@ -1,4 +1,4 @@
-"""Asynchronous GLPI ``/Dropdowns/Location`` mixin.
+"""Synchronous GLPI ``/Dropdowns/Location`` mixin.
 
 The mixin exposes search, fetch, create, update, and delete helpers for the
 GLPI location dropdown resource using the contract-aligned ``api_schema``
@@ -8,7 +8,7 @@ models.
 from __future__ import annotations
 
 from glpi_python_client.clients.commons._constants import LOCATION_ENDPOINT, GlpiId
-from glpi_python_client.clients.commons._transport import AsyncTransportMixin
+from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.dropdowns._location import (
     DeleteLocation,
     GetLocation,
@@ -17,10 +17,10 @@ from glpi_python_client.models.api_schema.dropdowns._location import (
 )
 
 
-class AsyncLocationMixin(AsyncTransportMixin):
-    """Asynchronous CRUD helpers for ``/Dropdowns/Location``."""
+class LocationMixin(TransportMixin):
+    """Synchronous CRUD helpers for ``/Dropdowns/Location``."""
 
-    async def search_locations(
+    def search_locations(
         self,
         rsql_filter: str = "",
         *,
@@ -47,9 +47,9 @@ class AsyncLocationMixin(AsyncTransportMixin):
         params: dict[str, object] = {"limit": limit, "start": start}
         if rsql_filter:
             params["filter"] = rsql_filter
-        return await self._resource_list(LOCATION_ENDPOINT, GetLocation, params=params)
+        return self._resource_list(LOCATION_ENDPOINT, GetLocation, params=params)
 
-    async def get_location(self, location_id: GlpiId) -> GetLocation:
+    def get_location(self, location_id: GlpiId) -> GetLocation:
         """Fetch one GLPI location by identifier.
 
         Parameters
@@ -68,13 +68,13 @@ class AsyncLocationMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        return await self._resource_get(
+        return self._resource_get(
             f"{LOCATION_ENDPOINT}/{location_id}",
             GetLocation,
             failure_message=f"Failed to get location {location_id}",
         )
 
-    async def create_location(self, location: PostLocation) -> int:
+    def create_location(self, location: PostLocation) -> int:
         """Create one GLPI location.
 
         Parameters
@@ -94,7 +94,7 @@ class AsyncLocationMixin(AsyncTransportMixin):
             non-success HTTP status.
         """
 
-        return await self._resource_create(
+        return self._resource_create(
             LOCATION_ENDPOINT,
             location,
             failure_message="Failed to create location",
@@ -102,9 +102,7 @@ class AsyncLocationMixin(AsyncTransportMixin):
             log_message_factory=lambda new_id: f"GLPI API created location {new_id}",
         )
 
-    async def update_location(
-        self, location_id: GlpiId, location: PatchLocation
-    ) -> None:
+    def update_location(self, location_id: GlpiId, location: PatchLocation) -> None:
         """Update one GLPI location with a partial body.
 
         Parameters
@@ -124,14 +122,14 @@ class AsyncLocationMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_update(
+        self._resource_update(
             f"{LOCATION_ENDPOINT}/{location_id}",
             location,
             failure_message=f"Failed to update location {location_id}",
             log_message=f"GLPI API updated location {location_id}",
         )
 
-    async def delete_location(
+    def delete_location(
         self, location_id: GlpiId, *, force: bool | None = None
     ) -> None:
         """Delete one GLPI location by identifier.
@@ -154,7 +152,7 @@ class AsyncLocationMixin(AsyncTransportMixin):
             If the GLPI server returns a non-success HTTP status.
         """
 
-        await self._resource_delete(
+        self._resource_delete(
             f"{LOCATION_ENDPOINT}/{location_id}",
             failure_message=f"Failed to delete location {location_id}",
             log_message=f"GLPI API deleted location {location_id}",
@@ -163,4 +161,4 @@ class AsyncLocationMixin(AsyncTransportMixin):
         )
 
 
-__all__ = ["AsyncLocationMixin"]
+__all__ = ["LocationMixin"]

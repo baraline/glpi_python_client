@@ -1,14 +1,20 @@
 User Guide
 ==========
 
-The ``glpi_python_client`` package exposes a single asynchronous
-:class:`glpi_python_client.GlpiClient` whose surface is built from
-contract-aligned per-endpoint mixins. The client speaks the GLPI **v2**
-high-level API and falls back to the legacy v1 endpoint only for binary
-document uploads.
+The ``glpi_python_client`` package exposes two high-level clients
+whose surface is built from contract-aligned per-endpoint mixins:
 
-The whole client is async-only. Public methods always return Pydantic
-models (or simple Python types) and never raw dictionaries.
+* :class:`glpi_python_client.GlpiClient` — synchronous, blocking
+  client. The single source of truth for endpoint behaviour.
+* :class:`glpi_python_client.AsyncGlpiClient` — asynchronous facade
+  that wraps every synchronous method into a coroutine and dispatches
+  it to a worker thread via :func:`asyncio.to_thread`.
+
+Both clients speak the GLPI **v2** high-level API and fall back to the
+legacy v1 endpoint only for binary document uploads. They expose the
+exact same endpoint methods and accept the same constructor arguments.
+Public methods always return Pydantic models (or simple Python types)
+and never raw dictionaries.
 
 .. contents::
    :local:
@@ -19,10 +25,10 @@ How this guide is organised
 
 The guide is split into the following sections:
 
-1. **Creating a client** — how to instantiate :class:`GlpiClient` from
+1. **Creating a client** — how to instantiate either client from
    explicit parameters or from environment variables.
-2. **Calling the client from synchronous code** — recommended patterns
-   for one-shot scripts, long-lived sync services, and tests.
+2. **Sync vs async surface** — when to pick which client and how the
+   async facade is implemented.
 3. **Seed data for the examples** — a self-contained snippet that
    creates the records reused by every later example. Run it once on a
    throwaway GLPI instance to follow along.
@@ -33,6 +39,12 @@ The guide is split into the following sections:
    the aggregated ticket context view and the reporting helpers.
 6. **End-to-end examples** — full workflows that combine the previous
    building blocks.
+
+The sample snippets in sections 3 to 6 use the synchronous
+:class:`GlpiClient`. Every snippet works on the asynchronous client by
+replacing ``with ... as client:`` with ``async with ... as client:`` and
+prefixing every client method call with ``await`` — the public method
+names and signatures are identical.
 
 .. _create-a-client:
 
@@ -45,37 +57,45 @@ pair. The OAuth password grant accepts either ``client_id`` /
 
 .. code-block:: python
 
+   from glpi_python_client import GlpiClient
+
+   with GlpiClient(
+       glpi_api_url="https://glpi.example.com/api.php/v2",
+       client_id="oauth-client-id",
+       client_secret="oauth-client-secret",
+       username="api-user",
+       password="api-password",
+       glpi_entity=1,
+       glpi_profile=4,
+   ) as client:
+       tickets = client.search_tickets("status==1", limit=10)
+       for ticket in tickets:
+           print(ticket.id, ticket.name)
+
+The asynchronous client takes the same arguments and is used inside an
+``async with`` block:
+
+.. code-block:: python
+
    import asyncio
 
-   from glpi_python_client import GlpiClient
+   from glpi_python_client import AsyncGlpiClient
 
 
    async def main() -> None:
-       client = GlpiClient(
+       async with AsyncGlpiClient(
            glpi_api_url="https://glpi.example.com/api.php/v2",
            client_id="oauth-client-id",
            client_secret="oauth-client-secret",
            username="api-user",
            password="api-password",
-           glpi_entity=1,
-           glpi_profile=4,
-       )
-       try:
+       ) as client:
            tickets = await client.search_tickets("status==1", limit=10)
            for ticket in tickets:
                print(ticket.id, ticket.name)
-       finally:
-           await client.close()
 
 
    asyncio.run(main())
-
-The client is also usable as an async context manager:
-
-.. code-block:: python
-
-   async with GlpiClient(glpi_api_url="...", client_id="...", client_secret="...") as client:
-       tickets = await client.search_tickets("status==1")
 
 Optional constructor arguments
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -92,13 +112,18 @@ Optional constructor arguments
   which the auth manager proactively refreshes the OAuth access token.
 * ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
   fallback used by :meth:`GlpiClient.upload_document`.
+* ``executor`` (:class:`AsyncGlpiClient` only) — an explicit
+  :class:`concurrent.futures.Executor` used to dispatch the wrapped
+  synchronous calls. Defaults to the standard library thread pool
+  through :func:`asyncio.to_thread`.
 
 ``from_env``
 ~~~~~~~~~~~~
 
 When the same configuration is already exposed through environment
-variables, :meth:`GlpiClient.from_env` reads the ``GLPI_``-prefixed
-keys and builds the client for you:
+variables, :meth:`GlpiClient.from_env` (and
+:meth:`AsyncGlpiClient.from_env`) read the ``GLPI_``-prefixed keys and
+build the client for you:
 
 * ``GLPI_API_URL``
 * ``GLPI_CLIENT_ID`` and ``GLPI_CLIENT_SECRET``
@@ -109,166 +134,85 @@ keys and builds the client for you:
 
 .. code-block:: python
 
-   from glpi_python_client import GlpiClient
+   from glpi_python_client import AsyncGlpiClient, GlpiClient
 
-   client = GlpiClient.from_env()
+   sync_client = GlpiClient.from_env()
+   async_client = AsyncGlpiClient.from_env()
 
-.. _calling-from-sync-code:
+.. _sync-vs-async:
 
-2. Calling the client from synchronous code
--------------------------------------------
+2. Sync vs async surface
+------------------------
 
-The client is async-only by design, but every public coroutine can be
-driven from a synchronous program. The recommended patterns are listed
-below in order of preference.
+Both :class:`GlpiClient` and :class:`AsyncGlpiClient` expose the same
+public endpoint methods. The parity is enforced by a unit test so any
+new sync endpoint is automatically reflected on the async client.
 
-One-shot scripts: ``asyncio.run``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When to pick which
+~~~~~~~~~~~~~~~~~~
 
-When the synchronous caller is a CLI, a cron entry, or any other
-process that performs a single GLPI interaction and exits, wrap the
-call in a coroutine and hand it to :func:`asyncio.run`:
+* Use :class:`GlpiClient` for plain Python scripts, CLI tools, cron
+  entries, and synchronous services. No event loop, no ``await``.
+* Use :class:`AsyncGlpiClient` when your application already runs an
+  event loop (for example a FastAPI or aiohttp service, an async CLI,
+  or a Jupyter notebook cell), or when you want concurrent fan-out.
 
-.. code-block:: python
+How the async client is implemented
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   import asyncio
+The asynchronous surface is a thin facade over the synchronous
+endpoint mixins. The
+:class:`~glpi_python_client.clients.commons._async_bridge.AsyncBridge`
+base class walks the MRO of :class:`AsyncGlpiClient` at class-creation
+time and wraps every inherited public synchronous method into a
+coroutine wrapper that schedules the call on a worker thread:
 
-   from glpi_python_client import GlpiClient
+* by default through :func:`asyncio.to_thread`;
+* on a caller-supplied :class:`concurrent.futures.Executor` when one is
+  passed to the constructor or to ``from_env``.
 
+Because the underlying HTTP layer is still backed by the blocking
+``requests`` library, every concurrent worker runs on a distinct
+thread. A shared :class:`threading.Lock` (not :class:`asyncio.Lock`)
+serialises OAuth token acquisition so concurrent ``asyncio.gather``
+fan-outs cannot race the auth manager, while the HTTP requests
+themselves execute outside the lock through the thread-safe
+:class:`requests.Session`.
 
-   def fetch_open_tickets() -> list[int]:
-       """Return the IDs of the first ten open tickets (sync wrapper)."""
+A small number of helpers exist in async-only variants because they
+need real concurrency:
 
-       async def _run() -> list[int]:
-           async with GlpiClient.from_env() as client:
-               tickets = await client.search_tickets("status==1", limit=10)
-               return [ticket.id for ticket in tickets]
+* :meth:`AsyncGlpiClient.get_ticket_context` fans the five underlying
+  GLPI calls out concurrently with :func:`asyncio.gather`.
+* :meth:`AsyncGlpiClient.get_task_statistics` fans the per-ticket task
+  list calls out concurrently with :func:`asyncio.gather`.
 
-       return asyncio.run(_run())
+The synchronous versions of the same helpers issue the calls
+sequentially.
 
+Custom thread pools
+~~~~~~~~~~~~~~~~~~~
 
-   if __name__ == "__main__":
-       print(fetch_open_tickets())
-
-Example output::
-
-   [42, 43, 47, 51, 58, 60, 64, 68, 70, 72]
-
-:func:`asyncio.run` creates a fresh event loop, runs the coroutine to
-completion, and closes the loop. It must **not** be called while another
-event loop is already running in the same thread (for example inside
-Jupyter, FastAPI, or another async framework); use one of the patterns
-below instead.
-
-Long-lived sync applications: a dedicated event loop
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If a synchronous service needs to issue many GLPI calls during its
-lifetime, building and tearing down a loop on every call is wasteful.
-Open the client once on a dedicated background loop and dispatch
-coroutines to it from any synchronous thread:
-
-.. code-block:: python
-
-   import asyncio
-   import threading
-
-   from glpi_python_client import GlpiClient, PostTicket
-
-
-   class SyncGlpi:
-       """Run an async ``GlpiClient`` on a background event loop."""
-
-       def __init__(self, **client_kwargs: object) -> None:
-           self._loop = asyncio.new_event_loop()
-           self._thread = threading.Thread(
-               target=self._loop.run_forever, name="glpi-loop", daemon=True
-           )
-           self._thread.start()
-           self._client = GlpiClient(**client_kwargs)  # type: ignore[arg-type]
-
-       def _submit(self, coro):  # type: ignore[no-untyped-def]
-           """Schedule ``coro`` on the background loop and block on the result."""
-
-           future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-           return future.result()
-
-       def create_ticket(self, name: str, content: str) -> int:
-           return self._submit(
-               self._client.create_ticket(PostTicket(name=name, content=content))
-           )
-
-       def close(self) -> None:
-           self._submit(self._client.close())
-           self._loop.call_soon_threadsafe(self._loop.stop)
-           self._thread.join()
-           self._loop.close()
-
-
-   if __name__ == "__main__":
-       glpi = SyncGlpi(
-           glpi_api_url="https://glpi.example.com/api.php/v2",
-           client_id="oauth-client-id",
-           client_secret="oauth-client-secret",
-           username="api-user",
-           password="api-password",
-       )
-       try:
-           ticket_id = glpi.create_ticket(
-               "Printer issue", "The printer is offline."
-           )
-           print("created ticket", ticket_id)
-       finally:
-           glpi.close()
-
-Example output::
-
-   created ticket 123
-
-This pattern keeps the OAuth token cache and the underlying HTTP
-connection pool alive across calls while exposing a regular blocking
-API to the rest of the application.
-
-Calling from inside a running event loop
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Synchronous code that runs *inside* an already-running event loop (for
-example a Jupyter notebook cell or a sync route in an async web
-framework) cannot use :func:`asyncio.run`. Use :func:`asyncio.to_thread`
-to off-load the synchronous wrapper to a worker thread, or call the
-client directly with ``await`` if the surrounding code can be made
-async. The :class:`SyncGlpi` helper above also works because it owns
-its own loop on a separate thread.
-
-Using GLPI helpers in test suites
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Synchronous test functions can drive the client with ``asyncio.run``
-inside a small helper, which keeps the test signature plain ``def``:
+Applications that want to bound the worker pool size, name the worker
+threads, or share a pool with other components can pass an explicit
+executor:
 
 .. code-block:: python
 
    import asyncio
+   from concurrent.futures import ThreadPoolExecutor
 
-   from glpi_python_client import GlpiClient
-
-
-   def _run(coro):  # type: ignore[no-untyped-def]
-       """Execute ``coro`` to completion on a fresh event loop."""
-
-       return asyncio.run(coro)
+   from glpi_python_client import AsyncGlpiClient
 
 
-   def test_search_tickets_returns_models() -> None:
-       async def scenario() -> int:
-           async with GlpiClient.from_env() as client:
-               return len(await client.search_tickets("status==1", limit=1))
+   async def main() -> None:
+       with ThreadPoolExecutor(max_workers=8, thread_name_prefix="glpi") as pool:
+           async with AsyncGlpiClient.from_env(executor=pool) as client:
+               tickets = await client.search_tickets("status==1", limit=200)
+               print(len(tickets))
 
-       assert _run(scenario()) >= 0
 
-For ``pytest``-style async tests, install ``pytest-asyncio`` and mark
-the coroutine directly with ``@pytest.mark.asyncio`` instead of
-wrapping with ``asyncio.run``.
+   asyncio.run(main())
 
 .. _seed-data:
 
@@ -289,8 +233,6 @@ it prints are available under the variable names ``location_id``,
 
 .. code-block:: python
 
-   import asyncio
-
    from glpi_python_client import (
        GlpiClient,
        PostFollowup,
@@ -301,14 +243,14 @@ it prints are available under the variable names ``location_id``,
    )
 
 
-   async def seed() -> dict[str, int]:
+   def seed() -> dict[str, int]:
        """Create the demo records reused by the rest of the user guide."""
 
-       async with GlpiClient.from_env() as client:
-           location_id = await client.create_location(
+       with GlpiClient.from_env() as client:
+           location_id = client.create_location(
                PostLocation(name="HQ Paris")
            )
-           alice_id = await client.create_user(
+           alice_id = client.create_user(
                PostUser(
                    username="alice.dupont",
                    password="initial-pwd",
@@ -317,7 +259,7 @@ it prints are available under the variable names ``location_id``,
                    firstname="Alice",
                )
            )
-           bob_id = await client.create_user(
+           bob_id = client.create_user(
                PostUser(
                    username="bob.martin",
                    password="initial-pwd",
@@ -326,17 +268,17 @@ it prints are available under the variable names ``location_id``,
                    firstname="Bob",
                )
            )
-           ticket_id = await client.create_ticket(
+           ticket_id = client.create_ticket(
                PostTicket(
                    name="Wi-Fi unreachable",
                    content="802.1X handshake fails on the 5 GHz radio.",
                )
            )
-           await client.add_ticket_team_member(
+           client.add_ticket_team_member(
                ticket_id,
                PostTeamMember(type="User", id=bob_id, role="assigned"),
            )
-           await client.create_ticket_followup(
+           client.create_ticket_followup(
                ticket_id,
                PostFollowup(content="Reproduced on the lab laptop."),
            )
@@ -349,7 +291,7 @@ it prints are available under the variable names ``location_id``,
 
 
    if __name__ == "__main__":
-       print(asyncio.run(seed()))
+       print(seed())
 
 Example output (identifiers vary across instances)::
 
@@ -360,17 +302,17 @@ complete:
 
 .. code-block:: python
 
-   async def cleanup(ids: dict[str, int]) -> None:
+   def cleanup(ids: dict[str, int]) -> None:
        """Delete the seed records previously created by ``seed``."""
 
-       async with GlpiClient.from_env() as client:
-           await client.delete_ticket(ids["ticket_id"], force=True)
-           await client.delete_user(ids["alice_id"], force=True)
-           await client.delete_user(ids["bob_id"], force=True)
-           await client.delete_location(ids["location_id"], force=True)
+       with GlpiClient.from_env() as client:
+           client.delete_ticket(ids["ticket_id"], force=True)
+           client.delete_user(ids["alice_id"], force=True)
+           client.delete_user(ids["bob_id"], force=True)
+           client.delete_location(ids["location_id"], force=True)
 
 In the rest of the guide every snippet is wrapped in an
-``async with GlpiClient.from_env() as client:`` block. The integer
+``with GlpiClient.from_env() as client:`` block. The integer
 variables ``ticket_id``, ``alice_id``, ``bob_id``, and ``location_id``
 are assumed to come from the seed dictionary above.
 
@@ -418,9 +360,9 @@ ambient extras when both are present.
        content="The third-floor printer cannot be reached.",
        extra_payload={"_room_code": "PAR-3F-12"},
    )
-   new_id = await client.create_ticket(ticket)
+   new_id = client.create_ticket(ticket)
 
-   fetched = await client.get_ticket(new_id)
+   fetched = client.get_ticket(new_id)
    print(fetched.id, fetched.name)
    print(fetched.extra_payload)
 
@@ -439,14 +381,14 @@ helpers under ``/Assistance/Ticket``.
 
    from glpi_python_client import PatchTicket
 
-   await client.update_ticket(
+   client.update_ticket(
        ticket_id,
        PatchTicket(content="Updated diagnosis: radius timeout."),
    )
-   ticket = await client.get_ticket(ticket_id)
+   ticket = client.get_ticket(ticket_id)
    print(ticket.id, ticket.name, ticket.status)
 
-   results = await client.search_tickets("status==1", limit=3)
+   results = client.search_tickets("status==1", limit=3)
    for t in results:
        print(t.id, t.name)
 
@@ -478,22 +420,22 @@ delete_`` shape (``link_`` / ``unlink_`` for documents).
        PostTicketTask,
    )
 
-   followup_id = await client.create_ticket_followup(
+   followup_id = client.create_ticket_followup(
        ticket_id,
        PostFollowup(content="Triaged: ongoing"),
    )
-   task_id = await client.create_ticket_task(
+   task_id = client.create_ticket_task(
        ticket_id,
        PostTicketTask(content="On-site visit", duration=900),
    )
-   solution_id = await client.create_ticket_solution(
+   solution_id = client.create_ticket_solution(
        ticket_id,
        PostSolution(content="Replaced the access point"),
    )
 
-   followups = await client.list_ticket_followups(ticket_id)
-   tasks = await client.list_ticket_tasks(ticket_id)
-   solutions = await client.list_ticket_solutions(ticket_id)
+   followups = client.list_ticket_followups(ticket_id)
+   tasks = client.list_ticket_tasks(ticket_id)
+   solutions = client.list_ticket_solutions(ticket_id)
 
    print(len(followups), len(tasks), len(solutions))
    print(followups[0].content)
@@ -520,15 +462,15 @@ Team members are managed via ``/Assistance/Ticket/{id}/TeamMember``.
 
    from glpi_python_client import PostTeamMember
 
-   await client.add_ticket_team_member(
+   client.add_ticket_team_member(
        ticket_id,
        PostTeamMember(type="User", id=alice_id, role="observer"),
    )
-   members = await client.list_ticket_team_members(ticket_id)
+   members = client.list_ticket_team_members(ticket_id)
    for m in members:
        print(m.id, m.type, m.name, m.role)
 
-   await client.remove_ticket_team_member(
+   client.remove_ticket_team_member(
        ticket_id,
        team_member_id=members[0].id,
    )
@@ -551,16 +493,16 @@ update_ / delete_`` shape:
 
 .. code-block:: python
 
-   alice = await client.get_user(alice_id)
+   alice = client.get_user(alice_id)
    print(alice.id, alice.username, alice.realname, alice.firstname)
 
-   matches = await client.search_users(f"username=={alice.username}")
+   matches = client.search_users(f"username=={alice.username}")
    print([(u.id, u.username) for u in matches])
 
-   location = await client.get_location(location_id)
+   location = client.get_location(location_id)
    print(location.id, location.name)
 
-   entities = await client.search_entities(limit=2)
+   entities = client.search_entities(limit=2)
    for e in entities:
        print(e.id, e.name, e.completename)
 
@@ -581,7 +523,7 @@ dedicated helpers:
 
 .. code-block:: python
 
-   uploaded_id = await client.upload_document(
+   uploaded_id = client.upload_document(
        filename="diagnostic.txt",
        content=b"link layer ok\nradius timeout 3s\n",
        mime_type="text/plain",
@@ -589,7 +531,7 @@ dedicated helpers:
    )
    print("uploaded document", uploaded_id)
 
-   raw_bytes = await client.download_document_content(uploaded_id)
+   raw_bytes = client.download_document_content(uploaded_id)
    print(len(raw_bytes), "bytes downloaded")
 
 Example output::
@@ -619,7 +561,7 @@ the package root for easy use in RSQL filters:
 
    from glpi_python_client import GlpiTicketStatus
 
-   solved = await client.search_tickets(
+   solved = client.search_tickets(
        f"status=={int(GlpiTicketStatus.SOLVED)}", limit=2
    )
    print([(t.id, t.name) for t in solved])
@@ -645,7 +587,7 @@ timeline list calls concurrently and returns a single
 
 .. code-block:: python
 
-   bundle = await client.get_ticket_context(ticket_id)
+   bundle = client.get_ticket_context(ticket_id)
    print(bundle.ticket.id, bundle.ticket.name)
    print(
        len(bundle.followups),
@@ -781,7 +723,7 @@ entity, status, priority, and type.
 
 .. code-block:: python
 
-   stats = await client.get_ticket_statistics(
+   stats = client.get_ticket_statistics(
        start_date="2026-01-01",
        end_date="2026-01-31",
    )
@@ -825,9 +767,9 @@ callers typically collect the relevant ticket IDs through
 .. code-block:: python
 
    ticket_ids = [
-       t.id for t in await client.search_tickets("status==2", limit=200)
+       t.id for t in client.search_tickets("status==2", limit=200)
    ]
-   tasks = await client.get_task_statistics(ticket_ids)
+   tasks = client.get_task_statistics(ticket_ids)
    print(tasks)
 
 Returned shape (durations are integer seconds, matching the GLPI
@@ -845,7 +787,7 @@ string, ``"unknown"`` when missing)::
 Returned identifiers are the raw GLPI numeric values; resolve them with
 the appropriate ``search_*`` helpers when human-readable labels are
 needed (for example
-``await client.get_user(22)`` to turn user key ``"22"`` into a full
+``client.get_user(22)`` to turn user key ``"22"`` into a full
 :class:`GetUser` model).
 
 .. _end-to-end-examples:
@@ -867,14 +809,14 @@ Example 1 — Create a ticket and read it back
 
    from glpi_python_client import GlpiClient, PostTicket
 
-   async with GlpiClient.from_env() as client:
-       new_id = await client.create_ticket(
+   with GlpiClient.from_env() as client:
+       new_id = client.create_ticket(
            PostTicket(
                name="Printer offline",
                content="The third-floor printer cannot be reached.",
            )
        )
-       context = await client.get_ticket_context(new_id)
+       context = client.get_ticket_context(new_id)
        print(context.to_markdown())
 
 Expected Markdown (abridged)::
@@ -893,11 +835,11 @@ Example 2 — Add a followup response
 
    from glpi_python_client import PostFollowup
 
-   await client.create_ticket_followup(
+   client.create_ticket_followup(
        ticket_id,
        PostFollowup(content="Capturing radius logs."),
    )
-   context = await client.get_ticket_context(ticket_id)
+   context = client.get_ticket_context(ticket_id)
    print(context.to_markdown())
 
 Expected Markdown (abridged)::
@@ -918,14 +860,14 @@ Example 3 — Add a task with a duration
 
    from glpi_python_client import PostTicketTask
 
-   await client.create_ticket_task(
+   client.create_ticket_task(
        ticket_id,
        PostTicketTask(
            content="On-site visit to swap the access point.",
            duration=1800,
        ),
    )
-   context = await client.get_ticket_context(ticket_id)
+   context = client.get_ticket_context(ticket_id)
    print(context.to_markdown())
 
 Expected Markdown (abridged)::
@@ -946,11 +888,11 @@ status from the v2 API.
 
    from glpi_python_client import PostSolution
 
-   await client.create_ticket_solution(
+   client.create_ticket_solution(
        ticket_id,
        PostSolution(content="Replaced the access point firmware."),
    )
-   context = await client.get_ticket_context(ticket_id)
+   context = client.get_ticket_context(ticket_id)
    print(context.to_markdown())
 
 Expected Markdown (abridged)::
@@ -973,13 +915,13 @@ session (``v1_base_url`` and ``v1_user_token``).
 
 .. code-block:: python
 
-   await client.upload_document(
+   client.upload_document(
        filename="diagnostic.txt",
        content=b"link layer ok\nradius timeout 3s\n",
        mime_type="text/plain",
        ticket_id=ticket_id,
    )
-   context = await client.get_ticket_context(ticket_id)
+   context = client.get_ticket_context(ticket_id)
    print(context.to_markdown())
 
 Expected Markdown (abridged)::
@@ -996,8 +938,6 @@ technician, and tears the records down at the end.
 
 .. code-block:: python
 
-   import asyncio
-
    from glpi_python_client import (
        GlpiClient,
        PostFollowup,
@@ -1009,9 +949,9 @@ technician, and tears the records down at the end.
    )
 
 
-   async def workflow() -> None:
-       async with GlpiClient.from_env() as client:
-           user_id = await client.create_user(
+   def workflow() -> None:
+       with GlpiClient.from_env() as client:
+           user_id = client.create_user(
                PostUser(
                    username="bob.workflow",
                    password="initial-pwd",
@@ -1020,34 +960,34 @@ technician, and tears the records down at the end.
                    firstname="Bob",
                )
            )
-           new_ticket_id = await client.create_ticket(
+           new_ticket_id = client.create_ticket(
                PostTicket(name="VPN drops", content="Daily VPN drops at 11:00")
            )
            try:
-               await client.create_ticket_followup(
+               client.create_ticket_followup(
                    new_ticket_id,
                    PostFollowup(content="Reproduced on lab laptop"),
                )
-               await client.create_ticket_task(
+               client.create_ticket_task(
                    new_ticket_id,
                    PostTicketTask(content="Capture VPN logs", duration=1800),
                )
-               await client.add_ticket_team_member(
+               client.add_ticket_team_member(
                    new_ticket_id,
                    PostTeamMember(type="User", id=user_id, role="assigned"),
                )
-               await client.create_ticket_solution(
+               client.create_ticket_solution(
                    new_ticket_id,
                    PostSolution(content="Upgraded VPN client"),
                )
-               context = await client.get_ticket_context(new_ticket_id)
+               context = client.get_ticket_context(new_ticket_id)
                print(context.ticket.name, len(context.followups))
            finally:
-               await client.delete_ticket(new_ticket_id, force=True)
-               await client.delete_user(user_id, force=True)
+               client.delete_ticket(new_ticket_id, force=True)
+               client.delete_user(user_id, force=True)
 
 
-   asyncio.run(workflow())
+   workflow()
 
 Example output::
 
@@ -1061,27 +1001,25 @@ to summarise a calendar month.
 
 .. code-block:: python
 
-   import asyncio
-
    from glpi_python_client import GlpiClient
 
 
-   async def monthly_report(start: str, end: str) -> dict[str, object]:
-       async with GlpiClient.from_env() as client:
-           ticket_stats = await client.get_ticket_statistics(
+   def monthly_report(start: str, end: str) -> dict[str, object]:
+       with GlpiClient.from_env() as client:
+           ticket_stats = client.get_ticket_statistics(
                start_date=start, end_date=end
            )
-           solved_tickets = await client.search_tickets(
+           solved_tickets = client.search_tickets(
                "status==5", limit=200
            )
-           task_stats = await client.get_task_statistics(
+           task_stats = client.get_task_statistics(
                [t.id for t in solved_tickets]
            )
            return {"tickets": ticket_stats, "tasks": task_stats}
 
 
    if __name__ == "__main__":
-       print(asyncio.run(monthly_report("2026-01-01", "2026-01-31")))
+       print(monthly_report("2026-01-01", "2026-01-31"))
 
 Example output::
 

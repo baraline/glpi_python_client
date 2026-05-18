@@ -124,7 +124,7 @@ def test_build_client_env_config_overrides_win() -> None:
     assert config["language"] == "en_GB"
 
 
-async def test_glpi_client_from_env_uses_overrides_and_defaults(
+def test_glpi_client_from_env_uses_overrides_and_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``GlpiClient.from_env`` resolves env vars and applies overrides."""
@@ -138,10 +138,10 @@ async def test_glpi_client_from_env_uses_overrides_and_defaults(
     try:
         assert client.glpi_api_url.endswith("/api.php/v2")
     finally:
-        await client.close()
+        client.close()
 
 
-async def test_glpi_client_close_is_idempotent() -> None:
+def test_glpi_client_close_is_idempotent() -> None:
     """Calling ``close`` twice does not raise."""
 
     client = GlpiClient(
@@ -149,14 +149,14 @@ async def test_glpi_client_close_is_idempotent() -> None:
         username="u",
         password="p",
     )
-    await client.close()
-    await client.close()
+    client.close()
+    client.close()
 
 
-async def test_glpi_client_async_context_manager() -> None:
+def test_glpi_client_async_context_manager() -> None:
     """Using ``async with`` closes the client on exit."""
 
-    async with GlpiClient(
+    with GlpiClient(
         glpi_api_url="https://glpi.example.test/api.php/v2",
         username="u",
         password="p",
@@ -164,7 +164,7 @@ async def test_glpi_client_async_context_manager() -> None:
         assert client.glpi_api_url.endswith("/api.php/v2")
     # After __aexit__ the client is closed and rejects further calls.
     with pytest.raises(RuntimeError, match="closed"):
-        await client._ensure_token()
+        client._ensure_token()
 
 
 def test_glpi_client_rejects_invalid_credentials() -> None:
@@ -174,7 +174,7 @@ def test_glpi_client_rejects_invalid_credentials() -> None:
         GlpiClient(glpi_api_url="https://glpi.example.test/api.php/v2")
 
 
-async def test_glpi_client_v1_session_built_when_configured() -> None:
+def test_glpi_client_v1_session_built_when_configured() -> None:
     """Providing v1_base_url + v1_user_token instantiates the v1 session."""
 
     client = GlpiClient(
@@ -188,7 +188,7 @@ async def test_glpi_client_v1_session_built_when_configured() -> None:
     try:
         assert client._v1 is not None
     finally:
-        await client.close()
+        client.close()
 
 
 def test_glpi_client_rejects_partial_v1_config() -> None:
@@ -203,7 +203,7 @@ def test_glpi_client_rejects_partial_v1_config() -> None:
         )
 
 
-async def test_environ_default_is_used_when_env_argument_omitted(
+def test_environ_default_is_used_when_env_argument_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When no env mapping is provided ``os.environ`` is used."""
@@ -215,10 +215,10 @@ async def test_environ_default_is_used_when_env_argument_omitted(
     try:
         assert client.glpi_api_url.endswith("/api.php/v2")
     finally:
-        await client.close()
+        client.close()
 
 
-async def test_async_transport_ensure_open_blocks_after_close() -> None:
+def test_async_transport_ensure_open_blocks_after_close() -> None:
     """Closed clients raise on subsequent transport calls."""
 
     client = GlpiClient(
@@ -226,7 +226,7 @@ async def test_async_transport_ensure_open_blocks_after_close() -> None:
         username="u",
         password="p",
     )
-    await client.close()
+    client.close()
     with pytest.raises(RuntimeError, match="closed"):
         client._ensure_open()
 
