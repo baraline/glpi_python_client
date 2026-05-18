@@ -80,7 +80,10 @@ from glpi_python_client.models.api_schema.management import (
     PatchDocument,
     PostDocument,
 )
-from glpi_python_client.models.custom_schema import GlpiTicketContext
+from glpi_python_client.models.custom_schema import (
+    GlpiTicketContext,
+    TicketMarkdownOptions,
+)
 
 __all__ = [
     "DeleteDocument",
@@ -136,4 +139,5 @@ __all__ = [
     "PostTicketTask",
     "PostTimelineDocument",
     "PostUser",
+    "TicketMarkdownOptions",
 ]

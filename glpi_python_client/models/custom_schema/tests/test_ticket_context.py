@@ -7,7 +7,10 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from glpi_python_client.models.custom_schema import GlpiTicketContext
+from glpi_python_client.models.custom_schema import (
+    GlpiTicketContext,
+    TicketMarkdownOptions,
+)
 
 
 def test_ticket_context_requires_ticket() -> None:
@@ -208,3 +211,188 @@ def test_to_markdown_renders_event_creator_editor_and_timestamps() -> None:
     assert "Last edited by: Bob" in rendered
     assert "Created at: 2024-01-02T10:00:00+00:00" in rendered
     assert "Updated at: 2024-01-02T10:05:00+00:00" in rendered
+
+
+# ---------------------------------------------------------------------------
+# TicketMarkdownOptions - section inclusion
+# ---------------------------------------------------------------------------
+
+
+_FULL_PAYLOAD = {
+    "ticket": {
+        "id": 1,
+        "name": "Test ticket",
+        "content": "body text",
+        "status": {"id": 2, "name": "Open"},
+        "user_recipient": {"id": 3, "name": "Alice"},
+        "user_editor": {"id": 4, "name": "Bob"},
+        "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
+        "date_mod": datetime(2024, 1, 2, tzinfo=timezone.utc),
+    },
+    "followups": [{"id": 10, "content": "followup body"}],
+    "tasks": [{"id": 20, "content": "task body", "duration": 600}],
+    "solutions": [{"id": 30, "content": "solution body"}],
+    "documents": [{"id": 40, "documents_id": 99, "filepath": "file.txt"}],
+}
+
+
+def test_options_exclude_description() -> None:
+    """``include_description=False`` omits the description section."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(include_description=False))
+    assert "## Description" not in rendered
+    assert "body text" not in rendered
+
+
+def test_options_exclude_followups() -> None:
+    """``include_followups=False`` omits followup entries from the timeline."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(include_followups=False))
+    assert "### Followup" not in rendered
+    assert "followup body" not in rendered
+    assert "### Task #20" in rendered
+
+
+def test_options_exclude_tasks() -> None:
+    """``include_tasks=False`` omits task entries from the timeline."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(include_tasks=False))
+    assert "### Task" not in rendered
+    assert "task body" not in rendered
+    assert "### Followup #10" in rendered
+
+
+def test_options_exclude_solutions() -> None:
+    """``include_solutions=False`` omits solution entries from the timeline."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(include_solutions=False))
+    assert "### Solution" not in rendered
+    assert "solution body" not in rendered
+
+
+def test_options_exclude_documents() -> None:
+    """``include_documents=False`` omits the documents section."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(include_documents=False))
+    assert "## Documents" not in rendered
+    assert "file.txt" not in rendered
+
+
+def test_options_exclude_all_timeline_sections() -> None:
+    """Excluding all three timeline types also removes the Timeline heading."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(
+        TicketMarkdownOptions(
+            include_followups=False,
+            include_tasks=False,
+            include_solutions=False,
+        )
+    )
+    assert "## Timeline" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# TicketMarkdownOptions - ticket header field visibility
+# ---------------------------------------------------------------------------
+
+
+def test_options_hide_status() -> None:
+    """``show_status=False`` removes the status from the ticket subtitle."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(show_status=False))
+    assert "Status: Open" not in rendered
+    assert "Requester: Alice" in rendered
+
+
+def test_options_hide_requester() -> None:
+    """``show_requester=False`` removes the requester from the ticket subtitle."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(show_requester=False))
+    assert "Requester:" not in rendered
+    assert "Status: Open" in rendered
+
+
+def test_options_hide_editor() -> None:
+    """``show_editor=False`` removes the editor from the ticket subtitle."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(show_editor=False))
+    assert "Last edited by: Bob" not in rendered
+
+
+def test_options_hide_dates() -> None:
+    """``show_dates=False`` removes all date fields from the ticket subtitle."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    rendered = context.to_markdown(TicketMarkdownOptions(show_dates=False))
+    assert "Created at:" not in rendered
+    assert "Updated at:" not in rendered
+    assert "Status: Open" in rendered
+
+
+# ---------------------------------------------------------------------------
+# TicketMarkdownOptions - timeline event field visibility
+# ---------------------------------------------------------------------------
+
+
+def test_options_hide_event_author() -> None:
+    """``show_event_author=False`` removes the creator from event subtitles."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {"id": 5, "content": "note", "user": {"id": 7, "name": "Alice"}}
+            ],
+        }
+    )
+    rendered = context.to_markdown(TicketMarkdownOptions(show_event_author=False))
+    assert "Created by:" not in rendered
+
+
+def test_options_hide_event_dates() -> None:
+    """``show_event_dates=False`` removes all date fields from event subtitles."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {
+                    "id": 5,
+                    "content": "note",
+                    "date_creation": datetime(2024, 3, 1, tzinfo=timezone.utc),
+                }
+            ],
+        }
+    )
+    rendered = context.to_markdown(TicketMarkdownOptions(show_event_dates=False))
+    assert "Created at:" not in rendered
+
+
+def test_options_hide_duration() -> None:
+    """``show_duration=False`` removes the duration from task subtitles."""
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "tasks": [{"id": 9, "content": "work", "duration": 1800}],
+        }
+    )
+    rendered = context.to_markdown(TicketMarkdownOptions(show_duration=False))
+    assert "Duration:" not in rendered
+    assert "work" in rendered
+
+
+def test_options_default_reproduces_original_output() -> None:
+    """A bare ``to_markdown()`` call and an explicit default options call are equal."""
+
+    context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
+    assert context.to_markdown() == context.to_markdown(TicketMarkdownOptions())
