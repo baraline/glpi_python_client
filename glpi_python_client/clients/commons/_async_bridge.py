@@ -22,6 +22,23 @@ Concurrency notes
   releases the awaiter immediately, but the in-flight HTTP request keeps
   running on the worker thread until ``requests`` returns. This matches
   the behaviour of the original async client.
+
+Known limitation — internal ``self``-calls
+------------------------------------------
+The bridge wraps *every* public method on the async client class. As a
+result, when a synchronous body that is running inside a worker thread
+calls another public method through ``self`` (e.g.
+``self.search_tickets(...)``), it resolves to the *bridge-wrapped*
+coroutine, not the synchronous function. Calling a coroutine without
+``await`` produces a dangling coroutine object, not data.
+
+Any sync method (or generator) that internally calls other public
+methods through ``self`` must therefore be given a hand-written async
+override that ``await``s (or ``async for``s) those calls on the event
+loop. The convention used in this codebase is to place such overrides
+in a ``_*_async.py`` companion module (e.g.
+``clients/custom/_statistics_async.py``) and wire them into the async
+client's MRO *before* the sync mixin that defines the original method.
 """
 
 from __future__ import annotations

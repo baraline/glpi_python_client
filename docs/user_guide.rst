@@ -179,16 +179,40 @@ fan-outs cannot race the auth manager, while the HTTP requests
 themselves execute outside the lock through the thread-safe
 :class:`requests.Session`.
 
-A small number of helpers exist in async-only variants because they
-need real concurrency:
+A number of helpers ship with hand-written async overrides rather than
+relying solely on the bridge. There are two reasons a method needs its
+own async variant:
 
-* :meth:`AsyncGlpiClient.get_ticket_context` fans the five underlying
-  GLPI calls out concurrently with :func:`asyncio.gather`.
-* :meth:`AsyncGlpiClient.get_task_statistics` fans the per-ticket task
-  list calls out concurrently with :func:`asyncio.gather`.
-* :meth:`AsyncGlpiClient.get_task_durations` fans the per-ticket task
-  fetches out concurrently with :func:`asyncio.gather` when
-  ``return_task_details=True``.
+1. **Concurrency** — the method benefits from fanning multiple GLPI
+   calls out concurrently with :func:`asyncio.gather`.
+2. **Internal self-calls** — the method calls another public method
+   through ``self`` (e.g. ``self.search_tickets(...)`` inside a
+   pagination loop). When the bridge runs the synchronous body in a
+   worker thread, ``self.method`` resolves to the bridge-wrapped
+   *coroutine*, which returns a coroutine object instead of data when
+   called without ``await``. The async override replaces the body so
+   every internal call is properly awaited on the event loop.
+
+Helpers with async overrides:
+
+* :meth:`AsyncGlpiClient.get_ticket_context` — fans the five underlying
+  GLPI calls out concurrently (reason: concurrency).
+* :meth:`AsyncGlpiClient.get_task_statistics` — fans the per-ticket
+  task-list calls out concurrently (reason: concurrency).
+* :meth:`AsyncGlpiClient.get_task_durations` — fans the per-ticket task
+  fetches out concurrently when ``return_task_details=True``, and
+  properly awaits ``iter_search_tickets`` and ``search_entities``
+  internally (reasons: concurrency + internal self-calls).
+* :meth:`AsyncGlpiClient.get_ticket_statistics` — properly awaits
+  ``search_tickets`` and ``search_entities`` internally (reason:
+  internal self-calls).
+* :meth:`AsyncGlpiClient.get_user_activity` — properly awaits
+  ``search_users``, ``iter_search_tickets``, and ``get_task_durations``
+  internally (reason: internal self-calls).
+* ``iter_search_tickets``, ``iter_search_users``,
+  ``iter_search_entities`` — each pagination loop body calls
+  ``self.search_*(...)``; the async variants are native async generators
+  that ``await`` those calls directly (reason: internal self-calls).
 
 Pagination helpers (``iter_search_tickets``, ``iter_search_users``,
 ``iter_search_entities``) are exposed as **async generators** on the
