@@ -62,6 +62,7 @@ from glpi_python_client.models import (
     PostTicketTask,
     PostTimelineDocument,
     PostUser,
+    TicketMarkdownOptions,
 )
 
 __version__ = "0.2.1"
@@ -121,5 +122,6 @@ __all__ = [
     "PostTicketTask",
     "PostTimelineDocument",
     "PostUser",
+    "TicketMarkdownOptions",
     "__version__",
 ]

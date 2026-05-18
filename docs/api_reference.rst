@@ -23,6 +23,11 @@ Aggregated Models
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: TicketMarkdownOptions
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Common Reference Models
 -----------------------
 

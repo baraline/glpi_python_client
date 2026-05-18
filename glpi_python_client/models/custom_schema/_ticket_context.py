@@ -8,6 +8,7 @@ single object to reason about a ticket and its history.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -90,6 +91,73 @@ def _subtitle_line(*parts: tuple[str, object | None]) -> str | None:
     return f"> {' | '.join(rendered_parts)}"
 
 
+@dataclass
+class TicketMarkdownOptions:
+    """Options controlling which sections and fields appear in the Markdown export.
+
+    All flags default to ``True`` so that a bare ``to_markdown()`` call
+    reproduces the original full output.
+
+    Parameters
+    ----------
+    include_description : bool
+        Emit the ``## Description`` section with the ticket body.
+    include_followups : bool
+        Include followup entries in the ``## Timeline`` section.
+    include_tasks : bool
+        Include task entries in the ``## Timeline`` section.
+    include_solutions : bool
+        Include solution entries in the ``## Timeline`` section.
+    include_documents : bool
+        Append the ``## Documents`` section with linked file references.
+    show_status : bool
+        Emit the ``Status`` field in the ticket subtitle line.
+    show_requester : bool
+        Emit the ``Requester`` field in the ticket subtitle line.
+    show_editor : bool
+        Emit the ``Last edited by`` field in the ticket subtitle line.
+    show_dates : bool
+        Emit all ticket-level date fields (created, updated, resolved,
+        closed) in the ticket subtitle line.
+    show_event_author : bool
+        Emit the ``Created by`` field in timeline-entry subtitle lines.
+    show_event_editor : bool
+        Emit the ``Last edited by`` field in timeline-entry subtitle lines.
+    show_event_dates : bool
+        Emit date fields (created, updated, scheduled, planned start/end,
+        approved) in timeline-entry subtitle lines.
+    show_event_state : bool
+        Emit the ``State`` field in timeline-entry subtitle lines.
+    show_event_status : bool
+        Emit the ``Status`` field in timeline-entry subtitle lines.
+    show_duration : bool
+        Emit the ``Duration`` field in task subtitle lines.
+    show_technician : bool
+        Emit the ``Technician`` and ``Technician group`` fields in task
+        subtitle lines.
+    show_approver : bool
+        Emit the ``Approver`` field in solution subtitle lines.
+    """
+
+    include_description: bool = field(default=True)
+    include_followups: bool = field(default=True)
+    include_tasks: bool = field(default=True)
+    include_solutions: bool = field(default=True)
+    include_documents: bool = field(default=True)
+    show_status: bool = field(default=True)
+    show_requester: bool = field(default=True)
+    show_editor: bool = field(default=True)
+    show_dates: bool = field(default=True)
+    show_event_author: bool = field(default=True)
+    show_event_editor: bool = field(default=True)
+    show_event_dates: bool = field(default=True)
+    show_event_state: bool = field(default=True)
+    show_event_status: bool = field(default=True)
+    show_duration: bool = field(default=True)
+    show_technician: bool = field(default=True)
+    show_approver: bool = field(default=True)
+
+
 def _event_sort_key(event: Any) -> datetime:
     """Compute the sort key used to order timeline events for rendering.
 
@@ -126,7 +194,10 @@ class GlpiTicketContext(GlpiModel):
     solutions: list[GetSolution] = Field(default_factory=list)
     documents: list[GetTimelineDocument] = Field(default_factory=list)
 
-    def to_markdown(self) -> str:
+    def to_markdown(
+        self,
+        options: TicketMarkdownOptions | None = None,
+    ) -> str:
         """Render the ticket and its timeline as one Markdown transcript.
 
         The rendering starts with the ticket title, then a compact
@@ -140,6 +211,14 @@ class GlpiTicketContext(GlpiModel):
         dedicated section because the document-link payload does not
         expose the same authoring metadata.
 
+        Parameters
+        ----------
+        options : TicketMarkdownOptions, optional
+            Controls which sections and metadata fields are included in
+            the output. When *None* (the default) a fresh
+            :class:`TicketMarkdownOptions` is used, which enables all
+            sections and fields.
+
         Returns
         -------
         str
@@ -147,6 +226,8 @@ class GlpiTicketContext(GlpiModel):
             forwarding into a downstream Markdown renderer. The string
             never ends with trailing whitespace.
         """
+
+        opts = options if options is not None else TicketMarkdownOptions()
 
         lines: list[str] = []
         ticket = self.ticket
@@ -156,28 +237,37 @@ class GlpiTicketContext(GlpiModel):
         else:
             lines.append(f"# Ticket \u2014 {ticket_label}")
 
-        ticket_subtitle = _subtitle_line(
-            ("Status", ticket.status),
-            ("Requester", ticket.user_recipient),
-            ("Last edited by", ticket.user_editor),
-            ("Created at", ticket.date_creation),
-            ("Updated at", ticket.date_mod),
-            ("Resolved at", ticket.date_solve),
-            ("Closed at", ticket.date_close),
-        )
+        ticket_subtitle_parts: list[tuple[str, object | None]] = []
+        if opts.show_status:
+            ticket_subtitle_parts.append(("Status", ticket.status))
+        if opts.show_requester:
+            ticket_subtitle_parts.append(("Requester", ticket.user_recipient))
+        if opts.show_editor:
+            ticket_subtitle_parts.append(("Last edited by", ticket.user_editor))
+        if opts.show_dates:
+            ticket_subtitle_parts += [
+                ("Created at", ticket.date_creation),
+                ("Updated at", ticket.date_mod),
+                ("Resolved at", ticket.date_solve),
+                ("Closed at", ticket.date_close),
+            ]
+        ticket_subtitle = _subtitle_line(*ticket_subtitle_parts)
         if ticket_subtitle is not None:
             lines.append(ticket_subtitle)
 
-        if ticket.content:
+        if opts.include_description and ticket.content:
             lines.append("")
             lines.append("## Description")
             lines.append("")
             lines.append(ticket.content)
 
         events: list[tuple[str, Any]] = []
-        events.extend(("Followup", item) for item in self.followups)
-        events.extend(("Task", item) for item in self.tasks)
-        events.extend(("Solution", item) for item in self.solutions)
+        if opts.include_followups:
+            events.extend(("Followup", item) for item in self.followups)
+        if opts.include_tasks:
+            events.extend(("Task", item) for item in self.tasks)
+        if opts.include_solutions:
+            events.extend(("Solution", item) for item in self.solutions)
         events.sort(key=lambda pair: _event_sort_key(pair[1]))
 
         if events:
@@ -192,29 +282,43 @@ class GlpiTicketContext(GlpiModel):
             lines.append("")
             lines.append(heading)
 
-            event_subtitle = _subtitle_line(
-                ("Created by", getattr(event, "user", None)),
-                ("Last edited by", getattr(event, "user_editor", None)),
-                ("Created at", getattr(event, "date_creation", None)),
-                ("Updated at", getattr(event, "date_mod", None)),
-                ("Scheduled for", getattr(event, "date", None)),
-                ("Planned start", getattr(event, "planned_begin", None)),
-                ("Planned end", getattr(event, "planned_end", None)),
-                ("Approved at", getattr(event, "date_approval", None)),
-                ("State", getattr(event, "state", None)),
-                ("Status", getattr(event, "status", None)),
-                (
-                    "Duration",
-                    (
-                        f"{duration}s"
-                        if (duration := getattr(event, "duration", None)) is not None
-                        else None
-                    ),
-                ),
-                ("Technician", getattr(event, "user_tech", None)),
-                ("Technician group", getattr(event, "group_tech", None)),
-                ("Approver", getattr(event, "approver", None)),
-            )
+            event_subtitle_parts: list[tuple[str, object | None]] = []
+            if opts.show_event_author:
+                event_subtitle_parts.append(
+                    ("Created by", getattr(event, "user", None))
+                )
+            if opts.show_event_editor:
+                event_subtitle_parts.append(
+                    ("Last edited by", getattr(event, "user_editor", None))
+                )
+            if opts.show_event_dates:
+                event_subtitle_parts += [
+                    ("Created at", getattr(event, "date_creation", None)),
+                    ("Updated at", getattr(event, "date_mod", None)),
+                    ("Scheduled for", getattr(event, "date", None)),
+                    ("Planned start", getattr(event, "planned_begin", None)),
+                    ("Planned end", getattr(event, "planned_end", None)),
+                    ("Approved at", getattr(event, "date_approval", None)),
+                ]
+            if opts.show_event_state:
+                event_subtitle_parts.append(("State", getattr(event, "state", None)))
+            if opts.show_event_status:
+                event_subtitle_parts.append(("Status", getattr(event, "status", None)))
+            if opts.show_duration:
+                duration = getattr(event, "duration", None)
+                event_subtitle_parts.append(
+                    ("Duration", f"{duration}s" if duration is not None else None)
+                )
+            if opts.show_technician:
+                event_subtitle_parts += [
+                    ("Technician", getattr(event, "user_tech", None)),
+                    ("Technician group", getattr(event, "group_tech", None)),
+                ]
+            if opts.show_approver:
+                event_subtitle_parts.append(
+                    ("Approver", getattr(event, "approver", None))
+                )
+            event_subtitle = _subtitle_line(*event_subtitle_parts)
             if event_subtitle is not None:
                 lines.append(event_subtitle)
 
@@ -223,7 +327,7 @@ class GlpiTicketContext(GlpiModel):
                 lines.append("")
                 lines.append(content)
 
-        if self.documents:
+        if opts.include_documents and self.documents:
             lines.append("")
             lines.append("## Documents")
             for document in self.documents:
@@ -236,4 +340,4 @@ class GlpiTicketContext(GlpiModel):
         return "\n".join(lines).rstrip()
 
 
-__all__ = ["GlpiTicketContext"]
+__all__ = ["GlpiTicketContext", "TicketMarkdownOptions"]

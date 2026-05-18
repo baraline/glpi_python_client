@@ -697,6 +697,74 @@ Example output::
    ## Documents
    - diagnostic.txt
 
+Customising the Markdown output
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Pass a :class:`TicketMarkdownOptions` instance to select which sections
+and metadata fields appear in the output. All flags default to ``True``
+so the default call reproduces the full transcript shown above.
+
++-------------------------------+----------------------------------------------+
+| Flag                          | Controls                                     |
++===============================+==============================================+
+| ``include_description``       | ``## Description`` section                   |
++-------------------------------+----------------------------------------------+
+| ``include_followups``         | Followup entries in ``## Timeline``          |
++-------------------------------+----------------------------------------------+
+| ``include_tasks``             | Task entries in ``## Timeline``              |
++-------------------------------+----------------------------------------------+
+| ``include_solutions``         | Solution entries in ``## Timeline``          |
++-------------------------------+----------------------------------------------+
+| ``include_documents``         | ``## Documents`` section                     |
++-------------------------------+----------------------------------------------+
+| ``show_status``               | ``Status`` in the ticket subtitle            |
++-------------------------------+----------------------------------------------+
+| ``show_requester``            | ``Requester`` in the ticket subtitle         |
++-------------------------------+----------------------------------------------+
+| ``show_editor``               | ``Last edited by`` in the ticket subtitle    |
++-------------------------------+----------------------------------------------+
+| ``show_dates``                | All ticket-level date fields                 |
++-------------------------------+----------------------------------------------+
+| ``show_event_author``         | ``Created by`` in event subtitles            |
++-------------------------------+----------------------------------------------+
+| ``show_event_editor``         | ``Last edited by`` in event subtitles        |
++-------------------------------+----------------------------------------------+
+| ``show_event_dates``          | All date fields in event subtitles           |
++-------------------------------+----------------------------------------------+
+| ``show_event_state``          | ``State`` in event subtitles                 |
++-------------------------------+----------------------------------------------+
+| ``show_event_status``         | ``Status`` in event subtitles                |
++-------------------------------+----------------------------------------------+
+| ``show_duration``             | ``Duration`` in task subtitles               |
++-------------------------------+----------------------------------------------+
+| ``show_technician``           | ``Technician`` / ``Technician group``        |
++-------------------------------+----------------------------------------------+
+| ``show_approver``             | ``Approver`` in solution subtitles           |
++-------------------------------+----------------------------------------------+
+
+Example — description and timeline only, no metadata fields:
+
+.. code-block:: python
+
+   from glpi_python_client import TicketMarkdownOptions
+
+   opts = TicketMarkdownOptions(
+       include_documents=False,
+       show_status=False,
+       show_requester=False,
+       show_editor=False,
+       show_dates=False,
+       show_event_author=False,
+       show_event_editor=False,
+       show_event_dates=False,
+       show_event_state=False,
+       show_event_status=False,
+       show_duration=False,
+       show_technician=False,
+       show_approver=False,
+   )
+   print(bundle.to_markdown(opts))
+
 Reporting helpers
 ~~~~~~~~~~~~~~~~~
 

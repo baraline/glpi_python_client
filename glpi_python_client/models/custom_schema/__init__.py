@@ -8,6 +8,7 @@ not part of the GLPI OpenAPI contract.
 
 from glpi_python_client.models.custom_schema._ticket_context import (
     GlpiTicketContext,
+    TicketMarkdownOptions,
 )
 
-__all__ = ["GlpiTicketContext"]
+__all__ = ["GlpiTicketContext", "TicketMarkdownOptions"]
