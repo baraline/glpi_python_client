@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import TypedDict
 
 from glpi_python_client.clients.commons._filters import (
     rsql_all_filter,
@@ -31,6 +32,43 @@ from glpi_python_client.models.api_schema.enums import (
     GlpiPriority,
     GlpiTicketType,
 )
+
+
+class TaskStatisticsResult(TypedDict):
+    """Typed shape returned by :meth:`StatisticsMixin.get_task_statistics`."""
+
+    ticket_count: int
+    task_count: int
+    total_duration: int
+    duration_by_user: dict[str, int]
+    duration_by_ticket: dict[int, int]
+
+
+class TaskDurationsResult(TypedDict):
+    """Typed shape returned by :meth:`StatisticsMixin.get_task_durations`."""
+
+    start_date: str
+    end_date: str
+    total_duration: int
+    task_count: int
+    duration_by_user: dict[str, int]
+    duration_by_entity: dict[str, int]
+    tasks: list[dict[str, object]] | None
+
+
+class UserActivityEntry(TypedDict):
+    """One per-user activity bucket inside :class:`UserActivityResult`."""
+
+    user_ids: list[int]
+    tickets_as_technician: int
+    tickets_as_recipient: int
+    task_durations: TaskDurationsResult
+
+
+class UserActivityResult(TypedDict):
+    """Typed shape returned by :meth:`StatisticsMixin.get_user_activity`."""
+
+    users: dict[str, UserActivityEntry]
 
 
 class StatisticsMixin(TransportMixin):
@@ -124,7 +162,7 @@ class StatisticsMixin(TransportMixin):
     def get_task_statistics(
         self,
         ticket_ids: list[int],
-    ) -> dict[str, object]:
+    ) -> TaskStatisticsResult:
         """Return task duration totals grouped by user and ticket.
 
         The helper expects a list of ticket identifiers because GLPI
@@ -140,7 +178,7 @@ class StatisticsMixin(TransportMixin):
 
         Returns
         -------
-        dict[str, object]
+        TaskStatisticsResult
             Mapping with ``ticket_count``, ``task_count``,
             ``total_duration``, ``duration_by_user``, and
             ``duration_by_ticket`` entries (durations are integer
@@ -148,13 +186,13 @@ class StatisticsMixin(TransportMixin):
         """
 
         if not ticket_ids:
-            return {
-                "ticket_count": 0,
-                "task_count": 0,
-                "total_duration": 0,
-                "duration_by_user": {},
-                "duration_by_ticket": {},
-            }
+            return TaskStatisticsResult(
+                ticket_count=0,
+                task_count=0,
+                total_duration=0,
+                duration_by_user={},
+                duration_by_ticket={},
+            )
 
         results: list[list[GetTicketTask]] = [
             self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined]
@@ -176,7 +214,7 @@ class StatisticsMixin(TransportMixin):
         user_recipient_id: int | None = None,
         extra_filter: str | None = None,
         return_task_details: bool = False,
-    ) -> dict[str, object]:
+    ) -> TaskDurationsResult:
         """Return task duration totals with optional per-task detail.
 
         Builds an RSQL filter from the supplied parameters, collects all
@@ -215,7 +253,7 @@ class StatisticsMixin(TransportMixin):
 
         Returns
         -------
-        dict[str, object]
+        TaskDurationsResult
             Mapping with ``start_date``, ``end_date``, ``total_duration``,
             ``task_count``, ``duration_by_user``, ``duration_by_entity``,
             and ``tasks`` (``None`` when ``return_task_details=False``).
@@ -245,15 +283,15 @@ class StatisticsMixin(TransportMixin):
                 limit=200,
             )
             if not entities:
-                return {
-                    "start_date": start.isoformat(),
-                    "end_date": end.isoformat(),
-                    "total_duration": 0,
-                    "task_count": 0,
-                    "duration_by_user": {},
-                    "duration_by_entity": {},
-                    "tasks": None,
-                }
+                return TaskDurationsResult(
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                    total_duration=0,
+                    task_count=0,
+                    duration_by_user={},
+                    duration_by_entity={},
+                    tasks=None,
+                )
             entity_filter = rsql_any_filter(
                 *(f"entities_id=={e.id}" for e in entities if e.id is not None)
             )
@@ -297,16 +335,17 @@ class StatisticsMixin(TransportMixin):
                     ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
 
         result = self.get_task_statistics(ticket_ids)
+        duration_by_ticket = result["duration_by_ticket"]
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
-        for tid, dur in result["duration_by_ticket"].items():  # type: ignore[union-attr]
+        for tid, dur in duration_by_ticket.items():
             entity_key = ticket_entity_map.get(int(tid), "unknown")
             duration_by_entity[entity_key] += int(dur)
 
         task_details: list[dict[str, object]] | None = None
         if return_task_details:
             task_details = []
-            for tid, dur in result["duration_by_ticket"].items():  # type: ignore[union-attr]
+            for tid, dur in duration_by_ticket.items():
                 if int(dur) == 0:
                     continue
                 for task in self.list_ticket_tasks(int(tid)):  # type: ignore[attr-defined]
@@ -321,15 +360,15 @@ class StatisticsMixin(TransportMixin):
                         }
                     )
 
-        return {
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "total_duration": result["total_duration"],
-            "task_count": result["task_count"],
-            "duration_by_user": result["duration_by_user"],
-            "duration_by_entity": dict(duration_by_entity),
-            "tasks": task_details,
-        }
+        return TaskDurationsResult(
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            total_duration=int(result["total_duration"]),
+            task_count=int(result["task_count"]),
+            duration_by_user=result["duration_by_user"],
+            duration_by_entity=dict(duration_by_entity),
+            tasks=task_details,
+        )
 
     def get_user_activity(
         self,
@@ -341,7 +380,7 @@ class StatisticsMixin(TransportMixin):
         start_date: str | None = None,
         end_date: str | None = None,
         default_days: int = 30,
-    ) -> dict[str, object]:
+    ) -> UserActivityResult:
         """Return per-user GLPI activity aggregated across tickets and tasks.
 
         Aggregates tickets where each matched user is an assignee, tickets
@@ -368,10 +407,11 @@ class StatisticsMixin(TransportMixin):
 
         Returns
         -------
-        dict[str, object]
-            Mapping with one ``users`` key. Each user key maps to a dict
-            with ``user_ids``, ``tickets_as_technician``,
-            ``tickets_as_recipient``, and ``task_durations``.
+        UserActivityResult
+            Mapping with one ``users`` key. Each user key maps to a
+            :class:`UserActivityEntry` with ``user_ids``,
+            ``tickets_as_technician``, ``tickets_as_recipient``, and
+            ``task_durations``.
 
         Raises
         ------
@@ -424,72 +464,86 @@ class StatisticsMixin(TransportMixin):
             f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}"
         )
 
-        users_output: dict[str, dict[str, object]] = {}
+        users_output: dict[str, UserActivityEntry] = {}
         for uid in resolved_user_ids:
             display_key = user_display_map.get(uid, str(uid))
-            tech_count = sum(
-                len(b)
-                for b in self.iter_search_tickets(  # type: ignore[attr-defined]
-                    f"users_id_assign=={uid};{date_range}",
-                    batch_size=200,
-                )
-            )
-            recipient_count = sum(
-                len(b)
-                for b in self.iter_search_tickets(  # type: ignore[attr-defined]
-                    f"users_id_requester=={uid};{date_range}",
-                    batch_size=200,
-                )
-            )
+            tech_count = 0
+            for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
+                f"users_id_assign=={uid};{date_range}",
+                batch_size=200,
+            ):
+                tech_count += len(batch)
+            recipient_count = 0
+            for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
+                f"users_id_requester=={uid};{date_range}",
+                batch_size=200,
+            ):
+                recipient_count += len(batch)
             task_dur = self.get_task_durations(
                 start_date=start_date,
                 end_date=end_date,
                 default_days=default_days,
                 user_id=uid,
             )
-            task_dur_clean = {k: v for k, v in task_dur.items() if k != "tasks"}
+            # Drop the optional ``tasks`` payload before storing on the
+            # per-user entry; the activity summary keeps only aggregated
+            # counters per user.
+            task_dur_clean: TaskDurationsResult = TaskDurationsResult(
+                start_date=task_dur["start_date"],
+                end_date=task_dur["end_date"],
+                total_duration=task_dur["total_duration"],
+                task_count=task_dur["task_count"],
+                duration_by_user=dict(task_dur["duration_by_user"]),
+                duration_by_entity=dict(task_dur["duration_by_entity"]),
+                tasks=None,
+            )
 
             if display_key in users_output:
                 existing = users_output[display_key]
-                existing["user_ids"] = [  # type: ignore[index]
-                    *existing["user_ids"],  # type: ignore[list-item]
-                    uid,
-                ]
-                existing["tickets_as_technician"] = (  # type: ignore[index]
-                    int(existing["tickets_as_technician"]) + tech_count  # type: ignore[arg-type]
+                existing["user_ids"] = [*existing["user_ids"], uid]
+                existing["tickets_as_technician"] += tech_count
+                existing["tickets_as_recipient"] += recipient_count
+                existing["task_durations"] = _merge_task_durations(
+                    existing["task_durations"], task_dur_clean
                 )
-                existing["tickets_as_recipient"] = (  # type: ignore[index]
-                    int(existing["tickets_as_recipient"]) + recipient_count  # type: ignore[arg-type]
-                )
-                prev_dur: dict[str, object] = existing["task_durations"]  # type: ignore[index,assignment]
-                merged_by_user: dict[str, int] = dict(
-                    prev_dur.get("duration_by_user", {})
-                )  # type: ignore[arg-type]
-                for k, v in task_dur_clean.get("duration_by_user", {}).items():  # type: ignore[union-attr]
-                    merged_by_user[k] = merged_by_user.get(k, 0) + int(v)  # type: ignore[arg-type]
-                merged_by_entity: dict[str, int] = dict(
-                    prev_dur.get("duration_by_entity", {})
-                )  # type: ignore[arg-type]
-                for k, v in task_dur_clean.get("duration_by_entity", {}).items():  # type: ignore[union-attr]
-                    merged_by_entity[k] = merged_by_entity.get(k, 0) + int(v)  # type: ignore[arg-type]
-                task_dur_clean["total_duration"] = int(
-                    prev_dur.get("total_duration", 0)
-                ) + int(task_dur_clean.get("total_duration", 0))  # type: ignore[arg-type]
-                task_dur_clean["task_count"] = int(prev_dur.get("task_count", 0)) + int(
-                    task_dur_clean.get("task_count", 0)
-                )  # type: ignore[arg-type]
-                task_dur_clean["duration_by_user"] = merged_by_user
-                task_dur_clean["duration_by_entity"] = merged_by_entity
-                existing["task_durations"] = task_dur_clean
             else:
-                users_output[display_key] = {
-                    "user_ids": [uid],
-                    "tickets_as_technician": tech_count,
-                    "tickets_as_recipient": recipient_count,
-                    "task_durations": task_dur_clean,
-                }
+                users_output[display_key] = UserActivityEntry(
+                    user_ids=[uid],
+                    tickets_as_technician=tech_count,
+                    tickets_as_recipient=recipient_count,
+                    task_durations=task_dur_clean,
+                )
 
-        return {"users": users_output}
+        return UserActivityResult(users=users_output)
+
+
+def _merge_task_durations(
+    prev: TaskDurationsResult, new: TaskDurationsResult
+) -> TaskDurationsResult:
+    """Merge two task-duration aggregates summing every counter.
+
+    The returned ``start_date`` / ``end_date`` are inherited from
+    ``prev`` since the helper is only used to fold per-user results that
+    were computed over the same window. The ``tasks`` payload is dropped
+    because the merged aggregate is part of a user activity report and
+    not a detail listing.
+    """
+
+    merged_by_user: dict[str, int] = dict(prev["duration_by_user"])
+    for k, v in new["duration_by_user"].items():
+        merged_by_user[k] = merged_by_user.get(k, 0) + int(v)
+    merged_by_entity: dict[str, int] = dict(prev["duration_by_entity"])
+    for k, v in new["duration_by_entity"].items():
+        merged_by_entity[k] = merged_by_entity.get(k, 0) + int(v)
+    return TaskDurationsResult(
+        start_date=prev["start_date"],
+        end_date=prev["end_date"],
+        total_duration=prev["total_duration"] + new["total_duration"],
+        task_count=prev["task_count"] + new["task_count"],
+        duration_by_user=merged_by_user,
+        duration_by_entity=merged_by_entity,
+        tasks=None,
+    )
 
 
 def _resolve_window(
@@ -540,7 +594,7 @@ def _summarize_tickets(tickets: list[GetTicket]) -> dict[str, object]:
 
 def _summarize_tasks(
     ticket_ids: list[int], tasks: list[GetTicketTask]
-) -> dict[str, object]:
+) -> TaskStatisticsResult:
     """Aggregate one task list by user and parent ticket identifier."""
 
     duration_by_user: defaultdict[str, int] = defaultdict(int)
@@ -552,13 +606,13 @@ def _summarize_tasks(
         duration_by_user[_user_key(task.user)] += duration
         if task.tickets_id is not None:
             duration_by_ticket[task.tickets_id] += duration
-    return {
-        "ticket_count": len(ticket_ids),
-        "task_count": len(tasks),
-        "total_duration": total_duration,
-        "duration_by_user": dict(duration_by_user),
-        "duration_by_ticket": dict(duration_by_ticket),
-    }
+    return TaskStatisticsResult(
+        ticket_count=len(ticket_ids),
+        task_count=len(tasks),
+        total_duration=total_duration,
+        duration_by_user=dict(duration_by_user),
+        duration_by_ticket=dict(duration_by_ticket),
+    )
 
 
 def _entity_key(entity: IdNameCompletenameRef | None) -> str:

@@ -14,6 +14,8 @@ import asyncio
 
 from glpi_python_client.clients.custom._statistics import (
     StatisticsMixin,
+    TaskDurationsResult,
+    TaskStatisticsResult,
     _entity_key,
     _summarize_tasks,
 )
@@ -34,7 +36,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
     async def get_task_statistics(  # type: ignore[override]
         self,
         ticket_ids: list[int],
-    ) -> dict[str, object]:
+    ) -> TaskStatisticsResult:
         """Return task duration totals with concurrent per-ticket fetches.
 
         Parameters
@@ -45,20 +47,20 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         Returns
         -------
-        dict[str, object]
+        TaskStatisticsResult
             Mapping with ``ticket_count``, ``task_count``,
             ``total_duration``, ``duration_by_user``, and
             ``duration_by_ticket`` entries.
         """
 
         if not ticket_ids:
-            return {
-                "ticket_count": 0,
-                "task_count": 0,
-                "total_duration": 0,
-                "duration_by_user": {},
-                "duration_by_ticket": {},
-            }
+            return TaskStatisticsResult(
+                ticket_count=0,
+                task_count=0,
+                total_duration=0,
+                duration_by_user={},
+                duration_by_ticket={},
+            )
         results = await asyncio.gather(
             *(
                 self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined]
@@ -81,7 +83,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
         user_recipient_id: int | None = None,
         extra_filter: str | None = None,
         return_task_details: bool = False,
-    ) -> dict[str, object]:
+    ) -> TaskDurationsResult:
         """Return task duration totals with concurrent per-ticket fetches.
 
         Overrides the synchronous implementation so that when
@@ -116,7 +118,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         Returns
         -------
-        dict[str, object]
+        TaskDurationsResult
             Same shape as the synchronous :meth:`get_task_durations`.
         """
 
@@ -148,15 +150,15 @@ class AsyncStatisticsMixin(StatisticsMixin):
                 limit=200,
             )
             if not entities:
-                return {
-                    "start_date": start.isoformat(),
-                    "end_date": end.isoformat(),
-                    "total_duration": 0,
-                    "task_count": 0,
-                    "duration_by_user": {},
-                    "duration_by_entity": {},
-                    "tasks": None,
-                }
+                return TaskDurationsResult(
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                    total_duration=0,
+                    task_count=0,
+                    duration_by_user={},
+                    duration_by_entity={},
+                    tasks=None,
+                )
             entity_filter = rsql_any_filter(
                 *(f"entities_id=={e.id}" for e in entities if e.id is not None)
             )
@@ -202,7 +204,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
         result = await self.get_task_statistics(ticket_ids)
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
-        for tid, dur in result["duration_by_ticket"].items():  # type: ignore[union-attr]
+        for tid, dur in result["duration_by_ticket"].items():
             entity_key = ticket_entity_map.get(int(tid), "unknown")
             duration_by_entity[entity_key] += int(dur)
 
@@ -211,13 +213,13 @@ class AsyncStatisticsMixin(StatisticsMixin):
             tasks_per_ticket: list[list[GetTicketTask]] = await asyncio.gather(
                 *(
                     self.list_ticket_tasks(int(tid))  # type: ignore[attr-defined]
-                    for tid, dur in result["duration_by_ticket"].items()  # type: ignore[union-attr]
+                    for tid, dur in result["duration_by_ticket"].items()
                     if int(dur) > 0
                 )
             )
             non_zero_tids = [
                 int(tid)
-                for tid, dur in result["duration_by_ticket"].items()  # type: ignore[union-attr]
+                for tid, dur in result["duration_by_ticket"].items()
                 if int(dur) > 0
             ]
             task_details = []
@@ -234,15 +236,15 @@ class AsyncStatisticsMixin(StatisticsMixin):
                         }
                     )
 
-        return {
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "total_duration": result["total_duration"],
-            "task_count": result["task_count"],
-            "duration_by_user": result["duration_by_user"],
-            "duration_by_entity": dict(duration_by_entity),
-            "tasks": task_details,
-        }
+        return TaskDurationsResult(
+            start_date=start.isoformat(),
+            end_date=end.isoformat(),
+            total_duration=result["total_duration"],
+            task_count=result["task_count"],
+            duration_by_user=result["duration_by_user"],
+            duration_by_entity=dict(duration_by_entity),
+            tasks=task_details,
+        )
 
 
 __all__ = ["AsyncStatisticsMixin"]
