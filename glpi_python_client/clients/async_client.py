@@ -50,6 +50,7 @@ from glpi_python_client.clients.commons._config import (
     build_client_resources,
 )
 from glpi_python_client.clients.commons._transport import TransportMixin
+from glpi_python_client.clients.custom._pagination_async import AsyncPaginationMixin
 from glpi_python_client.clients.custom._statistics_async import AsyncStatisticsMixin
 from glpi_python_client.clients.custom._ticket_context_async import (
     AsyncTicketContextMixin,
@@ -61,8 +62,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class AsyncGlpiClient(
+class AsyncGlpiClient(  # type: ignore[misc]
     AsyncBridge,
+    AsyncPaginationMixin,
     TicketMixin,
     TicketTaskMixin,
     FollowupMixin,

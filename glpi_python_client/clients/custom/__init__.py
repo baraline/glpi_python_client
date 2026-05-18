@@ -17,6 +17,7 @@ composed into :class:`~glpi_python_client.clients.AsyncGlpiClient`.
 
 from __future__ import annotations
 
+from glpi_python_client.clients.custom._pagination_async import AsyncPaginationMixin
 from glpi_python_client.clients.custom._statistics import StatisticsMixin
 from glpi_python_client.clients.custom._statistics_async import AsyncStatisticsMixin
 from glpi_python_client.clients.custom._ticket_context import TicketContextMixin
@@ -25,6 +26,7 @@ from glpi_python_client.clients.custom._ticket_context_async import (
 )
 
 __all__ = [
+    "AsyncPaginationMixin",
     "AsyncStatisticsMixin",
     "AsyncTicketContextMixin",
     "StatisticsMixin",
