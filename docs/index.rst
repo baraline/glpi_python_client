@@ -24,6 +24,7 @@ handling, and helpers for ticket, user, location, and document workflows.
 
    development_rtd
    publishing_rtd
+   sponsoring
 
 Indices and Tables
 ==================

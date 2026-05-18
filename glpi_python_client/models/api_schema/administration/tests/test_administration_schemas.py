@@ -7,6 +7,8 @@ contract fields are excluded from the create and patch request models.
 
 from __future__ import annotations
 
+from pydantic import SecretStr
+
 from glpi_python_client.models.api_schema.administration import (
     DeleteEntity,
     DeleteUser,
@@ -112,3 +114,32 @@ def test_delete_entity_default() -> None:
     """``DeleteEntity`` has an optional ``force`` flag."""
 
     assert DeleteEntity().force is None
+
+
+def test_post_user_secret_serializer_unmasks_password() -> None:
+    """``_dump_secret`` returns plaintext when a non-None ``SecretStr`` is set."""
+
+    user = PostUser(
+        username="alice",
+        password=SecretStr("s3cr3t"),
+        password2=SecretStr("s3cr3t"),
+    )
+    payload = user.model_dump(exclude_none=True, exclude={"extra_payload"})
+    assert payload["password"] == "s3cr3t"
+    assert payload["password2"] == "s3cr3t"
+    # The repr must not expose the value.
+    assert "s3cr3t" not in repr(user)
+
+
+def test_post_user_secret_serializer_none_propagates() -> None:
+    """``_dump_secret`` returns ``None`` when the credential field is ``None``.
+
+    ``model_dump`` is called without ``exclude_none`` so the serializer is
+    invoked with a ``None`` value rather than being skipped by Pydantic's
+    optimisation path.
+    """
+
+    user = PostUser(username="bob")
+    payload = user.model_dump(exclude={"extra_payload"})
+    assert payload.get("password") is None
+    assert payload.get("password2") is None

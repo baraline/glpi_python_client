@@ -129,3 +129,9 @@ To build the Sphinx documentation locally:
 python -m pip install -e .[docs]
 python -m sphinx -b html docs docs/_build/html
 ```
+
+## Sponsoring & Professional services
+The development of this package is indirectly supported by [Novahé](https://www.novahe.fr/) & [Constellation](https://www.constellation.fr/).
+
+If you need professional help or services around GLPI, we offer consulting and engineering services to install, maintain or upgarde GLPI instance, as an [official GLPI partner](https://www.glpi-project.org/fr/new-glpi-silver-partner-in-france-novahe/).
+
