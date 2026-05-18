@@ -7,6 +7,8 @@ client's ``GLPI-Entity`` header so cross-entity lookups remain possible.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from glpi_python_client.clients.commons._constants import ENTITY_ENDPOINT, GlpiId
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.administration._entity import (
@@ -53,6 +55,48 @@ class EntityMixin(TransportMixin):
         return self._resource_list(
             ENTITY_ENDPOINT, GetEntity, params=params, skip_entity=True
         )
+
+    def iter_search_entities(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+    ) -> Iterator[list[GetEntity]]:
+        """Yield successive pages of GLPI entities until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+        Entity calls bypass the ``GLPI-Entity`` header so cross-entity
+        lookups remain possible.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every accessible entity.
+        batch_size : int, optional
+            Number of records requested per page (default 50).
+
+        Yields
+        ------
+        list[GetEntity]
+            One page of entities per iteration. The last yielded batch may
+            be shorter than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_entities(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_entity(self, entity_id: GlpiId) -> GetEntity:
         """Fetch one GLPI entity by identifier.

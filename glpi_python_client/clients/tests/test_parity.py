@@ -38,22 +38,28 @@ def test_sync_and_async_clients_expose_the_same_public_methods() -> None:
 
 
 def test_sync_endpoint_methods_are_not_coroutine_functions() -> None:
-    """Every public sync method is a plain function, not a coroutine."""
+    """Every public sync method is a plain or generator function, not a coroutine."""
 
     for name in _public_callable_names(GlpiClient):
         member = getattr(GlpiClient, name)
         assert not inspect.iscoroutinefunction(member), (
             f"GlpiClient.{name} should be synchronous"
         )
+        assert not inspect.isasyncgenfunction(member), (
+            f"GlpiClient.{name} should be synchronous"
+        )
 
 
 def test_async_endpoint_methods_are_coroutine_functions() -> None:
-    """Every public async method is a coroutine function."""
+    """Every public async method is a coroutine or async generator function."""
 
     for name in _public_callable_names(AsyncGlpiClient):
         member = getattr(AsyncGlpiClient, name)
-        assert inspect.iscoroutinefunction(member), (
-            f"AsyncGlpiClient.{name} should be a coroutine"
+        is_async = inspect.iscoroutinefunction(member) or inspect.isasyncgenfunction(
+            member
+        )
+        assert is_async, (
+            f"AsyncGlpiClient.{name} should be a coroutine or async generator"
         )
 
 

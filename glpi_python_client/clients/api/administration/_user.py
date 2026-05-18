@@ -8,6 +8,8 @@ the Synchronous transport mixin for HTTP dispatch.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from glpi_python_client.clients.commons._constants import USER_ENDPOINT, GlpiId
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.administration._user import (
@@ -62,6 +64,51 @@ class UserMixin(TransportMixin):
         return self._resource_list(
             USER_ENDPOINT, GetUser, params=params, skip_entity=skip_entity
         )
+
+    def iter_search_users(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        skip_entity: bool = False,
+    ) -> Iterator[list[GetUser]]:
+        """Yield successive pages of GLPI users until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible user.
+        batch_size : int, optional
+            Number of records requested per page (default 50).
+        skip_entity : bool, optional
+            When ``True`` the ``GLPI-Entity`` header is omitted so the
+            search spans every entity the caller has access to.
+
+        Yields
+        ------
+        list[GetUser]
+            One page of users per iteration. The last yielded batch may
+            be shorter than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_users(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                skip_entity=skip_entity,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_user(self, user_id: GlpiId) -> GetUser:
         """Fetch one GLPI user by identifier.

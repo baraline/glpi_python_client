@@ -705,3 +705,178 @@ def test_delete_helpers_raise_on_failure_status(
     rec.install(client)
     with pytest.raises(ValueError):
         call(client)
+
+
+# ---------------------------------------------------------------------------
+# iter_search_tickets
+# ---------------------------------------------------------------------------
+
+
+def test_iter_search_tickets_single_page(client: GlpiClient) -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    pages: list[list[Any]] = [[{"id": 1, "name": "t1", "content": "c"}]]
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return pages[0]
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_tickets("status==1", batch_size=50))
+    assert call_count == 1
+    assert len(batches) == 1
+    assert len(batches[0]) == 1
+
+
+def test_iter_search_tickets_multi_page_stops_on_short_batch(
+    client: GlpiClient,
+) -> None:
+    """Iteration stops after the first batch shorter than batch_size."""
+
+    ticket_a = {"id": 1, "name": "a", "content": "c"}
+    ticket_b = {"id": 2, "name": "b", "content": "c"}
+    ticket_c = {"id": 3, "name": "c", "content": "c"}
+    responses = [
+        [ticket_a, ticket_b],  # full page → continue
+        [ticket_c],  # short page → last
+    ]
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_tickets("", batch_size=2))
+    assert call_count == 2
+    assert len(batches) == 2
+    assert len(batches[0]) == 2
+    assert len(batches[1]) == 1
+
+
+# ---------------------------------------------------------------------------
+# iter_search_users
+# ---------------------------------------------------------------------------
+
+
+def test_iter_search_users_single_page(client: GlpiClient) -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        skip_entity: bool = False,
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return [{"id": 1, "username": "alice"}]
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_users("username==alice", batch_size=50))
+    assert call_count == 1
+    assert len(batches) == 1
+
+
+def test_iter_search_users_multi_page_stops_on_short_batch(
+    client: GlpiClient,
+) -> None:
+    """Iteration stops after the first short user batch."""
+
+    responses = [
+        [{"id": 1, "username": "alice"}, {"id": 2, "username": "bob"}],
+        [{"id": 3, "username": "carol"}],
+    ]
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        skip_entity: bool = False,
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_users("", batch_size=2))
+    assert call_count == 2
+    assert sum(len(b) for b in batches) == 3
+
+
+# ---------------------------------------------------------------------------
+# iter_search_entities
+# ---------------------------------------------------------------------------
+
+
+def test_iter_search_entities_single_page(client: GlpiClient) -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int | None = 50,
+        start: int = 0,
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return [{"id": 1, "name": "root"}]
+
+    client.search_entities = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_entities("", batch_size=50))
+    assert call_count == 1
+    assert len(batches) == 1
+
+
+def test_iter_search_entities_multi_page_stops_on_short_batch(
+    client: GlpiClient,
+) -> None:
+    """Iteration stops after the first short entity batch."""
+
+    responses = [
+        [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}],
+        [{"id": 3, "name": "c"}],
+    ]
+    call_count = 0
+
+    def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int | None = 50,
+        start: int = 0,
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_entities = fake_search  # type: ignore[method-assign]
+    batches = list(client.iter_search_entities("", batch_size=2))
+    assert call_count == 2
+    assert sum(len(b) for b in batches) == 3

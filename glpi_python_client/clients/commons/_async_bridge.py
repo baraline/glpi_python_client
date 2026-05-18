@@ -33,6 +33,19 @@ from collections.abc import Callable
 from concurrent.futures import Executor
 from typing import Any
 
+# Sentinel used by the async-generator bridge to signal exhaustion without
+# propagating StopIteration through a coroutine (which PEP 479 forbids).
+_STOPPED: object = object()
+
+
+def _next_or_stopped(gen: Any) -> Any:
+    """Return the next item from *gen* or ``_STOPPED`` when exhausted."""
+
+    try:
+        return next(gen)
+    except StopIteration:
+        return _STOPPED
+
 
 class AsyncBridge:
     """Base class that converts inherited sync methods into coroutines.
@@ -78,14 +91,22 @@ class AsyncBridge:
                     continue
                 if not callable(member) or inspect.iscoroutinefunction(member):
                     continue
+                if inspect.isasyncgenfunction(member):
+                    continue
                 # Skip if the subclass already overrides the method with
-                # a coroutine function (for example async fan-outs).
+                # a coroutine function or async generator (for example async fan-outs).
                 existing = getattr(cls, name, None)
-                if existing is not None and inspect.iscoroutinefunction(existing):
+                if existing is not None and (
+                    inspect.iscoroutinefunction(existing)
+                    or inspect.isasyncgenfunction(existing)
+                ):
                     seen.add(name)
                     continue
                 seen.add(name)
-                setattr(cls, name, _make_async_wrapper(member))
+                if inspect.isgeneratorfunction(member):
+                    setattr(cls, name, _make_async_generator_wrapper(member))
+                else:
+                    setattr(cls, name, _make_async_wrapper(member))
 
 
 def _make_async_wrapper(sync_func: Callable[..., Any]) -> Callable[..., Any]:
@@ -111,6 +132,41 @@ def _make_async_wrapper(sync_func: Callable[..., Any]) -> Callable[..., Any]:
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(self._executor, bound)
         return await asyncio.to_thread(bound)
+
+    return wrapper
+
+
+def _make_async_generator_wrapper(sync_func: Callable[..., Any]) -> Callable[..., Any]:
+    """Return an async generator wrapper for a synchronous generator function.
+
+    Each call to ``next()`` on the underlying sync generator is dispatched
+    to a worker thread so that the blocking HTTP call inside the generator
+    body does not block the event loop.
+
+    Parameters
+    ----------
+    sync_func : Callable[..., Any]
+        Synchronous generator function inherited from a sync mixin.
+
+    Returns
+    -------
+    Callable[..., Any]
+        Async generator function that yields the same items as the
+        synchronous generator, one batch at a time, off the event loop.
+    """
+
+    @functools.wraps(sync_func)
+    async def wrapper(self: AsyncBridge, *args: Any, **kwargs: Any) -> Any:
+        gen = sync_func(self, *args, **kwargs)
+        while True:
+            if self._executor is not None:
+                loop = asyncio.get_running_loop()
+                item = await loop.run_in_executor(self._executor, _next_or_stopped, gen)
+            else:
+                item = await asyncio.to_thread(_next_or_stopped, gen)
+            if item is _STOPPED:
+                return
+            yield item
 
     return wrapper
 

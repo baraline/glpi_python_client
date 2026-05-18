@@ -1,3 +1,5 @@
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.13
@@ -5,3 +7,26 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict)
+        entry: python -m mypy glpi_python_client
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest-coverage
+        name: pytest with coverage (>=95%)
+        entry: python -m pytest -m "not integration" --cov=glpi_python_client --cov-fail-under=95 -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: sphinx-build
+        name: sphinx build (warnings as errors)
+        entry: python -m sphinx -b html -W --keep-going docs docs/_build/html_check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

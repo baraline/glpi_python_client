@@ -135,3 +135,61 @@ async def test_async_from_env_accepts_executor() -> None:
             assert client._executor is pool
         finally:
             await client.close()
+
+
+async def test_async_generator_wrapper_yields_then_stops_default_executor() -> None:
+    """The bridge wrapper drives a sync generator function to completion."""
+
+    from glpi_python_client.clients.commons._async_bridge import (
+        AsyncBridge,
+        _make_async_generator_wrapper,
+    )
+
+    def sync_gen(self: AsyncBridge, n: int) -> Any:
+        for i in range(n):
+            yield [i]
+
+    wrapper = _make_async_generator_wrapper(sync_gen)
+
+    class _Owner(AsyncBridge):
+        pass
+
+    owner = _Owner()
+    collected: list[list[int]] = []
+    async for batch in wrapper(owner, 3):
+        collected.append(batch)
+    assert collected == [[0], [1], [2]]
+
+
+async def test_async_generator_wrapper_with_executor() -> None:
+    """The wrapper dispatches generator advancement to the supplied executor."""
+
+    from glpi_python_client.clients.commons._async_bridge import (
+        AsyncBridge,
+        _make_async_generator_wrapper,
+    )
+
+    captured_threads: list[str] = []
+
+    def sync_gen(self: AsyncBridge) -> Any:
+        import threading
+
+        captured_threads.append(threading.current_thread().name)
+        yield ["one"]
+        captured_threads.append(threading.current_thread().name)
+
+    wrapper = _make_async_generator_wrapper(sync_gen)
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="glpi-gen") as pool:
+
+        class _Owner(AsyncBridge):
+            pass
+
+        owner = _Owner()
+        owner._executor = pool
+        batches: list[list[str]] = []
+        async for batch in wrapper(owner):
+            batches.append(batch)
+    assert batches == [["one"]]
+    assert captured_threads
+    assert all(name.startswith("glpi-gen") for name in captured_threads)

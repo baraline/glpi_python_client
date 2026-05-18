@@ -6,6 +6,8 @@ GLPI ticket resource using the ``api_schema`` Pydantic models.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from glpi_python_client.clients.commons._constants import TICKET_ENDPOINT, GlpiId
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance._ticket import (
@@ -67,6 +69,56 @@ class TicketMixin(TransportMixin):
         if fields:
             params["fields"] = ",".join(fields)
         return self._resource_list(TICKET_ENDPOINT, GetTicket, params=params)
+
+    def iter_search_tickets(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> Iterator[list[GetTicket]]:
+        """Yield successive pages of GLPI tickets until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible ticket.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as
+            the ``limit`` parameter on each underlying
+            :meth:`search_tickets` call.
+        sort : str | None, optional
+            ``sort`` query parameter forwarded as-is to each page request.
+        fields : tuple[str, ...], optional
+            Restricted set of contract field names to request.
+
+        Yields
+        ------
+        list[GetTicket]
+            One page of tickets per iteration. The last yielded batch may
+            be shorter than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_tickets(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                sort=sort,
+                fields=fields,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_ticket(self, ticket_id: GlpiId) -> GetTicket:
         """Fetch one GLPI ticket by identifier.
