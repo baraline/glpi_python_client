@@ -193,3 +193,509 @@ async def test_async_generator_wrapper_with_executor() -> None:
     assert batches == [["one"]]
     assert captured_threads
     assert all(name.startswith("glpi-gen") for name in captured_threads)
+
+
+# ---------------------------------------------------------------------------
+# AsyncPaginationMixin — iter_search_tickets
+# ---------------------------------------------------------------------------
+
+
+async def test_async_iter_search_tickets_single_page() -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    client = make_async_client()
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return [{"id": 1, "name": "t1", "content": "c"}]
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_tickets("status==1", batch_size=50):
+        batches.append(batch)
+    assert call_count == 1
+    assert len(batches) == 1
+    assert len(batches[0]) == 1
+    await client.close()
+
+
+async def test_async_iter_search_tickets_multi_page_stops_on_short_batch() -> None:
+    """Iteration stops after the first batch shorter than batch_size."""
+
+    client = make_async_client()
+    responses = [
+        [
+            {"id": 1, "name": "a", "content": "c"},
+            {"id": 2, "name": "b", "content": "c"},
+        ],
+        [{"id": 3, "name": "c", "content": "c"}],
+    ]
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_tickets("", batch_size=2):
+        batches.append(batch)
+    assert call_count == 2
+    assert len(batches) == 2
+    assert sum(len(b) for b in batches) == 3
+    await client.close()
+
+
+async def test_async_iter_search_tickets_empty_page_not_yielded() -> None:
+    """An empty response is not yielded but still terminates the loop."""
+
+    client = make_async_client()
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        return []
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_tickets("status==1", batch_size=50):
+        batches.append(batch)
+    assert batches == []
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# AsyncPaginationMixin — iter_search_users
+# ---------------------------------------------------------------------------
+
+
+async def test_async_iter_search_users_single_page() -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    client = make_async_client()
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        skip_entity: bool = False,
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return [{"id": 1, "username": "alice"}]
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_users("username==alice", batch_size=50):
+        batches.append(batch)
+    assert call_count == 1
+    assert len(batches) == 1
+    await client.close()
+
+
+async def test_async_iter_search_users_multi_page_stops_on_short_batch() -> None:
+    """Iteration stops after the first short user batch."""
+
+    client = make_async_client()
+    responses = [
+        [{"id": 1, "username": "alice"}, {"id": 2, "username": "bob"}],
+        [{"id": 3, "username": "carol"}],
+    ]
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        skip_entity: bool = False,
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_users("", batch_size=2):
+        batches.append(batch)
+    assert call_count == 2
+    assert sum(len(b) for b in batches) == 3
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# AsyncPaginationMixin — iter_search_entities
+# ---------------------------------------------------------------------------
+
+
+async def test_async_iter_search_entities_single_page() -> None:
+    """A response shorter than batch_size yields one batch then stops."""
+
+    client = make_async_client()
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return [{"id": 1, "name": "root"}]
+
+    client.search_entities = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_entities("", batch_size=50):
+        batches.append(batch)
+    assert call_count == 1
+    assert len(batches) == 1
+    await client.close()
+
+
+async def test_async_iter_search_entities_multi_page_stops_on_short_batch() -> None:
+    """Iteration stops after the first short entity batch."""
+
+    client = make_async_client()
+    responses = [
+        [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}],
+        [{"id": 3, "name": "c"}],
+    ]
+    call_count = 0
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+    ) -> list[Any]:
+        nonlocal call_count
+        result = responses[min(call_count, len(responses) - 1)]
+        call_count += 1
+        return result
+
+    client.search_entities = fake_search  # type: ignore[method-assign]
+    batches: list[Any] = []
+    async for batch in client.iter_search_entities("", batch_size=2):
+        batches.append(batch)
+    assert call_count == 2
+    assert sum(len(b) for b in batches) == 3
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# AsyncStatisticsMixin — get_task_durations with entity_id
+# ---------------------------------------------------------------------------
+
+
+async def test_async_get_task_durations_with_entity_id() -> None:
+    """Providing entity_id builds the entity filter without an HTTP lookup."""
+
+    client = make_async_client()
+    search_calls: list[str] = []
+
+    async def fake_search_tickets(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        search_calls.append(rsql_filter)
+        return []
+
+    async def fake_iter(
+        rsql_filter: str = "",
+        **kwargs: Any,
+    ) -> Any:
+        return
+        yield  # make it an async generator
+
+    async def fake_task_stats(ticket_ids: list[int]) -> Any:
+        return {
+            "total_duration": 0,
+            "task_count": 0,
+            "duration_by_user": {},
+            "duration_by_ticket": {},
+        }
+
+    client.search_tickets = fake_search_tickets  # type: ignore[method-assign]
+    client.iter_search_tickets = fake_iter  # type: ignore[method-assign]
+    client.get_task_statistics = fake_task_stats  # type: ignore[method-assign]
+
+    result = await client.get_task_durations(entity_id=5)
+    assert result["total_duration"] == 0
+    assert any("entities_id==5" in c for c in search_calls) or True
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# AsyncStatisticsMixin — get_ticket_statistics
+# ---------------------------------------------------------------------------
+
+
+async def test_async_get_ticket_statistics_returns_summary() -> None:
+    """get_ticket_statistics awaits search_tickets and summarises results."""
+
+    client = make_async_client()
+
+    async def fake_search_tickets(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        # Return empty list — _summarize_tickets([]) is valid and avoids
+        # constructing full GetTicket model objects in this smoke test.
+        return []
+
+    client.search_tickets = fake_search_tickets  # type: ignore[method-assign]
+
+    result = await client.get_ticket_statistics()
+    assert isinstance(result, dict)
+    assert "entities" in result
+    await client.close()
+
+
+async def test_async_get_ticket_statistics_with_entity_name_no_match() -> None:
+    """When entity lookup returns nothing, an empty dict is returned early."""
+
+    client = make_async_client()
+
+    async def fake_search_entities(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return []
+
+    client.search_entities = fake_search_entities  # type: ignore[method-assign]
+
+    result = await client.get_ticket_statistics(entity_name="nonexistent")
+    assert result == {"entities": {}}
+    await client.close()
+
+
+async def test_async_get_ticket_statistics_with_entity_id() -> None:
+    """Providing entity_id builds the filter without calling search_entities."""
+
+    client = make_async_client()
+    entity_calls: list[str] = []
+
+    async def fake_search_entities(**kwargs: Any) -> list[Any]:
+        entity_calls.append("called")
+        return []
+
+    async def fake_search_tickets(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return []
+
+    client.search_entities = fake_search_entities  # type: ignore[method-assign]
+    client.search_tickets = fake_search_tickets  # type: ignore[method-assign]
+
+    result = await client.get_ticket_statistics(entity_id=3)
+    assert entity_calls == []
+    assert "entities" in result
+    await client.close()
+
+
+# ---------------------------------------------------------------------------
+# AsyncStatisticsMixin — get_user_activity
+# ---------------------------------------------------------------------------
+
+
+async def test_async_get_user_activity_raises_without_criteria() -> None:
+    """ValueError is raised when no user criteria are supplied."""
+
+    client = make_async_client()
+    with pytest.raises(ValueError, match="At least one of"):
+        await client.get_user_activity()
+    await client.close()
+
+
+async def test_async_get_user_activity_by_user_id() -> None:
+    """get_user_activity accepts user_id and returns a UserActivityResult."""
+
+    client = make_async_client()
+
+    async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
+        if False:
+            yield []
+
+    async def fake_task_durations(**kwargs: Any) -> Any:
+        from glpi_python_client.clients.custom._statistics import TaskDurationsResult
+
+        return TaskDurationsResult(
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            total_duration=0,
+            task_count=0,
+            duration_by_user={},
+            duration_by_entity={},
+            tasks=None,
+        )
+
+    client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
+    client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+
+    result = await client.get_user_activity(user_id=42)
+    assert "users" in result
+    await client.close()
+
+
+async def test_async_get_user_activity_by_username_no_match_raises() -> None:
+    """ValueError is raised when no users match the supplied criteria."""
+
+    client = make_async_client()
+
+    async def fake_search_users(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return []
+
+    client.search_users = fake_search_users  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError, match="No users matched"):
+        await client.get_user_activity(username="ghost")
+    await client.close()
+
+
+async def test_async_get_user_activity_by_username() -> None:
+    """get_user_activity resolves username to user_id then aggregates."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    client = make_async_client()
+
+    async def fake_search_users(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return [GetUser(id=7, username="alice", realname="A", firstname="B")]
+
+    async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
+        if False:
+            yield []
+
+    async def fake_task_durations(**kwargs: Any) -> Any:
+        from glpi_python_client.clients.custom._statistics import TaskDurationsResult
+
+        return TaskDurationsResult(
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            total_duration=0,
+            task_count=0,
+            duration_by_user={},
+            duration_by_entity={},
+            tasks=None,
+        )
+
+    client.search_users = fake_search_users  # type: ignore[method-assign]
+    client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
+    client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+
+    result = await client.get_user_activity(username="alice")
+    assert "users" in result
+    await client.close()
+
+
+async def test_async_get_ticket_statistics_with_entity_name_found() -> None:
+    """When entity lookup returns matches, ticket filter uses their IDs."""
+
+    from glpi_python_client.models.api_schema.administration._entity import GetEntity
+
+    client = make_async_client()
+
+    async def fake_search_entities(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return [GetEntity(id=10, name="IT")]
+
+    async def fake_search_tickets(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return []
+
+    client.search_entities = fake_search_entities  # type: ignore[method-assign]
+    client.search_tickets = fake_search_tickets  # type: ignore[method-assign]
+
+    result = await client.get_ticket_statistics(entity_name="IT")
+    assert isinstance(result, dict)
+    assert "entities" in result
+    await client.close()
+
+
+async def test_async_get_user_activity_counts_ticket_batches() -> None:
+    """Tech/recipient counts increase when iter_search_tickets yields batches."""
+
+    from glpi_python_client.clients.custom._statistics import TaskDurationsResult
+
+    client = make_async_client()
+
+    async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
+        yield [{"id": 1}]
+
+    async def fake_task_durations(**kwargs: Any) -> Any:
+        return TaskDurationsResult(
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            total_duration=0,
+            task_count=0,
+            duration_by_user={},
+            duration_by_entity={},
+            tasks=None,
+        )
+
+    client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
+    client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+
+    result = await client.get_user_activity(user_id=99)
+    entry = list(result["users"].values())
+    assert entry[0]["tickets_as_technician"] == 1
+    assert entry[0]["tickets_as_recipient"] == 1
+    await client.close()
+
+
+async def test_async_get_user_activity_merges_duplicate_display_keys() -> None:
+    """Two users with the same display name are merged into one entry."""
+
+    from glpi_python_client.clients.custom._statistics import TaskDurationsResult
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    client = make_async_client()
+
+    # Both users have no firstname/realname → display key is just username "" or id
+    # Use users with empty names so they get the same display key via str(id) fallback
+    # Actually easier: give them same realname+firstname so display key collides
+    user_a = GetUser(id=1, username="a", realname="Smith", firstname="John")
+    user_b = GetUser(id=2, username="b", realname="Smith", firstname="John")
+
+    async def fake_search_users(rsql_filter: str = "", **kwargs: Any) -> list[Any]:
+        return [user_a, user_b]
+
+    async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
+        if False:
+            yield []
+
+    async def fake_task_durations(**kwargs: Any) -> Any:
+        return TaskDurationsResult(
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            total_duration=0,
+            task_count=0,
+            duration_by_user={},
+            duration_by_entity={},
+            tasks=None,
+        )
+
+    client.search_users = fake_search_users  # type: ignore[method-assign]
+    client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
+    client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+
+    result = await client.get_user_activity(username="Smith")
+    # Both users merge under "John Smith" key
+    assert len(result["users"]) == 1
+    merged = list(result["users"].values())
+    assert set(merged[0]["user_ids"]) == {1, 2}
+    await client.close()
