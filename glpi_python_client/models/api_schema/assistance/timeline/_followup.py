@@ -31,8 +31,7 @@ class GetFollowup(GlpiModel):
     id : int | None, optional
         Native GLPI identifier of the followup (``readOnly``).
     itemtype : str | None, optional
-        GLPI item type the followup belongs to, typically ``"Ticket"``
-       .
+        GLPI item type the followup belongs to, typically ``"Ticket"``.
     items_id : int | None, optional
         Identifier of the parent GLPI item.
     content : GlpiMarkdownContent
@@ -92,8 +91,7 @@ class PostFollowup(GlpiModel):
     Parameters
     ----------
     itemtype : str | None, optional
-        GLPI item type the followup belongs to, typically ``"Ticket"``
-       .
+        GLPI item type the followup belongs to, typically ``"Ticket"``.
     items_id : int | None, optional
         Identifier of the parent GLPI item.
     content : GlpiMarkdownContent

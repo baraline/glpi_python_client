@@ -78,8 +78,7 @@ class GetTicketTask(GlpiModel):
     tickets_id : int | None, optional
         Identifier of the parent ticket.
     source_item_id : int | None, optional
-        Identifier of the source item that generated this task, if any
-       .
+        Identifier of the source item that generated this task, if any.
     source_of_item_id : int | None, optional
         Identifier of the item for which this task is a source (no
         contract description).
@@ -155,8 +154,7 @@ class PostTicketTask(GlpiModel):
     tickets_id : int | None, optional
         Identifier of the parent ticket.
     source_item_id : int | None, optional
-        Identifier of the source item that generated this task, if any
-       .
+        Identifier of the source item that generated this task, if any.
     source_of_item_id : int | None, optional
         Identifier of the item for which this task is a source (no
         contract description).

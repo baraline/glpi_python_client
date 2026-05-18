@@ -30,8 +30,7 @@ class GetSolution(GlpiModel):
     id : int | None, optional
         Native GLPI identifier of the solution (``readOnly``).
     itemtype : str | None, optional
-        GLPI item type the solution belongs to, typically ``"Ticket"``
-       .
+        GLPI item type the solution belongs to, typically ``"Ticket"``.
     items_id : int | None, optional
         Identifier of the parent GLPI item.
     type : IdNameRef | None, optional
@@ -86,8 +85,7 @@ class PostSolution(GlpiModel):
     Parameters
     ----------
     itemtype : str | None, optional
-        GLPI item type the solution belongs to, typically ``"Ticket"``
-       .
+        GLPI item type the solution belongs to, typically ``"Ticket"``.
     items_id : int | None, optional
         Identifier of the parent GLPI item.
     type : IdNameRef | None, optional
