@@ -53,11 +53,11 @@ class AsyncTicketContextMixin(TicketContextMixin):
         """
 
         ticket, tasks, followups, solutions, documents = await asyncio.gather(
-            self.get_ticket(ticket_id),  # type: ignore[attr-defined,misc]
-            self.list_ticket_tasks(ticket_id),  # type: ignore[attr-defined,misc]
-            self.list_ticket_followups(ticket_id),  # type: ignore[attr-defined,misc]
-            self.list_ticket_solutions(ticket_id),  # type: ignore[attr-defined,misc]
-            self.list_ticket_timeline_documents(  # type: ignore[attr-defined,misc]
+            self.get_ticket(ticket_id),  # type: ignore[attr-defined]
+            self.list_ticket_tasks(ticket_id),  # type: ignore[attr-defined]
+            self.list_ticket_followups(ticket_id),  # type: ignore[attr-defined]
+            self.list_ticket_solutions(ticket_id),  # type: ignore[attr-defined]
+            self.list_ticket_timeline_documents(  # type: ignore[attr-defined]
                 ticket_id
             ),
         )

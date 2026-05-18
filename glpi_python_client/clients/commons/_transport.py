@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, cast
 
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -129,7 +129,7 @@ class TransportMixin:
         """
 
         request_method = getattr(self._session, method)
-        return request_method(url, **kwargs)
+        return cast(requests.Response, request_method(url, **kwargs))
 
     def _execute_request(
         self,

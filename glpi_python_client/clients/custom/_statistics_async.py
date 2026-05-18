@@ -58,7 +58,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
             }
         results = await asyncio.gather(
             *(
-                self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined,misc]
+                self.list_ticket_tasks(ticket_id)  # type: ignore[attr-defined]
                 for ticket_id in ticket_ids
             )
         )
