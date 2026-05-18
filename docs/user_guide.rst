@@ -186,6 +186,20 @@ need real concurrency:
   GLPI calls out concurrently with :func:`asyncio.gather`.
 * :meth:`AsyncGlpiClient.get_task_statistics` fans the per-ticket task
   list calls out concurrently with :func:`asyncio.gather`.
+* :meth:`AsyncGlpiClient.get_task_durations` fans the per-ticket task
+  fetches out concurrently with :func:`asyncio.gather` when
+  ``return_task_details=True``.
+
+Pagination helpers (``iter_search_tickets``, ``iter_search_users``,
+``iter_search_entities``) are exposed as **async generators** on the
+async client. Iterate them with ``async for`` to walk every page
+without blocking the event loop:
+
+.. code-block:: python
+
+   async for batch in client.iter_search_tickets("status==1", batch_size=200):
+       for ticket in batch:
+           ...
 
 The synchronous versions of the same helpers issue the calls
 sequentially.
@@ -710,24 +724,78 @@ Example — description and timeline only, no metadata fields:
 Reporting helpers
 ~~~~~~~~~~~~~~~~~
 
-The custom statistics mixin exposes two helpers that aggregate the
+The custom statistics mixin exposes several helpers that aggregate the
 ticket and ticket-task records returned by the contract-aligned mixins.
-Both return plain Python dictionaries so they can be serialised or
+They all return plain Python dictionaries so they can be serialised or
 forwarded as-is.
+
+Streaming pagination with ``iter_search_*``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``search_*`` helpers return one page at a time and require the
+caller to manage the ``start`` cursor. The companion ``iter_search_*``
+generators handle pagination automatically by yielding successive
+batches until the API returns fewer rows than the requested
+``batch_size`` (the natural end-of-stream signal):
+
+* :meth:`GlpiClient.iter_search_tickets`
+* :meth:`GlpiClient.iter_search_users`
+* :meth:`GlpiClient.iter_search_entities`
+
+.. code-block:: python
+
+   # Walk every "open" ticket without loading the full result set in memory.
+   total = 0
+   for batch in client.iter_search_tickets("status==1", batch_size=200):
+       total += len(batch)
+       for ticket in batch:
+           print(ticket.id, ticket.name)
+   print(f"processed {total} tickets")
+
+On the asynchronous client the same helpers are exposed as **async
+generators** through the bridge, so each ``next()`` call runs off the
+event loop and the consumer uses ``async for``:
+
+.. code-block:: python
+
+   async for batch in async_client.iter_search_users("", batch_size=100):
+       for user in batch:
+           print(user.id, user.username)
 
 ``get_ticket_statistics``
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Counts tickets created within an ISO date window and groups them by
-entity, status, priority, and type.
+entity, status, priority, and type. Optional filters restrict the
+result set on the server side:
+
+* ``entity_id`` — restrict to a single entity by numeric identifier.
+* ``entity_name`` — substring match against the entity ``name`` column;
+  the helper resolves matching IDs via ``search_entities`` and ORs
+  them together. Ignored when ``entity_id`` is provided.
+* ``extra_filter`` — raw RSQL fragment AND-joined with the date window.
 
 .. code-block:: python
 
+   # Tickets created in January 2026 on a specific entity, restricted to
+   # priority "HIGH" (5) via an extra raw RSQL fragment.
    stats = client.get_ticket_statistics(
        start_date="2026-01-01",
        end_date="2026-01-31",
+       entity_id=3,
+       extra_filter="priority==5",
    )
    print(stats)
+
+   # Resolve the entity by (partial) name instead of by ID:
+   stats = client.get_ticket_statistics(
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+       entity_name="Helpdesk",
+   )
+
+When ``entity_name`` matches no entity the helper short-circuits and
+returns ``{"entities": {}}`` without issuing any ticket search.
 
 Returned shape (the outer key is always ``"entities"``; entity keys are
 the GLPI numeric identifier as a string, ``"unknown"`` when missing)::
@@ -789,6 +857,115 @@ the appropriate ``search_*`` helpers when human-readable labels are
 needed (for example
 ``client.get_user(22)`` to turn user key ``"22"`` into a full
 :class:`GetUser` model).
+
+``get_task_durations``
+^^^^^^^^^^^^^^^^^^^^^^
+
+Aggregates task durations over a date window with rich server-side
+filters and an optional per-task detail list. Internally the helper
+iterates :meth:`iter_search_tickets` to collect every matching ticket,
+then computes per-user and per-entity totals.
+
+Available filters:
+
+* ``start_date`` / ``end_date`` / ``default_days`` — ISO ``YYYY-MM-DD``
+  date window; ``default_days`` is used when ``start_date`` is omitted.
+* ``entity_id`` — restrict to a single entity by identifier.
+* ``entity_name`` — substring match resolved through ``search_entities``;
+  ignored when ``entity_id`` is given.
+* ``user_id`` — tickets where the user is **either** assignee or
+  requester (OR semantics).
+* ``user_editor_id`` — tickets last updated by this user.
+* ``user_recipient_id`` — tickets where this user is the requester.
+* ``extra_filter`` — raw RSQL fragment AND-joined with everything else.
+* ``return_task_details`` — when ``True``, fetch every non-zero ticket's
+  task list and include them as ``tasks`` in the result.
+
+.. code-block:: python
+
+   # Sum durations for a tech on a specific entity over the last 30 days.
+   summary = client.get_task_durations(
+       entity_id=3,
+       user_id=42,
+   )
+   print(summary["total_duration"], summary["task_count"])
+   print(summary["duration_by_entity"])  # {"3": 7200}
+
+   # Same query but ask for the per-task breakdown.
+   detailed = client.get_task_durations(
+       entity_id=3,
+       user_id=42,
+       return_task_details=True,
+   )
+   for task in detailed["tasks"] or []:
+       print(task["task_id"], task["ticket_id"], task["duration"])
+
+Returned shape::
+
+   {
+       "start_date": "2026-01-01",
+       "end_date": "2026-01-31",
+       "total_duration": 7200,
+       "task_count": 4,
+       "duration_by_user": {"42": 7200},
+       "duration_by_entity": {"3": 7200},
+       "tasks": None,  # or a list[dict] when return_task_details=True
+   }
+
+On the async client the same method is overridden to run the per-ticket
+task fetches concurrently with :func:`asyncio.gather` when
+``return_task_details=True``.
+
+``get_user_activity``
+^^^^^^^^^^^^^^^^^^^^^
+
+Aggregates per-user activity over a date window: tickets where the
+user appears as technician (``users_id_assign``), tickets where the
+user appears as requester (``users_id_requester``), and the user's
+task duration totals. Multiple users that resolve to the same display
+key (``"<firstname> <realname>"``) are merged into a single bucket.
+
+The helper raises ``ValueError`` when no identifier is supplied or
+when the search criteria match no users in the directory.
+
+.. code-block:: python
+
+   # Activity for a single user identified by username (substring match).
+   report = client.get_user_activity(
+       username="alice",
+       start_date="2026-01-01",
+       end_date="2026-01-31",
+   )
+   for display_name, data in report["users"].items():
+       print(
+           display_name,
+           data["tickets_as_technician"],
+           data["tickets_as_recipient"],
+           data["task_durations"]["total_duration"],
+       )
+
+   # Activity for every user whose last name contains "Smith".
+   report = client.get_user_activity(realname="Smith", default_days=90)
+
+Returned shape::
+
+   {
+       "users": {
+           "Alice Smith": {
+               "user_ids": [42],
+               "tickets_as_technician": 7,
+               "tickets_as_recipient": 2,
+               "task_durations": {
+                   "start_date": "2026-01-01",
+                   "end_date": "2026-01-31",
+                   "total_duration": 7200,
+                   "task_count": 4,
+                   "duration_by_user": {"42": 7200},
+                   "duration_by_entity": {"3": 7200},
+               },
+           }
+       }
+   }
 
 .. _end-to-end-examples:
 
