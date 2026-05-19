@@ -102,9 +102,11 @@ class AsyncStatisticsMixin(StatisticsMixin):
         Parameters
         ----------
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the window.
+            ISO ``YYYY-MM-DD`` start of the window (inclusive from
+            00:00:00).
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the window.
+            ISO ``YYYY-MM-DD`` end of the window (inclusive through
+            23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (default 30).
         entity_id : int | None, optional
@@ -143,10 +145,8 @@ class AsyncStatisticsMixin(StatisticsMixin):
             end_date=end_date,
             default_days=default_days,
         )
-        date_filter = (
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}"
-        )
-
+        date_filter = f"date_creation=ge={start.isoformat()};"
+        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
         entity_filter: str | None = None
         if entity_id is not None:
             entity_filter = f"entities_id=={entity_id}"
@@ -274,9 +274,11 @@ class AsyncStatisticsMixin(StatisticsMixin):
         Parameters
         ----------
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the window.
+            ISO ``YYYY-MM-DD`` start of the window (inclusive from
+            00:00:00).
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the window. Defaults to today.
+            ISO ``YYYY-MM-DD`` end of the window (inclusive through
+            23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (default 30).
         entity_id : int | None, optional
@@ -328,8 +330,10 @@ class AsyncStatisticsMixin(StatisticsMixin):
                 *(f"entities_id=={e.id}" for e in entities if e.id is not None)
             )
 
+        date_filter = f"date_creation=ge={start.isoformat()};"
+        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
         query = rsql_all_filter(
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}",
+            date_filter,
             entity_filter,
             extra_filter,
         )
@@ -369,9 +373,11 @@ class AsyncStatisticsMixin(StatisticsMixin):
         firstname : str | None, optional
             Filter by given name (substring match).
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the activity window.
+            ISO ``YYYY-MM-DD`` start of the activity window (inclusive
+            from 00:00:00).
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the activity window. Defaults to today.
+            ISO ``YYYY-MM-DD`` end of the activity window (inclusive
+            through 23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (default 30).
 
@@ -438,9 +444,8 @@ class AsyncStatisticsMixin(StatisticsMixin):
                 if u.id is not None
             }
 
-        date_range = (
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}"
-        )
+        date_range = f"date_creation=ge={start.isoformat()};"
+        date_range += f"date_creation=le={end.isoformat()} 23:59:59"
 
         users_output: dict[str, UserActivityEntry] = {}
         for uid in resolved_user_ids:

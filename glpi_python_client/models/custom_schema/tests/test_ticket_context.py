@@ -38,11 +38,11 @@ def test_ticket_context_accepts_timeline_records() -> None:
         "tasks": [{"id": 11, "content": "<p>do</p>"}],
         "followups": [{"id": 12, "content": "<p>note</p>"}],
         "solutions": [{"id": 13, "content": "<p>fix</p>"}],
-        "documents": [{"id": 14, "documents_id": 99}],
+        "documents": [{"id": 14, "filename": "report.pdf"}],
     }
     context = GlpiTicketContext.model_validate(payload)
     assert context.tasks[0].id == 11
-    assert context.documents[0].documents_id == 99
+    assert context.documents[0].filename == "report.pdf"
 
 
 def test_to_markdown_renders_header_and_status() -> None:
@@ -151,8 +151,8 @@ def test_to_markdown_renders_solution_and_documents() -> None:
             "ticket": {"id": 7, "name": "Reset"},
             "solutions": [{"id": 4, "content": "All fixed"}],
             "documents": [
-                {"id": 11, "documents_id": 99, "filepath": "logs/run.txt"},
-                {"id": 12, "documents_id": 100},
+                {"id": 11, "filename": "run.txt"},
+                {"id": 12},
             ],
         }
     )
@@ -160,8 +160,8 @@ def test_to_markdown_renders_solution_and_documents() -> None:
     assert "### Solution #4" in rendered
     assert "All fixed" in rendered
     assert "## Documents" in rendered
-    assert "- logs/run.txt" in rendered
-    assert "- document #100" in rendered
+    assert "- run.txt" in rendered
+    assert "- document #12" in rendered
 
 
 def test_to_markdown_handles_empty_timeline() -> None:
@@ -232,7 +232,7 @@ _FULL_PAYLOAD = {
     "followups": [{"id": 10, "content": "followup body"}],
     "tasks": [{"id": 20, "content": "task body", "duration": 600}],
     "solutions": [{"id": 30, "content": "solution body"}],
-    "documents": [{"id": 40, "documents_id": 99, "filepath": "file.txt"}],
+    "documents": [{"id": 40, "filename": "file.txt"}],
 }
 
 

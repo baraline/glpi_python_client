@@ -130,7 +130,7 @@ def test_get_ticket_statistics_default_window_uses_today(
     end = date.today()
     start = end - timedelta(days=6)
     assert f"date_creation=ge={start.isoformat()}" in captured["filter"]
-    assert f"date_creation=le={end.isoformat()}" in captured["filter"]
+    assert f"date_creation=le={end.isoformat()} 23:59:59" in captured["filter"]
 
 
 def test_get_ticket_statistics_rejects_invalid_window(client: GlpiClient) -> None:
@@ -306,7 +306,7 @@ def test_get_ticket_statistics_default_days_window(client: GlpiClient) -> None:
     end = date.today()
     start = end - timedelta(days=13)
     assert f"date_creation=ge={start.isoformat()}" in captured["filter"]
-    assert f"date_creation=le={end.isoformat()}" in captured["filter"]
+    assert f"date_creation=le={end.isoformat()} 23:59:59" in captured["filter"]
 
 
 # ---------------------------------------------------------------------------

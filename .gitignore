@@ -26,5 +26,6 @@ dist/
 secrets/
 secrets/*
 
-integration_tests/
-integration_tests/*
+.claude/
+
+CLAUDE.md

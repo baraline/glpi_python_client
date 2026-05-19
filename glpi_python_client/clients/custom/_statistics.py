@@ -95,10 +95,12 @@ class StatisticsMixin(TransportMixin):
         Parameters
         ----------
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the window. Defaults to
-            ``end_date - default_days + 1`` when omitted.
+            ISO ``YYYY-MM-DD`` start of the window (inclusive from
+            00:00:00). Defaults to ``end_date - default_days + 1``
+            when omitted.
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the window. Defaults to today.
+            ISO ``YYYY-MM-DD`` end of the window (inclusive through
+            23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (defaults
             to 30 and must be a positive integer).
@@ -147,9 +149,10 @@ class StatisticsMixin(TransportMixin):
             entity_filter = rsql_any_filter(
                 *(f"entities_id=={e.id}" for e in entities if e.id is not None)
             )
-
+        date_filter = f"date_creation=ge={start.isoformat()};"
+        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
         query = rsql_all_filter(
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}",
+            date_filter,
             entity_filter,
             extra_filter,
         )
@@ -226,10 +229,12 @@ class StatisticsMixin(TransportMixin):
         Parameters
         ----------
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the window. Defaults to
-            ``end_date - default_days + 1`` when omitted.
+            ISO ``YYYY-MM-DD`` start of the window (inclusive from
+            00:00:00). Defaults to ``end_date - default_days + 1``
+            when omitted.
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the window. Defaults to today.
+            ISO ``YYYY-MM-DD`` end of the window (inclusive through
+            23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (defaults
             to 30 and must be a positive integer).
@@ -269,9 +274,8 @@ class StatisticsMixin(TransportMixin):
             end_date=end_date,
             default_days=default_days,
         )
-        date_filter = (
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}"
-        )
+        date_filter = f"date_creation=ge={start.isoformat()};"
+        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
 
         entity_filter: str | None = None
         if entity_id is not None:
@@ -399,9 +403,11 @@ class StatisticsMixin(TransportMixin):
         firstname : str | None, optional
             Filter by given name (substring match).
         start_date : str | None, optional
-            ISO ``YYYY-MM-DD`` start of the activity window.
+            ISO ``YYYY-MM-DD`` start of the activity window (inclusive
+            from 00:00:00).
         end_date : str | None, optional
-            ISO ``YYYY-MM-DD`` end of the activity window. Defaults to today.
+            ISO ``YYYY-MM-DD`` end of the activity window (inclusive
+            through 23:59:59). Defaults to today.
         default_days : int, optional
             Span in days used when ``start_date`` is omitted (default 30).
 
@@ -460,9 +466,8 @@ class StatisticsMixin(TransportMixin):
                 if u.id is not None
             }
 
-        date_range = (
-            f"date_creation=ge={start.isoformat()};date_creation=le={end.isoformat()}"
-        )
+        date_range = f"date_creation=ge={start.isoformat()};"
+        date_range += f"date_creation=le={end.isoformat()} 23:59:59"
 
         users_output: dict[str, UserActivityEntry] = {}
         for uid in resolved_user_ids:

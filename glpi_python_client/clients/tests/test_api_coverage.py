@@ -570,7 +570,7 @@ def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
 
     rec = _Recorder(
         get_payload=[
-            {"type": "Document_Item", "item": {"id": 1, "documents_id": 99}},
+            {"type": "Document_Item", "item": {"id": 1, "filename": "report.txt"}},
         ]
     )
     rec.install(client)
@@ -578,7 +578,7 @@ def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
     assert items[0].id == 1
     assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Document"
 
-    rec._get_payload = {"id": 1, "documents_id": 99}  # type: ignore[attr-defined]
+    rec._get_payload = {"id": 1, "filename": "report.txt"}  # type: ignore[attr-defined]
     doc = client.get_ticket_timeline_document(7, 1)
     assert doc.id == 1
 

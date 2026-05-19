@@ -7,11 +7,12 @@ Notes
 -----
 The live GLPI v2 server returns each entry of the list endpoint wrapped
 in a ``{"type": "Document_Item", "item": {...}}`` envelope, even though
-the OpenAPI contract documents a flat array of ``Document_Item``. Real
-behaviour wins over the contract, so :func:`list_ticket_timeline_documents`
-unwraps the envelope through the shared
-:meth:`~glpi_python_client.clients.commons._transport.TransportMixin._resource_list`
-helper and tolerates both shapes.
+the OpenAPI contract documents a flat array of ``Document_Item``.  The
+``item`` value is a full ``Document`` record (matching :class:`GetDocument`),
+not a ``Document_Item`` link record — real behaviour wins over the contract.
+:func:`list_ticket_timeline_documents` unwraps the envelope through the shared
+``TransportMixin._resource_list`` helper and deserialises each inner object
+as :class:`GetDocument`.
 """
 
 from __future__ import annotations
@@ -24,19 +25,17 @@ from glpi_python_client.clients.commons._constants import (
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance.timeline._document import (
     DeleteTimelineDocument,
-    GetTimelineDocument,
     PatchTimelineDocument,
     PostTimelineDocument,
 )
+from glpi_python_client.models.api_schema.management._document import GetDocument
 
 
 class TimelineDocumentMixin(TransportMixin):
     """Synchronous CRUD helpers for the ticket document timeline endpoint."""
 
-    def list_ticket_timeline_documents(
-        self, ticket_id: GlpiId
-    ) -> list[GetTimelineDocument]:
-        """List all timeline documents linked to one ticket.
+    def list_ticket_timeline_documents(self, ticket_id: GlpiId) -> list[GetDocument]:
+        """List all documents linked to one ticket timeline.
 
         Parameters
         ----------
@@ -45,14 +44,16 @@ class TimelineDocumentMixin(TransportMixin):
 
         Returns
         -------
-        list[GetTimelineDocument]
-            Document links returned by the GLPI server, with the timeline
-            envelope unwrapped where present.
+        list[GetDocument]
+            Document records returned by the GLPI server.  The live API
+            wraps each entry in a ``{"type": "Document_Item", "item": {...}}``
+            envelope whose ``item`` value is a full ``Document`` record; the
+            envelope is unwrapped automatically.
         """
 
         return self._resource_list(
             f"{TICKET_ENDPOINT}/{ticket_id}/{TIMELINE_DOCUMENT_SUFFIX}",
-            GetTimelineDocument,
+            GetDocument,
             failure_message=(
                 f"Failed to list timeline documents for ticket {ticket_id}"
             ),
@@ -61,20 +62,20 @@ class TimelineDocumentMixin(TransportMixin):
 
     def get_ticket_timeline_document(
         self, ticket_id: GlpiId, document_link_id: GlpiId
-    ) -> GetTimelineDocument:
-        """Fetch one timeline document link by identifier.
+    ) -> GetDocument:
+        """Fetch one document linked to the ticket timeline by its document ID.
 
         Parameters
         ----------
         ticket_id : GlpiId
             Numeric identifier of the parent ticket.
         document_link_id : GlpiId
-            Numeric identifier of the timeline document link to retrieve.
+            Numeric identifier of the linked document to retrieve.
 
         Returns
         -------
-        GetTimelineDocument
-            Validated document-link payload.
+        GetDocument
+            Validated document payload.
 
         Raises
         ------
@@ -85,7 +86,7 @@ class TimelineDocumentMixin(TransportMixin):
         return self._resource_get(
             f"{TICKET_ENDPOINT}/{ticket_id}/"
             f"{TIMELINE_DOCUMENT_SUFFIX}/{document_link_id}",
-            GetTimelineDocument,
+            GetDocument,
             failure_message=(
                 f"Failed to get timeline document {document_link_id} on "
                 f"ticket {ticket_id}"

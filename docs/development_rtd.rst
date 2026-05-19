@@ -31,6 +31,84 @@ Run the focused checks before opening a pull request:
    python -m mypy glpi_python_client
    python -m sphinx -b html docs docs/_build/html
 
+Integration Tests
+-----------------
+
+The ``integration_tests/`` directory holds end-to-end tests that drive a live
+GLPI instance through the synchronous and asynchronous clients. They are
+collected only when secrets resolve to a reachable instance; otherwise each
+test self-skips via ``pytest.skip``. Every test cleans up the records it
+creates in a ``finally`` block, but it is still recommended to point them at
+a non-production GLPI.
+
+Markers and CI behaviour
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+All integration tests are tagged with the ``integration`` pytest marker
+declared in ``pyproject.toml``. The ``ci.yml`` workflow runs
+``pytest -m "not integration"`` for both the test matrix and the coverage
+job, so the public CI never reaches a live GLPI. The default local
+``python -m pytest`` invocation *does* attempt to collect them, but they
+skip automatically when no secrets are configured.
+
+To explicitly opt in or out locally:
+
+.. code-block:: console
+
+   python -m pytest -m integration       # run only the live suite
+   python -m pytest -m "not integration" # mirror the CI behaviour
+
+Configuration
+~~~~~~~~~~~~~
+
+The suite reads each value from a file named after the secret under
+``secrets/`` at the repository root, falling back to the matching
+environment variable when the file is absent. The ``secrets/`` directory is
+gitignored. Each file contains a single trimmed value.
+
+Required:
+
+==============================  =========================  ===========================================
+Secret file                     Environment variable       Purpose
+==============================  =========================  ===========================================
+``glpi_api_url``                ``GLPI_API_URL``           Base URL of the GLPI v2 API.
+``glpi_client_id_test``         ``GLPI_CLIENT_ID``         OAuth2 client identifier.
+``glpi_client_secret_test``     ``GLPI_CLIENT_SECRET``     OAuth2 client secret.
+``glpi_username``               ``GLPI_USERNAME``          GLPI user for the password grant.
+``glpi_password``               ``GLPI_PASSWORD``          Password for the GLPI user above.
+==============================  =========================  ===========================================
+
+Optional:
+
+==============================  =============================  ============================================
+Secret file                     Environment variable           Purpose
+==============================  =============================  ============================================
+``glpi_verify_ssl``             ``GLPI_VERIFY_SSL``            Toggle TLS verification (default ``false``).
+``glpi_entity``                 ``GLPI_ENTITY``                Active entity id sent on every request.
+``glpi_profile``                ``GLPI_PROFILE``               Active profile id sent on every request.
+``glpi_entity_recursive``       ``GLPI_ENTITY_RECURSIVE``      Include sub-entities (default ``false``).
+``glpi_api_v1_url``             ``GLPI_API_V1_URL``            Base URL of the legacy v1 API.
+``glpi_api_v1_token_user``      ``GLPI_V1_USER_TOKEN``         v1 user token (enables document uploads).
+``glpi_api_v1_app_token``       ``GLPI_V1_APP_TOKEN``          v1 application token paired with the above.
+``glpi_team_member_role``       ``GLPI_TEAM_MEMBER_ROLE``      Role used to add the test user to a ticket.
+==============================  =============================  ============================================
+
+The v1 secrets are only required for the document-upload test; when they
+are missing that single test skips while the rest of the suite runs.
+
+Running the suite
+~~~~~~~~~~~~~~~~~
+
+Once secrets are in place:
+
+.. code-block:: console
+
+   python -m pytest integration_tests -m integration
+
+Use a disposable GLPI instance or one whose entity is dedicated to
+automated tests. The suite creates and deletes users, locations, tickets,
+followups, tasks, and solutions on every run.
+
 Package Layout
 --------------
 

@@ -776,6 +776,14 @@ batches until the API returns fewer rows than the requested
            print(ticket.id, ticket.name)
    print(f"processed {total} tickets")
 
+.. note::
+
+   Always pass an RSQL filter to ``iter_search_tickets``. Querying
+   without any filter can return very large result sets and may cause
+   the GLPI server to return a 500 error on busy instances. The other
+   two generators (``iter_search_users``, ``iter_search_entities``) are
+   not affected because those collections are typically much smaller.
+
 On the asynchronous client the same helpers are exposed as **async
 generators** through the bridge, so each ``next()`` call runs off the
 event loop and the consumer uses ``async for``:
@@ -790,8 +798,10 @@ event loop and the consumer uses ``async for``:
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Counts tickets created within an ISO date window and groups them by
-entity, status, priority, and type. Optional filters restrict the
-result set on the server side:
+entity, status, priority, and type. The ``start_date`` is inclusive
+from 00:00:00 and the ``end_date`` is inclusive through 23:59:59, so
+tickets created at any time on those days are counted. Optional
+filters restrict the result set on the server side:
 
 * ``entity_id`` — restrict to a single entity by numeric identifier.
 * ``entity_name`` — substring match against the entity ``name`` column;
@@ -893,7 +903,9 @@ then computes per-user and per-entity totals.
 Available filters:
 
 * ``start_date`` / ``end_date`` / ``default_days`` — ISO ``YYYY-MM-DD``
-  date window; ``default_days`` is used when ``start_date`` is omitted.
+  date window; ``start_date`` is inclusive from 00:00:00,
+  ``end_date`` is inclusive through 23:59:59, and ``default_days``
+  is used when ``start_date`` is omitted.
 * ``entity_id`` — restrict to a single entity by identifier.
 * ``entity_name`` — substring match resolved through ``search_entities``;
   ignored when ``entity_id`` is given.

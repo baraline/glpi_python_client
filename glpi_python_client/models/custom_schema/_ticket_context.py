@@ -18,9 +18,6 @@ from pydantic import Field
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
 from glpi_python_client.models.api_schema.assistance._ticket import GetTicket
-from glpi_python_client.models.api_schema.assistance.timeline._document import (
-    GetTimelineDocument,
-)
 from glpi_python_client.models.api_schema.assistance.timeline._followup import (
     GetFollowup,
 )
@@ -30,6 +27,7 @@ from glpi_python_client.models.api_schema.assistance.timeline._solution import (
 from glpi_python_client.models.api_schema.assistance.timeline._task import (
     GetTicketTask,
 )
+from glpi_python_client.models.api_schema.management._document import GetDocument
 
 _MAX_DATETIME = datetime.max
 
@@ -184,15 +182,15 @@ class GlpiTicketContext(GlpiModel):
         Linked followup records.
     solutions : list[GetSolution], optional
         Linked solution records.
-    documents : list[GetTimelineDocument], optional
-        Linked timeline document records.
+    documents : list[GetDocument], optional
+        Linked document records.
     """
 
     ticket: GetTicket
     tasks: list[GetTicketTask] = Field(default_factory=list)
     followups: list[GetFollowup] = Field(default_factory=list)
     solutions: list[GetSolution] = Field(default_factory=list)
-    documents: list[GetTimelineDocument] = Field(default_factory=list)
+    documents: list[GetDocument] = Field(default_factory=list)
 
     def to_markdown(
         self,
@@ -331,9 +329,14 @@ class GlpiTicketContext(GlpiModel):
             lines.append("")
             lines.append("## Documents")
             for document in self.documents:
-                identifier = document.documents_id or document.id
-                label = document.filepath or (
-                    f"document #{identifier}" if identifier is not None else "document"
+                label = (
+                    document.filename
+                    or document.name
+                    or (
+                        f"document #{document.id}"
+                        if document.id is not None
+                        else "document"
+                    )
                 )
                 lines.append(f"- {label}")
 
