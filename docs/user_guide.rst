@@ -11,8 +11,10 @@ whose surface is built from contract-aligned per-endpoint mixins:
   it to a worker thread via :func:`asyncio.to_thread`.
 
 Both clients speak the GLPI **v2** high-level API and fall back to the
-legacy v1 endpoint only for binary document uploads. They expose the
-exact same endpoint methods and accept the same constructor arguments.
+legacy v1 API for features that are not exposed by v2, currently
+binary document uploads and the ``Fields`` plugin custom-field
+helpers. They expose the exact same endpoint methods and accept the
+same constructor arguments.
 Public methods always return Pydantic models (or simple Python types)
 and never raw dictionaries.
 
@@ -36,7 +38,8 @@ The guide is split into the following sections:
    one-to-one to GLPI v2 endpoints (tickets, timeline, team members,
    users, locations, entities, documents).
 5. **Added functionalities** — helpers built on top of the API mixins:
-   the aggregated ticket context view and the reporting helpers.
+    the ``Fields`` plugin custom-field helpers, the aggregated ticket
+    context view, and the reporting helpers.
 6. **End-to-end examples** — full workflows that combine the previous
    building blocks.
 
@@ -111,7 +114,9 @@ Optional constructor arguments
 * ``auth_token_refresh`` — number of seconds before token expiry at
   which the auth manager proactively refreshes the OAuth access token.
 * ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
-  fallback used by :meth:`GlpiClient.upload_document`.
+    fallback used by :meth:`GlpiClient.upload_document` and the
+    ``Fields`` plugin helpers such as
+    :meth:`GlpiClient.get_ticket_custom_fields`.
 * ``executor`` (:class:`AsyncGlpiClient` only) — an explicit
   :class:`concurrent.futures.Executor` used to dispatch the wrapped
   synchronous calls. Defaults to the standard library thread pool
@@ -615,6 +620,53 @@ Example output::
 
 The helpers in this section are not part of the GLPI contract. They are
 small utilities the client builds on top of the API mixins.
+
+Ticket custom fields via the Fields plugin
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The `Fields plugin <https://github.com/pluginsGLPI/fields>`_ exposes
+ticket custom fields through the legacy v1 API rather than the GLPI v2
+contract. Configure the client with ``v1_base_url`` and
+``v1_user_token`` (or the matching ``GLPI_V1_*`` environment
+variables), then use the discovery helpers when you need the plugin's
+internal container and field names:
+
+.. code-block:: python
+
+   with GlpiClient(
+       glpi_api_url="https://glpi.example.com/api.php/v2",
+       client_id="oauth-client-id",
+       client_secret="oauth-client-secret",
+       username="api-user",
+       password="api-password",
+       v1_base_url="https://glpi.example.com/apirest.php",
+       v1_user_token="legacy-user-token",
+   ) as client:
+       containers = client.list_plugin_fields_containers(itemtype="Ticket")
+       for container in containers:
+           print(container.id, container.name)
+           fields = client.list_plugin_fields_fields(container_id=container.id)
+           print([field.name for field in fields])
+
+       custom_fields = client.get_ticket_custom_fields(ticket_id)
+       print(custom_fields)
+
+       client.set_ticket_custom_fields(
+           ticket_id,
+           {
+               "aidelarsolution": {
+                   "aidelarsolutionfield": "<p>Handled by the NOC shift</p>",
+               }
+           },
+       )
+
+The high-level ``get_ticket_custom_fields`` /
+``set_ticket_custom_fields`` pair uses the mapping
+``{container_name: {field_name: value}}`` and automatically decides
+whether the v1 plugin needs a row creation or an in-place update. Drop
+to ``list_item_plugin_field_rows``, ``create_item_plugin_field_row``,
+or ``update_item_plugin_field_row`` only when you need the raw v1 row
+shape.
 
 Aggregated ticket context
 ~~~~~~~~~~~~~~~~~~~~~~~~~
