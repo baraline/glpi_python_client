@@ -633,6 +633,8 @@ internal container and field names:
 
 .. code-block:: python
 
+    from glpi_python_client import GlpiClient
+
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
        client_id="oauth-client-id",
