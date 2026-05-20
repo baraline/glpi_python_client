@@ -25,12 +25,14 @@ from glpi_python_client.clients.api.assistance.timeline import (
 )
 from glpi_python_client.clients.api.dropdowns import LocationMixin
 from glpi_python_client.clients.api.management import DocumentMixin
+from glpi_python_client.clients.api.plugins import PluginFieldsMixin
 
 __all__ = [
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",
     "LocationMixin",
+    "PluginFieldsMixin",
     "SolutionMixin",
     "TeamMemberMixin",
     "TicketMixin",

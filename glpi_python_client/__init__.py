@@ -30,6 +30,9 @@ from glpi_python_client.models import (
     GetEntity,
     GetFollowup,
     GetLocation,
+    GetPluginFieldsContainer,
+    GetPluginFieldsField,
+    GetPluginFieldsValueRow,
     GetSolution,
     GetTeamMember,
     GetTicket,
@@ -63,6 +66,7 @@ from glpi_python_client.models import (
     PostEntity,
     PostFollowup,
     PostLocation,
+    PostPluginFieldsValueRow,
     PostSolution,
     PostTeamMember,
     PostTicket,
@@ -72,7 +76,7 @@ from glpi_python_client.models import (
     TicketMarkdownOptions,
 )
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 __all__ = [
     "AsyncGlpiClient",
@@ -90,6 +94,9 @@ __all__ = [
     "GetEntity",
     "GetFollowup",
     "GetLocation",
+    "GetPluginFieldsContainer",
+    "GetPluginFieldsField",
+    "GetPluginFieldsValueRow",
     "GetSolution",
     "GetTeamMember",
     "GetTicket",
@@ -124,6 +131,7 @@ __all__ = [
     "PostEntity",
     "PostFollowup",
     "PostLocation",
+    "PostPluginFieldsValueRow",
     "PostSolution",
     "PostTeamMember",
     "PostTicket",

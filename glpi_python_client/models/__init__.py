@@ -80,6 +80,12 @@ from glpi_python_client.models.api_schema.management import (
     PatchDocument,
     PostDocument,
 )
+from glpi_python_client.models.api_schema.plugins import (
+    GetPluginFieldsContainer,
+    GetPluginFieldsField,
+    GetPluginFieldsValueRow,
+    PostPluginFieldsValueRow,
+)
 from glpi_python_client.models.custom_schema import (
     GlpiTicketContext,
     TicketMarkdownOptions,
@@ -100,6 +106,9 @@ __all__ = [
     "GetEntity",
     "GetFollowup",
     "GetLocation",
+    "GetPluginFieldsContainer",
+    "GetPluginFieldsField",
+    "GetPluginFieldsValueRow",
     "GetSolution",
     "GetTeamMember",
     "GetTicket",
@@ -133,6 +142,7 @@ __all__ = [
     "PostEntity",
     "PostFollowup",
     "PostLocation",
+    "PostPluginFieldsValueRow",
     "PostSolution",
     "PostTeamMember",
     "PostTicket",

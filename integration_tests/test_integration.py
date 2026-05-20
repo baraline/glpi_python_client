@@ -645,3 +645,90 @@ def test_get_user_activity_raises_without_identifier(client: GlpiClient) -> None
 
     with _pytest.raises(ValueError, match="user_id"):
         client.get_user_activity()
+
+
+# ---------------------------------------------------------------------------
+# GLPI Fields plugin (legacy v1 endpoints)
+#
+# These tests target the live preprod ticket #62571, which carries an
+# ``aidelarsolution`` custom container set up via the GLPI Fields plugin.
+# When the plugin is not installed (no container attached to ``Ticket``)
+# the tests skip cleanly so the suite stays portable across instances.
+# ---------------------------------------------------------------------------
+
+_FIELDS_TEST_TICKET_ID = 62571
+
+
+def _skip_when_no_v1(live_config: _LiveGlpiConfig) -> None:
+    if not live_config.v1_base_url or not live_config.v1_user_token:
+        pytest.skip("live GLPI v1 credentials not configured")
+
+
+def test_plugin_fields_containers_discovery(
+    client: GlpiClient, live_config: _LiveGlpiConfig
+) -> None:
+    """Discover Ticket-attached Fields plugin containers on the live instance."""
+
+    _skip_when_no_v1(live_config)
+    containers = client.list_plugin_fields_containers(itemtype="Ticket")
+    if not containers:
+        pytest.skip("no PluginFieldsContainer attached to Ticket on this instance")
+    for container in containers:
+        assert container.id is not None
+        assert container.name
+        fields = client.list_plugin_fields_fields(container_id=container.id)
+        for field in fields:
+            assert field.plugin_fields_containers_id == container.id
+            assert field.name
+
+
+def test_get_ticket_custom_fields_round_trip_on_known_ticket(
+    client: GlpiClient, live_config: _LiveGlpiConfig
+) -> None:
+    """Round-trip the ``aidelarsolution`` custom field on ticket 62571.
+
+    The original value is captured, replaced by a timestamped probe value,
+    read back, and finally restored so the test is net-zero.
+    """
+
+    _skip_when_no_v1(live_config)
+    containers = client.list_plugin_fields_containers(itemtype="Ticket")
+    container = next((c for c in containers if c.name == "aidelarsolution"), None)
+    if container is None:
+        pytest.skip("'aidelarsolution' container missing on this instance")
+    assert container.id is not None
+    fields = client.list_plugin_fields_fields(container_id=container.id)
+    field = next((f for f in fields if f.name == "aidelarsolutionfield"), None)
+    if field is None:
+        pytest.skip("'aidelarsolutionfield' missing in container")
+
+    before = client.get_ticket_custom_fields(_FIELDS_TEST_TICKET_ID)
+    original = before.get("aidelarsolution", {}).get("aidelarsolutionfield")
+
+    probe_value = f"<p>integration probe {_suffix()}</p>"
+    try:
+        client.set_ticket_custom_fields(
+            _FIELDS_TEST_TICKET_ID,
+            {"aidelarsolution": {"aidelarsolutionfield": probe_value}},
+        )
+        after = client.get_ticket_custom_fields(_FIELDS_TEST_TICKET_ID)
+        assert after["aidelarsolution"]["aidelarsolutionfield"] == probe_value
+    finally:
+        if original is not None:
+            client.set_ticket_custom_fields(
+                _FIELDS_TEST_TICKET_ID,
+                {"aidelarsolution": {"aidelarsolutionfield": original}},
+            )
+
+
+def test_set_ticket_custom_fields_rejects_unknown_container(
+    client: GlpiClient, live_config: _LiveGlpiConfig
+) -> None:
+    """Writing to a non-existent container raises before any HTTP call."""
+
+    _skip_when_no_v1(live_config)
+    with pytest.raises(ValueError, match="Unknown plugin-fields container"):
+        client.set_ticket_custom_fields(
+            _FIELDS_TEST_TICKET_ID,
+            {"does-not-exist-xyz": {"any_field": "value"}},
+        )

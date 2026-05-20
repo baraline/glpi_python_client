@@ -780,9 +780,7 @@ batches until the API returns fewer rows than the requested
 
    Always pass an RSQL filter to ``iter_search_tickets``. Querying
    without any filter can return very large result sets and may cause
-   the GLPI server to return a 500 error on busy instances. The other
-   two generators (``iter_search_users``, ``iter_search_entities``) are
-   not affected because those collections are typically much smaller.
+   the GLPI server to return a 500 errors.
 
 On the asynchronous client the same helpers are exposed as **async
 generators** through the bridge, so each ``next()`` call runs off the

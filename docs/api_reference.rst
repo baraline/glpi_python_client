@@ -289,6 +289,36 @@ Entities
    :undoc-members:
    :show-inheritance:
 
+Plugin: Fields (custom fields)
+------------------------------
+
+Schemas returned by the GLPI ``Fields`` plugin (legacy v1 REST endpoints).
+The companion mixin methods are exposed on :class:`GlpiClient` /
+:class:`AsyncGlpiClient` as ``list_plugin_fields_containers``,
+``list_plugin_fields_fields``, ``list_item_plugin_field_rows``,
+``create_item_plugin_field_row``, ``update_item_plugin_field_row``,
+``get_ticket_custom_fields`` and ``set_ticket_custom_fields``.
+
+.. autoclass:: GetPluginFieldsContainer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GetPluginFieldsField
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GetPluginFieldsValueRow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostPluginFieldsValueRow
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Enums
 -----
 

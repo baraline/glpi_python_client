@@ -1,10 +1,17 @@
-"""GLPI v1 REST session used exclusively for document uploads.
+"""GLPI v1 REST session used for legacy endpoints not exposed by v2.
 
-The high-level async ``GlpiClient`` only relies on the legacy v1 API for the
-``POST /Document`` multipart upload endpoint. The session wrapper below owns
-the authenticated v1 lifecycle (init, refresh, kill) and exposes a single
-``upload_document`` operation that the management mixin calls through
-``asyncio.to_thread`` at the blocking HTTP boundary.
+Two consumers currently share this session:
+
+* the management :class:`DocumentMixin` for the multipart
+  ``POST /Document`` upload (the v2 API does not advertise a binary
+  upload route), and
+* the :class:`PluginFieldsMixin` for the GLPI "Fields" plugin endpoints
+  (``PluginFieldsContainer``, ``PluginFieldsField`` and the per-item
+  value itemtypes), which the v2 contract does not surface at all.
+
+The session wrapper owns the authenticated v1 lifecycle (init, refresh,
+kill) and exposes the typed ``upload_document`` helper plus the generic
+``request_json`` JSON-only HTTP helper that newer mixins build on.
 """
 
 from __future__ import annotations
@@ -222,6 +229,73 @@ class GLPIV1Session:
             self._session_token = None
             self._session_started_at = None
             self._http.close()
+
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        json_body: dict[str, object] | None = None,
+        success_statuses: tuple[int, ...] = (200, 201, 204, 206),
+        failure_message: str | None = None,
+    ) -> object:
+        """Send one JSON-only authenticated request to the GLPI v1 API.
+
+        The helper centralises session-token handling, the one-shot retry
+        on token rejection, status validation and JSON parsing so callers
+        can stay focused on their endpoint semantics.
+
+        Parameters
+        ----------
+        method : str
+            HTTP verb (``"GET"``, ``"POST"``, ``"PUT"``, ``"DELETE"``).
+        path : str
+            Resource path appended to the v1 base URL (without leading
+            slash, e.g. ``"PluginFieldsContainer"``).
+        params : dict[str, object] | None, optional
+            Query-string parameters forwarded to ``requests``.
+        json_body : dict[str, object] | None, optional
+            JSON body serialised into the request when set. The
+            ``Content-Type: application/json`` header is added
+            automatically.
+        success_statuses : tuple[int, ...], optional
+            HTTP status codes considered successful (default covers the
+            CRUD codes returned by the v1 API).
+        failure_message : str | None, optional
+            Prefix used in the :class:`ValueError` raised on a
+            non-success status. Defaults to ``"GLPI v1 {METHOD} {path}
+            failed"``.
+
+        Returns
+        -------
+        object
+            Parsed JSON body for non-empty responses; an empty ``dict``
+            when the body is empty or contains only whitespace.
+
+        Raises
+        ------
+        ValueError
+            If the v1 server returns a non-success HTTP status.
+        """
+
+        url = f"{self._base_url}/{path.lstrip('/')}"
+        kwargs: dict[str, object] = {"timeout": 30}
+        if params is not None:
+            kwargs["params"] = params
+        headers: dict[str, str] = {}
+        if json_body is not None:
+            kwargs["data"] = json.dumps(json_body)
+            headers["Content-Type"] = "application/json"
+        response = self._authenticated_request(
+            method, url, headers=headers or None, **kwargs
+        )
+        if response.status_code not in success_statuses:
+            prefix = failure_message or f"GLPI v1 {method.upper()} {path} failed"
+            raise ValueError(f"{prefix}: {response.status_code} {response.text[:300]}")
+        if not response.content or not response.text.strip():
+            return {}
+        return response.json()
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
     def upload_document(

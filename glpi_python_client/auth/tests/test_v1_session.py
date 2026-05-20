@@ -32,22 +32,35 @@ class _FakeV1Http:
     def _next(self, key: str) -> FakeResponse:
         return self._responses[key].pop(0)
 
-    def get(self, url: str, headers: dict[str, str], timeout: int) -> FakeResponse:
+    def get(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout: int,
+        **kwargs: Any,
+    ) -> FakeResponse:
         self.calls.append(
-            {"method": "GET", "url": url, "headers": headers, "timeout": timeout}
+            {
+                "method": "GET",
+                "url": url,
+                "headers": headers,
+                "timeout": timeout,
+                **kwargs,
+            }
         )
         if url.endswith("/initSession"):
             return self._next("init")
         if url.endswith("/killSession"):
             return self._next("kill")
-        raise AssertionError(f"Unexpected GET {url}")
+        return self._next("json")
 
     def post(
         self,
         url: str,
         headers: dict[str, str],
-        files: list[Any],
         timeout: int,
+        files: list[Any] | None = None,
+        **kwargs: Any,
     ) -> FakeResponse:
         self.calls.append(
             {
@@ -56,9 +69,48 @@ class _FakeV1Http:
                 "headers": headers,
                 "files": files,
                 "timeout": timeout,
+                **kwargs,
             }
         )
-        return self._next("upload")
+        if files is not None:
+            return self._next("upload")
+        return self._next("json")
+
+    def put(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout: int,
+        **kwargs: Any,
+    ) -> FakeResponse:
+        self.calls.append(
+            {
+                "method": "PUT",
+                "url": url,
+                "headers": headers,
+                "timeout": timeout,
+                **kwargs,
+            }
+        )
+        return self._next("json")
+
+    def delete(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout: int,
+        **kwargs: Any,
+    ) -> FakeResponse:
+        self.calls.append(
+            {
+                "method": "DELETE",
+                "url": url,
+                "headers": headers,
+                "timeout": timeout,
+                **kwargs,
+            }
+        )
+        return self._next("json")
 
     def close(self) -> None:
         self.closed = True
@@ -258,6 +310,78 @@ def test_v1_close_tolerates_kill_failure() -> None:
     session._init_session()
     session.close()  # must not raise
     assert http.closed is True
+
+
+def test_request_json_sends_body_and_returns_parsed_payload() -> None:
+    """``request_json`` serialises the body and decodes the JSON response."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "json": [FakeResponse(status_code=200, payload={"ok": True})],
+            "kill": [FakeResponse(status_code=200, payload={})],
+        }
+    )
+    session = _make(http)
+    result = session.request_json(
+        "POST",
+        "PluginFieldsContainer",
+        json_body={"input": {"name": "x"}},
+    )
+    assert result == {"ok": True}
+    post_call = next(call for call in http.calls if call["method"] == "POST")
+    assert post_call["url"].endswith("/PluginFieldsContainer")
+    assert post_call["data"] == jsonlib.dumps({"input": {"name": "x"}})
+    assert post_call["headers"]["Content-Type"] == "application/json"
+
+
+def test_request_json_supports_get_with_params() -> None:
+    """``request_json`` forwards query params on GET calls."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "json": [FakeResponse(status_code=200, payload=[{"id": 1}])],
+        }
+    )
+    session = _make(http)
+    out = session.request_json("GET", "PluginFieldsContainer", params={"range": "0-1"})
+    assert out == [{"id": 1}]
+    get_call = next(
+        call for call in http.calls if call["url"].endswith("/PluginFieldsContainer")
+    )
+    assert get_call["params"] == {"range": "0-1"}
+
+
+def test_request_json_returns_empty_dict_on_empty_body() -> None:
+    """An empty response body decodes as an empty dict instead of raising."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "json": [FakeResponse(status_code=204, payload={}, content=b"")],
+        }
+    )
+    session = _make(http)
+    assert session.request_json("DELETE", "Some/Resource/1") == {}
+
+
+def test_request_json_raises_on_non_success_status() -> None:
+    """Non-success statuses surface as ``ValueError`` with the body excerpt."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "json": [
+                FakeResponse(status_code=500, payload={"err": "boom"}),
+                FakeResponse(status_code=500, payload={"err": "boom"}),
+            ],
+            "kill": [FakeResponse(status_code=200, payload={})],
+        }
+    )
+    session = _make(http)
+    with pytest.raises(ValueError, match="failed"):
+        session.request_json("GET", "PluginFieldsContainer")
 
 
 def test_session_token_invalid_marker_triggers_renew() -> None:
