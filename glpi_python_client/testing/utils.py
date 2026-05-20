@@ -34,12 +34,14 @@ class FakeResponse:
         headers: dict[str, str] | None = None,
         text: str | None = None,
         content: bytes | None = None,
+        reason: str = "",
     ) -> None:
         self.status_code = status_code
         self._payload = {"id": 321} if payload is None else payload
         self.headers = headers or {}
         self.text = str(self._payload) if text is None else text
         self.content = self.text.encode() if content is None else content
+        self.reason = reason
 
     def json(self) -> Any:
         return self._payload

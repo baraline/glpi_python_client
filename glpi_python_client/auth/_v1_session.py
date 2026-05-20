@@ -12,6 +12,16 @@ Two consumers currently share this session:
 The session wrapper owns the authenticated v1 lifecycle (init, refresh,
 kill) and exposes the typed ``upload_document`` helper plus the generic
 ``request_json`` JSON-only HTTP helper that newer mixins build on.
+
+Retry policy
+------------
+Every public dispatch helper (``_init_session``, ``request_json``,
+``upload_document``) carries the same :mod:`tenacity` retry decorator
+used by the v2 transport: three attempts spaced by three seconds,
+triggered exclusively by :class:`requests.RequestException` (which
+:func:`finalize_request_response` raises for 5xx server errors).
+:class:`ValueError` raised by status-code or payload checks does not
+trigger a retry — client-side or 4xx failures are surfaced immediately.
 """
 
 from __future__ import annotations
@@ -19,15 +29,26 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import cast
+from typing import Any, cast
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+
+from glpi_python_client.clients.commons._http import (
+    ensure_response_status,
+    finalize_request_response,
+    response_json_or_empty,
+)
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SESSION_REFRESH_INTERVAL_SECONDS = 15 * 60
 _AUTH_FAILURE_STATUS_CODES = frozenset({401, 403})
+_RETRY_ON_NETWORK_ERRORS = retry(
+    retry=retry_if_exception_type(requests.RequestException),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(3),
+)
 
 
 class GLPIV1Session:
@@ -43,7 +64,7 @@ class GLPIV1Session:
         *,
         base_url: str,
         user_token: str,
-        app_token: str,
+        app_token: str | None = None,
         verify_ssl: bool = True,
         session_refresh_interval_seconds: int = (
             _DEFAULT_SESSION_REFRESH_INTERVAL_SECONDS
@@ -66,12 +87,14 @@ class GLPIV1Session:
         self._session_token: str | None = None
         self._session_started_at: datetime | None = None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @_RETRY_ON_NETWORK_ERRORS
     def _init_session(self) -> None:
         """Acquire one fresh GLPI v1 session token via ``GET /initSession``.
 
         The call replaces any existing session state and stores the
         authentication timestamp used by the refresh-interval check.
+        Network errors and 5xx responses are retried; 4xx and payload
+        errors propagate immediately as :class:`ValueError`.
         """
 
         headers: dict[str, str] = {
@@ -82,16 +105,20 @@ class GLPIV1Session:
         if self._app_token:
             headers["App-Token"] = self._app_token
 
-        response = self._http.get(
-            f"{self._base_url}/initSession",
-            headers=headers,
-            timeout=30,
+        url = f"{self._base_url}/initSession"
+        response = self._http.get(url, headers=headers, timeout=30)
+        finalize_request_response(
+            response,
+            method="get",
+            url=url,
+            success_statuses=(200,),
+            logger=logger,
         )
-        if response.status_code != 200:
-            raise ValueError(
-                "GLPI v1 initSession failed: "
-                f"{response.status_code} {response.text[:300]}"
-            )
+        ensure_response_status(
+            response,
+            success_statuses=(200,),
+            failure_message="GLPI v1 initSession failed",
+        )
 
         token = response.json().get("session_token")
         if not token:
@@ -147,11 +174,12 @@ class GLPIV1Session:
         """Drop the current GLPI v1 session token and acquire a new one.
 
         The previous token is best-effort killed so the GLPI server can release
-        the associated session state immediately.
+        the associated session state immediately. ``_init_session`` will set
+        the new token on success or raise, leaving the existing state
+        untouched on failure (the retry decorator handles transients).
         """
 
-        old_token = self._session_token
-        if old_token is not None:
+        if self._session_token is not None:
             try:
                 self._http.get(
                     f"{self._base_url}/killSession",
@@ -160,8 +188,6 @@ class GLPIV1Session:
                 )
             except Exception:
                 logger.warning("Failed to kill stale GLPI v1 session.", exc_info=True)
-        self._session_token = None
-        self._session_started_at = None
         self._init_session()
 
     def _headers(self) -> dict[str, str]:
@@ -179,13 +205,19 @@ class GLPIV1Session:
         method: str,
         url: str,
         *,
+        success_statuses: tuple[int, ...],
         headers: dict[str, str] | None = None,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> requests.Response:
-        """Send one authenticated GLPI v1 request with one auth-failure retry.
+        """Send one authenticated GLPI v1 request and finalize the response.
 
-        When the GLPI server rejects the current token, the helper renews the
-        session and retries the request once before returning the response.
+        When the GLPI server rejects the current token the helper renews
+        the session and retries the request once. The returned response
+        has already been passed through :func:`finalize_request_response`
+        so 5xx errors surface as :class:`requests.HTTPError` for the
+        outer tenacity retry to catch; non-success statuses outside the
+        ``success_statuses`` set are logged but otherwise returned for
+        the caller to validate with :func:`ensure_response_status`.
         """
 
         request_headers = {**self._headers(), **(headers or {})}
@@ -194,18 +226,23 @@ class GLPIV1Session:
             requests.Response,
             request_method(url, headers=request_headers, **kwargs),
         )
-        if not _is_auth_failure_response(response):
-            return response
-
-        logger.warning(
-            "GLPI v1 session token was rejected; refreshing session and retrying "
-            "request once."
-        )
-        self._renew_session()
-        request_headers = {**self._headers(), **(headers or {})}
-        return cast(
-            requests.Response,
-            request_method(url, headers=request_headers, **kwargs),
+        if _is_auth_failure_response(response):
+            logger.warning(
+                "GLPI v1 session token was rejected; refreshing session and "
+                "retrying request once."
+            )
+            self._renew_session()
+            request_headers = {**self._headers(), **(headers or {})}
+            response = cast(
+                requests.Response,
+                request_method(url, headers=request_headers, **kwargs),
+            )
+        return finalize_request_response(
+            response,
+            method=method,
+            url=url,
+            success_statuses=success_statuses,
+            logger=logger,
         )
 
     def close(self) -> None:
@@ -230,6 +267,7 @@ class GLPIV1Session:
             self._session_started_at = None
             self._http.close()
 
+    @_RETRY_ON_NETWORK_ERRORS
     def request_json(
         self,
         method: str,
@@ -244,7 +282,9 @@ class GLPIV1Session:
 
         The helper centralises session-token handling, the one-shot retry
         on token rejection, status validation and JSON parsing so callers
-        can stay focused on their endpoint semantics.
+        can stay focused on their endpoint semantics. Network errors and
+        5xx responses are retried; 4xx and payload errors propagate
+        immediately as :class:`ValueError`.
 
         Parameters
         ----------
@@ -276,11 +316,13 @@ class GLPIV1Session:
         Raises
         ------
         ValueError
-            If the v1 server returns a non-success HTTP status.
+            If the v1 server returns a non-success HTTP status outside
+            the 5xx range (which surfaces as :class:`requests.HTTPError`
+            and is retried).
         """
 
         url = f"{self._base_url}/{path.lstrip('/')}"
-        kwargs: dict[str, object] = {"timeout": 30}
+        kwargs: dict[str, Any] = {"timeout": 30}
         if params is not None:
             kwargs["params"] = params
         headers: dict[str, str] = {}
@@ -288,16 +330,21 @@ class GLPIV1Session:
             kwargs["data"] = json.dumps(json_body)
             headers["Content-Type"] = "application/json"
         response = self._authenticated_request(
-            method, url, headers=headers or None, **kwargs
+            method,
+            url,
+            success_statuses=success_statuses,
+            headers=headers or None,
+            **kwargs,
         )
-        if response.status_code not in success_statuses:
-            prefix = failure_message or f"GLPI v1 {method.upper()} {path} failed"
-            raise ValueError(f"{prefix}: {response.status_code} {response.text[:300]}")
-        if not response.content or not response.text.strip():
-            return {}
-        return response.json()
+        ensure_response_status(
+            response,
+            success_statuses=success_statuses,
+            failure_message=failure_message
+            or f"GLPI v1 {method.upper()} {path} failed",
+        )
+        return response_json_or_empty(response)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @_RETRY_ON_NETWORK_ERRORS
     def upload_document(
         self,
         filename: str,
@@ -312,7 +359,9 @@ class GLPIV1Session:
 
         The legacy v1 endpoint uses a multipart upload manifest so the GLPI
         server can create the document, link it to the optional parent ticket,
-        and assign it to the provided entity in a single round-trip.
+        and assign it to the provided entity in a single round-trip. Network
+        errors and 5xx responses are retried; 4xx and payload errors
+        propagate immediately as :class:`ValueError`.
         """
 
         manifest_input: dict[str, object] = {
@@ -329,17 +378,18 @@ class GLPIV1Session:
         response = self._authenticated_request(
             "POST",
             f"{self._base_url}/Document",
+            success_statuses=(200, 201),
             files=[
                 ("uploadManifest", (None, manifest, "application/json")),
                 ("filename[]", (filename, content, mime_type)),
             ],
             timeout=60,
         )
-        if response.status_code not in (200, 201):
-            raise ValueError(
-                "GLPI v1 document upload failed: "
-                f"{response.status_code} {response.text[:300]}"
-            )
+        ensure_response_status(
+            response,
+            success_statuses=(200, 201),
+            failure_message="GLPI v1 document upload failed",
+        )
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError(

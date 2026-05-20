@@ -151,6 +151,19 @@ def ensure_response_status(
         )
 
 
+def response_json_or_empty(response: requests.Response) -> object:
+    """Return the parsed JSON body or an empty mapping for empty responses.
+
+    Unlike :func:`response_json_mapping` this helper preserves list and
+    scalar payloads, so it suits callers that may receive either a JSON
+    object or a JSON array (for example the legacy v1 endpoints).
+    """
+
+    if not response.content or not response.text.strip():
+        return {}
+    return response.json()
+
+
 def response_json_mapping(response: requests.Response) -> Mapping[str, object]:
     """Return the JSON response payload as a mapping when possible.
 
@@ -236,5 +249,6 @@ __all__ = [
     "require_access_token",
     "require_response_int",
     "response_json_mapping",
+    "response_json_or_empty",
     "unwrap_timeline_items",
 ]

@@ -263,13 +263,7 @@ class DocumentMixin(TransportMixin):
 
         if not filename:
             raise ValueError("GLPI document upload requires a filename")
-        if self._v1 is None:
-            raise RuntimeError(
-                "GLPI document upload requires the legacy v1 session to be "
-                "configured (set v1_base_url and v1_user_token)."
-            )
-
-        v1 = self._v1
+        v1 = self._require_v1_session("document uploads")
         return v1.upload_document(
             filename,
             content,

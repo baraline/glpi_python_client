@@ -104,6 +104,35 @@ class TransportMixin:
         if self._closed:
             raise RuntimeError("GLPI client is closed")
 
+    def _require_v1_session(self, feature: str) -> GLPIV1Session:
+        """Return the configured v1 session or raise ``RuntimeError``.
+
+        Parameters
+        ----------
+        feature : str
+            Short label of the caller (for example ``"document upload"``
+            or ``"Fields plugin helpers"``) embedded in the error message
+            so users learn which client option to set.
+
+        Returns
+        -------
+        GLPIV1Session
+            The legacy v1 session bundled with the client.
+
+        Raises
+        ------
+        RuntimeError
+            When the client was built without ``v1_base_url`` and
+            ``v1_user_token``.
+        """
+
+        if self._v1 is None:
+            raise RuntimeError(
+                f"GLPI {feature} require the legacy v1 session to be configured "
+                "(set v1_base_url and v1_user_token)."
+            )
+        return self._v1
+
     def _ensure_token(self) -> None:
         """Ensure that a valid GLPI access token is available.
 

@@ -213,8 +213,8 @@ def test_v1_upload_renews_session_on_401() -> None:
     ]
 
 
-def test_v1_upload_raises_on_non_success() -> None:
-    """Non-success upload responses raise ``ValueError`` (after retries)."""
+def test_v1_upload_raises_on_5xx_after_retries() -> None:
+    """5xx upload responses surface as ``HTTPError`` after retries exhaust."""
 
     http = _FakeV1Http(
         responses={
@@ -227,28 +227,44 @@ def test_v1_upload_raises_on_non_success() -> None:
     with pytest.raises(tenacity.RetryError) as excinfo:
         session.upload_document("a.txt", b"x", "text/plain")
     inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, ValueError) and "document upload failed" in str(inner)
+    assert isinstance(inner, requests.HTTPError)
 
 
-def test_v1_upload_raises_on_unexpected_payload() -> None:
-    """A non-mapping JSON payload raises ``ValueError`` (after retries)."""
+def test_v1_upload_raises_on_4xx_without_retry() -> None:
+    """Non-5xx non-success upload responses raise ``ValueError`` without retry."""
 
     http = _FakeV1Http(
         responses={
             "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
-            "upload": [FakeResponse(status_code=200, payload=["unexpected"])] * 3,
+            "upload": [FakeResponse(status_code=400, payload={"err": "bad"})],
             "kill": [FakeResponse(status_code=200, payload={})],
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(ValueError, match="document upload failed"):
         session.upload_document("a.txt", b"x", "text/plain")
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, ValueError) and "unexpected payload" in str(inner)
+    # A single attempt was performed (init + one upload).
+    upload_calls = [c for c in http.calls if c["url"].endswith("/Document")]
+    assert len(upload_calls) == 1
 
 
-def test_v1_init_raises_on_failure() -> None:
-    """``initSession`` failure raises ``ValueError`` after retries exhaust."""
+def test_v1_upload_raises_on_unexpected_payload() -> None:
+    """A non-mapping JSON payload raises ``ValueError`` without retry."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "upload": [FakeResponse(status_code=200, payload=["unexpected"])],
+            "kill": [FakeResponse(status_code=200, payload={})],
+        }
+    )
+    session = _make(http)
+    with pytest.raises(ValueError, match="unexpected payload"):
+        session.upload_document("a.txt", b"x", "text/plain")
+
+
+def test_v1_init_raises_on_5xx_after_retries() -> None:
+    """5xx ``initSession`` responses surface as ``HTTPError`` after retries."""
 
     http = _FakeV1Http(
         responses={
@@ -259,20 +275,31 @@ def test_v1_init_raises_on_failure() -> None:
     with pytest.raises(tenacity.RetryError) as excinfo:
         session._init_session()
     inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, ValueError) and "initSession failed" in str(inner)
+    assert isinstance(inner, requests.HTTPError)
+
+
+def test_v1_init_raises_on_4xx_without_retry() -> None:
+    """Non-5xx ``initSession`` responses raise ``ValueError`` immediately."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=401, payload={"err": "denied"})],
+        }
+    )
+    session = _make(http)
+    with pytest.raises(ValueError, match="initSession failed"):
+        session._init_session()
 
 
 def test_v1_init_raises_when_token_missing() -> None:
-    """``initSession`` returning no token raises ``ValueError`` after retries."""
+    """``initSession`` returning no token raises ``ValueError`` without retry."""
 
     http = _FakeV1Http(
-        responses={"init": [FakeResponse(status_code=200, payload={})] * 3},
+        responses={"init": [FakeResponse(status_code=200, payload={})]},
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(ValueError, match="no session_token"):
         session._init_session()
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, ValueError) and "no session_token" in str(inner)
 
 
 def test_v1_close_kills_session_and_closes_http() -> None:
@@ -366,22 +393,34 @@ def test_request_json_returns_empty_dict_on_empty_body() -> None:
     assert session.request_json("DELETE", "Some/Resource/1") == {}
 
 
-def test_request_json_raises_on_non_success_status() -> None:
-    """Non-success statuses surface as ``ValueError`` with the body excerpt."""
+def test_request_json_raises_on_4xx_without_retry() -> None:
+    """Non-5xx non-success statuses raise ``ValueError`` without retry."""
 
     http = _FakeV1Http(
         responses={
             "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
-            "json": [
-                FakeResponse(status_code=500, payload={"err": "boom"}),
-                FakeResponse(status_code=500, payload={"err": "boom"}),
-            ],
-            "kill": [FakeResponse(status_code=200, payload={})],
+            "json": [FakeResponse(status_code=404, payload={"err": "missing"})],
         }
     )
     session = _make(http)
     with pytest.raises(ValueError, match="failed"):
         session.request_json("GET", "PluginFieldsContainer")
+
+
+def test_request_json_retries_on_5xx() -> None:
+    """5xx responses surface as ``HTTPError`` after retries exhaust."""
+
+    http = _FakeV1Http(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+            "json": [FakeResponse(status_code=500, payload={"err": "boom"})] * 3,
+        }
+    )
+    session = _make(http)
+    with pytest.raises(tenacity.RetryError) as excinfo:
+        session.request_json("GET", "PluginFieldsContainer")
+    inner = excinfo.value.last_attempt.exception()
+    assert isinstance(inner, requests.HTTPError)
 
 
 def test_session_token_invalid_marker_triggers_renew() -> None:

@@ -102,7 +102,7 @@ def build_client_resources(
         v1 = GLPIV1Session(
             base_url=v1_base_url,
             user_token=v1_user_token,
-            app_token=v1_app_token or "",
+            app_token=v1_app_token,
             verify_ssl=verify_ssl,
         )
 

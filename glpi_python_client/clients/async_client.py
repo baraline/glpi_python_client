@@ -20,18 +20,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
-import threading
 from concurrent.futures import Executor
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import Any
 
 if sys.version_info >= (3, 11):
     from typing import Self
 else:  # pragma: no cover - fallback for Python 3.10
     from typing_extensions import Self
 
+from glpi_python_client.clients._base_client import _BaseGlpiClient
 from glpi_python_client.clients.api import (
     DocumentMixin,
     EntityMixin,
@@ -46,19 +45,12 @@ from glpi_python_client.clients.api import (
     UserMixin,
 )
 from glpi_python_client.clients.commons._async_bridge import AsyncBridge
-from glpi_python_client.clients.commons._config import (
-    build_client_env_config,
-    build_client_resources,
-)
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.clients.custom._pagination_async import AsyncPaginationMixin
 from glpi_python_client.clients.custom._statistics_async import AsyncStatisticsMixin
 from glpi_python_client.clients.custom._ticket_context_async import (
     AsyncTicketContextMixin,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +71,7 @@ class AsyncGlpiClient(  # type: ignore[misc]
     PluginFieldsMixin,
     AsyncTicketContextMixin,
     AsyncStatisticsMixin,
+    _BaseGlpiClient,
     TransportMixin,
 ):
     """Asynchronous GLPI client built on the sync mixins via the bridge.
@@ -88,30 +81,14 @@ class AsyncGlpiClient(  # type: ignore[misc]
     to a worker thread. The custom helpers that benefit from concurrent
     fan-out provide hand-written async overrides which are preserved as
     coroutine functions by the bridge.
+
+    Construction parameters and :meth:`from_env` are documented on
+    :class:`~glpi_python_client.clients._base_client._BaseGlpiClient`;
+    the only additional keyword is ``executor`` (described below).
     """
 
-    def __init__(
-        self,
-        *,
-        glpi_api_url: str,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
-        glpi_entity: int | None = None,
-        glpi_profile: int | None = None,
-        entity_recursive: bool = False,
-        language: str = "en_GB",
-        verify_ssl: bool = True,
-        auth_token_refresh: int | None = None,
-        v1_base_url: str | None = None,
-        v1_user_token: str | None = None,
-        v1_app_token: str | None = None,
-        executor: Executor | None = None,
-    ) -> None:
+    def __init__(self, *, executor: Executor | None = None, **kwargs: Any) -> None:
         """Build an asynchronous GLPI client and its transport resources.
-
-        Parameters mirror :class:`GlpiClient` with one extra option:
 
         Parameters
         ----------
@@ -123,6 +100,9 @@ class AsyncGlpiClient(  # type: ignore[misc]
             :class:`concurrent.futures.ThreadPoolExecutor` when the
             application performs aggressive fan-outs that would
             otherwise saturate the default pool.
+        **kwargs : Any
+            Remaining keyword arguments forwarded to
+            :class:`~glpi_python_client.clients._base_client._BaseGlpiClient`.
 
         Raises
         ------
@@ -131,66 +111,8 @@ class AsyncGlpiClient(  # type: ignore[misc]
             missing OAuth credentials together with no v1 fallback).
         """
 
-        resources = build_client_resources(
-            glpi_api_url=glpi_api_url,
-            client_name=type(self).__name__,
-            client_id=client_id,
-            client_secret=client_secret,
-            username=username,
-            password=password,
-            verify_ssl=verify_ssl,
-            auth_token_refresh=auth_token_refresh,
-            v1_base_url=v1_base_url,
-            v1_user_token=v1_user_token,
-            v1_app_token=v1_app_token,
-        )
-        self.glpi_api_url = resources.glpi_api_url
-        self._session = resources.session
-        self._auth = resources.auth
-        self._v1 = resources.v1
-        self.glpi_entity = glpi_entity
-        self.glpi_profile = glpi_profile
-        self.entity_recursive = entity_recursive
-        self.language = language
-        self._auth_lock = threading.Lock()
-        self._closed = False
+        super().__init__(**kwargs)
         self._executor = executor
-
-    @classmethod
-    def from_env(
-        cls,
-        *,
-        env: Mapping[str, str] | None = None,
-        prefix: str = "GLPI_",
-        executor: Executor | None = None,
-        **overrides: object,
-    ) -> Self:
-        """Build a client instance from environment variables.
-
-        Parameters
-        ----------
-        env : Mapping[str, str] | None, optional
-            Mapping the helper reads values from. Defaults to
-            :data:`os.environ`.
-        prefix : str, optional
-            Common prefix shared by every environment variable name.
-        executor : concurrent.futures.Executor | None, optional
-            Optional executor forwarded to the constructor.
-        **overrides : object
-            Keyword overrides forwarded to :meth:`__init__`.
-
-        Returns
-        -------
-        AsyncGlpiClient
-            A fully configured async client ready to perform requests.
-        """
-
-        config = build_client_env_config(
-            prefix=prefix,
-            env=env if env is not None else os.environ,
-            overrides=overrides,
-        )
-        return cls(executor=executor, **config)  # type: ignore[arg-type]
 
     async def close(self) -> None:
         """Release every resource owned by the client.

@@ -42,6 +42,7 @@ from glpi_python_client.models.api_schema.plugins import (
 
 _TICKET_ITEMTYPE = "Ticket"
 _DEFAULT_LIST_RANGE = "0-999"
+_V1_FEATURE_LABEL = "Fields plugin helpers"
 
 
 def _value_itemtype_for(itemtype: str, container_name: str) -> str:
@@ -109,16 +110,6 @@ class PluginFieldsMixin(TransportMixin):
     ``v1_base_url`` and ``v1_user_token`` constructor arguments).
     """
 
-    def _require_v1(self) -> Any:
-        """Return the configured v1 session or raise ``RuntimeError``."""
-
-        if self._v1 is None:
-            raise RuntimeError(
-                "GLPI Fields plugin helpers require the legacy v1 session "
-                "to be configured (set v1_base_url and v1_user_token)."
-            )
-        return self._v1
-
     def list_plugin_fields_containers(
         self, itemtype: str | None = None
     ) -> list[GetPluginFieldsContainer]:
@@ -137,7 +128,7 @@ class PluginFieldsMixin(TransportMixin):
             Containers visible to the authenticated user.
         """
 
-        v1 = self._require_v1()
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
         payload = v1.request_json(
             "GET",
             "PluginFieldsContainer",
@@ -169,7 +160,7 @@ class PluginFieldsMixin(TransportMixin):
             Field declarations visible to the authenticated user.
         """
 
-        v1 = self._require_v1()
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
         payload = v1.request_json(
             "GET",
             "PluginFieldsField",
@@ -207,7 +198,7 @@ class PluginFieldsMixin(TransportMixin):
             persisted any value for this item.
         """
 
-        v1 = self._require_v1()
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
         endpoint = (
             f"{itemtype}/{items_id}/{_value_itemtype_for(itemtype, container_name)}"
         )
@@ -256,7 +247,7 @@ class PluginFieldsMixin(TransportMixin):
             Identifier of the newly created row.
         """
 
-        v1 = self._require_v1()
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
         input_payload: dict[str, object] = {
             "items_id": items_id,
             "itemtype": itemtype,
@@ -301,7 +292,7 @@ class PluginFieldsMixin(TransportMixin):
             previous value.
         """
 
-        v1 = self._require_v1()
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
         endpoint = f"{_value_itemtype_for(itemtype, container_name)}/{row_id}"
         v1.request_json(
             "PUT",
