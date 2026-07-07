@@ -24,6 +24,7 @@ from glpi_python_client.clients.api.assistance.timeline import (
     TimelineDocumentMixin,
 )
 from glpi_python_client.clients.api.dropdowns import LocationMixin
+from glpi_python_client.clients.api.knowledgebase import KBCategoryMixin
 from glpi_python_client.clients.api.management import DocumentMixin
 from glpi_python_client.clients.api.plugins import PluginFieldsMixin
 
@@ -31,6 +32,7 @@ __all__ = [
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",
+    "KBCategoryMixin",
     "LocationMixin",
     "PluginFieldsMixin",
     "SolutionMixin",
