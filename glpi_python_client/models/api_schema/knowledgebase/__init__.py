@@ -6,6 +6,12 @@ the ``Get<Name>``/``Post<Name>``/``Patch<Name>``/``Delete<Name>`` naming
 convention. Revisions are read-only and expose a ``Get`` model only.
 """
 
+from glpi_python_client.models.api_schema.knowledgebase._article import (
+    DeleteKBArticle,
+    GetKBArticle,
+    PatchKBArticle,
+    PostKBArticle,
+)
 from glpi_python_client.models.api_schema.knowledgebase._category import (
     DeleteKBCategory,
     GetKBCategory,
@@ -14,8 +20,12 @@ from glpi_python_client.models.api_schema.knowledgebase._category import (
 )
 
 __all__ = [
+    "DeleteKBArticle",
     "DeleteKBCategory",
+    "GetKBArticle",
     "GetKBCategory",
+    "PatchKBArticle",
     "PatchKBCategory",
+    "PostKBArticle",
     "PostKBCategory",
 ]
