@@ -33,11 +33,21 @@ TASK_SUFFIX = "Timeline/Task"
 SOLUTION_SUFFIX = "Timeline/Solution"
 TIMELINE_DOCUMENT_SUFFIX = "Timeline/Document"
 
+# knowledgebase/
+KB_ARTICLE_ENDPOINT = "Knowledgebase/Article"
+KB_CATEGORY_ENDPOINT = "Knowledgebase/Category"
+KB_COMMENT_SUFFIX = "Comment"
+KB_REVISION_SUFFIX = "Revision"
+
 
 __all__ = [
     "DOCUMENT_ENDPOINT",
     "ENTITY_ENDPOINT",
     "FOLLOWUP_SUFFIX",
+    "KB_ARTICLE_ENDPOINT",
+    "KB_CATEGORY_ENDPOINT",
+    "KB_COMMENT_SUFFIX",
+    "KB_REVISION_SUFFIX",
     "LOCATION_ENDPOINT",
     "SOLUTION_SUFFIX",
     "TASK_SUFFIX",
