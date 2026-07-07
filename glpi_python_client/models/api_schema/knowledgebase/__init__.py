@@ -18,14 +18,24 @@ from glpi_python_client.models.api_schema.knowledgebase._category import (
     PatchKBCategory,
     PostKBCategory,
 )
+from glpi_python_client.models.api_schema.knowledgebase._comment import (
+    DeleteKBArticleComment,
+    GetKBArticleComment,
+    PatchKBArticleComment,
+    PostKBArticleComment,
+)
 
 __all__ = [
     "DeleteKBArticle",
+    "DeleteKBArticleComment",
     "DeleteKBCategory",
     "GetKBArticle",
+    "GetKBArticleComment",
     "GetKBCategory",
     "PatchKBArticle",
+    "PatchKBArticleComment",
     "PatchKBCategory",
     "PostKBArticle",
+    "PostKBArticleComment",
     "PostKBCategory",
 ]
