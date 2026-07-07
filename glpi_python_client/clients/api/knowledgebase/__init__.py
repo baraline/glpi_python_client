@@ -7,5 +7,13 @@ from glpi_python_client.clients.api.knowledgebase._category import KBCategoryMix
 from glpi_python_client.clients.api.knowledgebase._comment import (
     KBArticleCommentMixin,
 )
+from glpi_python_client.clients.api.knowledgebase._revision import (
+    KBArticleRevisionMixin,
+)
 
-__all__ = ["KBArticleCommentMixin", "KBArticleMixin", "KBCategoryMixin"]
+__all__ = [
+    "KBArticleCommentMixin",
+    "KBArticleMixin",
+    "KBArticleRevisionMixin",
+    "KBCategoryMixin",
+]

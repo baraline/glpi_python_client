@@ -27,6 +27,7 @@ from glpi_python_client.clients.api.dropdowns import LocationMixin
 from glpi_python_client.clients.api.knowledgebase import (
     KBArticleCommentMixin,
     KBArticleMixin,
+    KBArticleRevisionMixin,
     KBCategoryMixin,
 )
 from glpi_python_client.clients.api.management import DocumentMixin
@@ -38,6 +39,7 @@ __all__ = [
     "FollowupMixin",
     "KBArticleCommentMixin",
     "KBArticleMixin",
+    "KBArticleRevisionMixin",
     "KBCategoryMixin",
     "LocationMixin",
     "PluginFieldsMixin",
