@@ -25,6 +25,7 @@ from glpi_python_client.clients.api.assistance.timeline import (
 )
 from glpi_python_client.clients.api.dropdowns import LocationMixin
 from glpi_python_client.clients.api.knowledgebase import (
+    KBArticleCommentMixin,
     KBArticleMixin,
     KBCategoryMixin,
 )
@@ -35,6 +36,7 @@ __all__ = [
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",
+    "KBArticleCommentMixin",
     "KBArticleMixin",
     "KBCategoryMixin",
     "LocationMixin",
