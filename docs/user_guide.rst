@@ -586,6 +586,61 @@ Example output::
 the client (``v1_base_url`` and ``v1_user_token``) because the GLPI v2
 contract does not advertise a binary upload endpoint.
 
+Knowledge base
+~~~~~~~~~~~~~~
+
+The knowledge base mixins map to ``/Knowledgebase``. Articles and
+categories expose the ``search_ / get_ / create_ / update_ / delete_``
+shape; comments are nested under an article; revisions are read-only.
+Article ``content`` and ``description`` accept and return Markdown.
+
+.. note::
+
+   The Knowledge base API was introduced in the GLPI High-Level API
+   **2.2.0**. Instances serving an older API version (e.g. 2.1.0) do not
+   expose ``/Knowledgebase`` and these helpers will raise a
+   ``ValueError`` (HTTP 404).
+
+.. code-block:: python
+
+   from glpi_python_client import (
+       PostKBArticle,
+       PostKBArticleComment,
+       PostKBCategory,
+   )
+
+   category_id = client.create_kb_category(
+       PostKBCategory(name="Networking")
+   )
+   article_id = client.create_kb_article(
+       PostKBArticle(
+           name="Reset a Wi-Fi controller",
+           content="Hold **reset** for 10s, then re-provision.",
+           categories=[{"id": category_id}],
+           is_faq=True,
+       )
+   )
+   client.create_kb_article_comment(
+       article_id,
+       PostKBArticleComment(comment="Confirmed on firmware 4.2."),
+   )
+
+   article = client.get_kb_article(article_id)
+   print(article.id, article.name)
+
+   faq = client.search_kb_articles("is_faq==1", limit=10)
+   for entry in faq:
+       print(entry.id, entry.name)
+
+   revisions = client.list_kb_article_revisions(article_id)
+   print(len(revisions), "revision(s)")
+
+Example output::
+
+   42 Reset a Wi-Fi controller
+   42 Reset a Wi-Fi controller
+   1 revision(s)
+
 Enums
 ~~~~~
 
