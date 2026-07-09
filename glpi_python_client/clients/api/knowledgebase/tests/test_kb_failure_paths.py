@@ -12,6 +12,9 @@ from glpi_python_client import (
     PatchKBArticle,
     PatchKBArticleComment,
     PatchKBCategory,
+    PostKBArticle,
+    PostKBArticleComment,
+    PostKBCategory,
 )
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
@@ -58,10 +61,23 @@ _DELETE_CALLS: list[Callable[[GlpiClient], Any]] = [
     lambda c: c.delete_kb_article_comment(1, 2, force=True),
 ]
 
+_CREATE_CALLS: list[Callable[[GlpiClient], Any]] = [
+    lambda c: c.create_kb_article(PostKBArticle(name="x")),
+    lambda c: c.create_kb_category(PostKBCategory(name="x")),
+    lambda c: c.create_kb_article_comment(1, PostKBArticleComment(comment="x")),
+]
+
 
 @pytest.mark.parametrize("call", _READ_CALLS)
 def test_read_helpers_raise_on_failure(client: GlpiClient, call: Callable) -> None:
     _FailRecorder(404).install(client)
+    with pytest.raises(ValueError):
+        call(client)
+
+
+@pytest.mark.parametrize("call", _CREATE_CALLS)
+def test_create_helpers_raise_on_failure(client: GlpiClient, call: Callable) -> None:
+    _FailRecorder(500).install(client)
     with pytest.raises(ValueError):
         call(client)
 

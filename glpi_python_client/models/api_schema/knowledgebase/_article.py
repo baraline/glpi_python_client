@@ -3,9 +3,9 @@
 The field layout mirrors ``components.schemas.KBArticle`` from the GLPI
 OpenAPI contract (2.3.0). ``content`` and ``description`` are exchanged as
 HTML (``format: html``) and use the transparent Markdown annotation.
-Server-managed fields (``id``, ``user``, ``views``, ``revisions``,
-``translations``) are excluded from the request models; revisions and
-translations are managed through the dedicated revision endpoints.
+Server-managed fields (``id``, ``views``, ``revisions``, ``translations``)
+are excluded from the request models; revisions and translations are
+managed through the dedicated revision endpoints.
 """
 
 from __future__ import annotations
@@ -65,9 +65,11 @@ class GetKBArticle(GlpiModel):
 class PostKBArticle(GlpiModel):
     """Request body for ``POST /Knowledgebase/Article``.
 
-    Server-managed fields are excluded: ``id`` (``readOnly``), ``user``
-    (the author is set by the server), ``views`` (a server-side counter),
-    and the ``revisions``/``translations`` history arrays.
+    Server-managed fields are excluded: ``id`` (``readOnly``), ``views``
+    (a server-side counter), and the ``revisions``/``translations`` history
+    arrays. The contract marks ``user.id`` as writable (the article author),
+    so ``user`` is exposed here even though the server defaults it to the
+    current user when omitted.
     """
 
     name: str | None = None
@@ -76,6 +78,7 @@ class PostKBArticle(GlpiModel):
     is_faq: bool | None = None
     entity: IdNameRef | None = None
     is_recursive: bool | None = None
+    user: IdNameRef | None = None
     show_in_service_catalog: bool | None = None
     description: GlpiMarkdownContent = None
     illustration: str | None = None

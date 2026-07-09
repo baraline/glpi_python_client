@@ -3,9 +3,10 @@
 The endpoints live under
 ``/Knowledgebase/Article/{article_id}/Comment``. The field layout mirrors
 ``components.schemas.KBArticleComment`` from the GLPI OpenAPI contract
-(2.3.0). The read-only ``id`` and the server-managed ``kbarticle``/``user``
-references are excluded from the request models; the parent article is
-implied by the URL path.
+(2.3.0). The read-only ``id`` and ``parent`` references are excluded from
+the request models, as is ``kbarticle`` (the parent article is implied by
+the URL path). ``user.id`` is writable in the contract, so ``user`` is
+exposed on the request models.
 """
 
 from __future__ import annotations
@@ -35,13 +36,15 @@ class GetKBArticleComment(GlpiModel):
 class PostKBArticleComment(GlpiModel):
     """Request body for ``POST`` on KB comment endpoints.
 
-    The parent article (``kbarticle``) is taken from the URL path and the
-    author (``user``) is set by the server, so both are excluded here.
+    The parent article (``kbarticle``) is taken from the URL path, and the
+    contract marks the comment ``parent`` reference as read-only, so both
+    are excluded. ``user.id`` is writable and may be set explicitly; the
+    server defaults it to the current user when omitted.
     """
 
+    user: IdNameRef | None = None
     language: str | None = None
     comment: str | None = None
-    parent: IdRef | None = None
     date_creation: datetime | None = None
     date_mod: datetime | None = None
 

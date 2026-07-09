@@ -71,7 +71,8 @@ def _suffix() -> str:
     return uuid4().hex[:12]
 
 
-def test_kb_category_lifecycle(client: GlpiClient, kb_available: None) -> None:
+@pytest.mark.usefixtures("kb_available")
+def test_kb_category_lifecycle(client: GlpiClient) -> None:
     """Create, fetch, and delete one knowledge base category."""
 
     suffix = _suffix()
@@ -85,7 +86,8 @@ def test_kb_category_lifecycle(client: GlpiClient, kb_available: None) -> None:
         client.delete_kb_category(category_id, force=True)
 
 
-def test_kb_article_lifecycle(client: GlpiClient, kb_available: None) -> None:
+@pytest.mark.usefixtures("kb_available")
+def test_kb_article_lifecycle(client: GlpiClient) -> None:
     """Create an article, edit it, add a comment, read revisions, delete."""
 
     suffix = _suffix()

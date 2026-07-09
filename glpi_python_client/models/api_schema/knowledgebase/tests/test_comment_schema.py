@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from glpi_python_client.clients.commons._payloads import model_to_payload
+from glpi_python_client.models.api_schema._common import IdNameRef
 from glpi_python_client.models.api_schema.knowledgebase import (
     DeleteKBArticleComment,
     GetKBArticleComment,
@@ -31,10 +33,20 @@ def test_get_kb_article_comment_full_payload() -> None:
 
 
 def test_post_kb_article_comment_routes_read_only_to_extra() -> None:
-    """The read-only ``id`` lands in ``extra_payload``."""
+    """The read-only ``id`` and ``parent`` land in ``extra_payload``."""
 
-    comment = PostKBArticleComment.model_validate({"comment": "hi", "id": 9})
-    assert comment.extra_payload == {"id": 9}
+    comment = PostKBArticleComment.model_validate(
+        {"comment": "hi", "id": 9, "parent": {"id": 3}}
+    )
+    assert comment.extra_payload == {"id": 9, "parent": {"id": 3}}
+
+
+def test_post_kb_article_comment_accepts_writable_user() -> None:
+    """The contract marks ``user.id`` writable, so the author can be set."""
+
+    body = model_to_payload(PostKBArticleComment(comment="hi", user=IdNameRef(id=2)))
+    assert body["user"]["id"] == 2
+    assert body["comment"] == "hi"
 
 
 def test_patch_kb_article_comment_partial_body() -> None:

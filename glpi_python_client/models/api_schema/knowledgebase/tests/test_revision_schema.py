@@ -20,6 +20,9 @@ def test_get_kb_article_revision_full_payload() -> None:
     }
     revision = GetKBArticleRevision.model_validate(payload)
     assert revision.revision == 2
-    assert "passwd" in (revision.content or "")
+    # HTML content is normalised to Markdown on the model boundary.
+    assert revision.content is not None
+    assert "<code>" not in revision.content
+    assert "`passwd`" in revision.content
     assert revision.kbarticle is not None
     assert revision.kbarticle.id == 5
