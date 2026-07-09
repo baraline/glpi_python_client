@@ -592,7 +592,10 @@ Knowledge base
 The knowledge base mixins map to ``/Knowledgebase``. Articles and
 categories expose the ``search_ / get_ / create_ / update_ / delete_``
 shape; comments are nested under an article; revisions are read-only.
-Article ``content`` and ``description`` accept and return Markdown.
+Article ``content`` and ``description`` accept and return Markdown. An
+article's ``categories`` association is read-only in the GLPI contract:
+it is returned by ``get_kb_article`` but is not set through the article
+create/update body.
 
 .. note::
 
@@ -609,14 +612,14 @@ Article ``content`` and ``description`` accept and return Markdown.
        PostKBCategory,
    )
 
-   category_id = client.create_kb_category(
-       PostKBCategory(name="Networking")
-   )
+   client.create_kb_category(PostKBCategory(name="Networking"))
+   categories = client.search_kb_categories("name==Networking")
+   print([c.name for c in categories])
+
    article_id = client.create_kb_article(
        PostKBArticle(
            name="Reset a Wi-Fi controller",
            content="Hold **reset** for 10s, then re-provision.",
-           categories=[{"id": category_id}],
            is_faq=True,
        )
    )
@@ -637,6 +640,7 @@ Article ``content`` and ``description`` accept and return Markdown.
 
 Example output::
 
+   ['Networking']
    42 Reset a Wi-Fi controller
    42 Reset a Wi-Fi controller
    1 revision(s)
