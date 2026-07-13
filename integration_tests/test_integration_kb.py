@@ -53,6 +53,9 @@ def client(live_config: _LiveGlpiConfig) -> Iterator[GlpiClient]:
         glpi_profile=live_config.profile,
         entity_recursive=live_config.entity_recursive,
         verify_ssl=live_config.verify_ssl,
+        v1_base_url=live_config.v1_base_url,
+        v1_user_token=live_config.v1_user_token,
+        v1_app_token=live_config.v1_app_token,
     )
     try:
         yield glpi_client
@@ -152,6 +155,40 @@ def test_kb_article_full_crud_and_markdown(client: GlpiClient) -> None:
 
     with pytest.raises(ValueError):
         client.get_kb_article(article_id)
+
+
+@pytest.mark.usefixtures("kb_available")
+def test_kb_article_set_categories(
+    client: GlpiClient, live_config: _LiveGlpiConfig
+) -> None:
+    """Assign a category to an article via the legacy fallback and read it back.
+
+    Requires ``v1_base_url`` to point at the legacy ``apirest.php`` (the same
+    session used by document upload / the Fields plugin); skipped otherwise.
+    """
+
+    if not live_config.v1_base_url or not live_config.v1_user_token:
+        pytest.skip("legacy v1 session not configured; category write needs it")
+
+    suffix = _suffix()
+    category_id = client.create_kb_category(PostKBCategory(name=f"itest-cat-{suffix}"))
+    try:
+        article_id = client.create_kb_article(
+            PostKBArticle(name=f"itest-kb-cat-{suffix}", content="Body.")
+        )
+        try:
+            client.set_kb_article_categories(article_id, [category_id])
+            fetched = client.get_kb_article(article_id)
+            assert fetched.categories is not None
+            assert any(c.id == category_id for c in fetched.categories)
+
+            # Clearing removes the link again.
+            client.set_kb_article_categories(article_id, [])
+            assert not (client.get_kb_article(article_id).categories or [])
+        finally:
+            client.delete_kb_article(article_id, force=True)
+    finally:
+        client.delete_kb_category(category_id, force=True)
 
 
 @pytest.mark.usefixtures("kb_available")

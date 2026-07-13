@@ -593,9 +593,9 @@ The knowledge base mixins map to ``/Knowledgebase``. Articles and
 categories expose the ``search_ / get_ / create_ / update_ / delete_``
 shape; comments are nested under an article; revisions are read-only.
 Article ``content`` and ``description`` accept and return Markdown. An
-article's ``categories`` association is read-only in the GLPI contract:
-it is returned by ``get_kb_article`` but is not set through the article
-create/update body.
+article's ``categories`` association is read-only in the v2 GLPI contract,
+so the client sets it through a legacy fallback — see
+`Assigning categories`_.
 
 .. note::
 
@@ -641,6 +641,37 @@ create/update body.
 Example output::
 
    ['Networking']
+
+Assigning categories
+^^^^^^^^^^^^^^^^^^^^^
+
+On GLPI 11 the v2 API cannot write a KB article's categories (the nested
+``categories[].id`` is ``readOnly`` and category writes are silently
+dropped). GLPI 11 stores KB categories as a many-to-many relationship that
+only the legacy ``apirest.php`` can write, so the client applies categories
+through the legacy v1 session. Configure ``v1_base_url`` / ``v1_user_token``
+(pointing at the legacy ``apirest.php``) and either pass ``categories`` on
+create/update or call the helper directly. The supplied ids replace the
+article's full category set; passing an empty list clears every category.
+
+.. code-block:: python
+
+   from glpi_python_client import IdNameRef
+
+   # Categories set on create are applied via the legacy fallback. The
+   # create is atomic: if the assignment fails, the new article is rolled
+   # back and the error is re-raised.
+   article_id = client.create_kb_article(
+       PostKBArticle(
+           name="Reset a Wi-Fi controller",
+           content="Hold **reset** for 10s.",
+           categories=[IdNameRef(id=14)],
+       )
+   )
+
+   # Or set them explicitly at any time.
+   client.set_kb_article_categories(article_id, [14])  # replace the full set
+   client.set_kb_article_categories(article_id, [])    # clear all
    42 Reset a Wi-Fi controller
    42 Reset a Wi-Fi controller
    1 revision(s)
