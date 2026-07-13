@@ -29,3 +29,8 @@ secrets/*
 .claude/
 
 CLAUDE.md
+
+docs/superpowers/*
+
+# Large generated GLPI API contract (kept locally, not tracked)
+docs/glpi_api_contract.json

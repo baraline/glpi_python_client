@@ -266,6 +266,83 @@ Locations
    :undoc-members:
    :show-inheritance:
 
+Knowledge Base — Articles
+-------------------------
+
+.. autoclass:: GetKBArticle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostKBArticle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchKBArticle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteKBArticle
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Knowledge Base — Article Comments
+---------------------------------
+
+.. autoclass:: GetKBArticleComment
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostKBArticleComment
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchKBArticleComment
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteKBArticleComment
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Knowledge Base — Article Revisions
+----------------------------------
+
+.. autoclass:: GetKBArticleRevision
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Knowledge Base — Categories
+---------------------------
+
+.. autoclass:: GetKBCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostKBCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchKBCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteKBCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Entities
 --------
 
