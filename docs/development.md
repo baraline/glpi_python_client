@@ -62,13 +62,22 @@ python -m pytest
   transport serialises OAuth token acquisition so concurrent
   `asyncio.gather` fan-outs on the async client cannot race.
 - `glpi_python_client.clients.api.*` contains the contract-aligned
-  synchronous endpoint mixins, grouped by GLPI subtree (administration,
-  assistance, assistance/timeline, dropdowns, management).
+  endpoint mixins, grouped by GLPI subtree (administration, assistance,
+  assistance/timeline, dropdowns, management, knowledgebase, plugins).
+  Most are synchronous; `knowledgebase/_article_async.py` and
+  `plugins/_fields_async.py` are hand-written async overrides needed
+  because their synchronous bodies call a sibling public method through
+  `self` (see the `clients.custom` entry below for the other reason a
+  method needs one).
 - `glpi_python_client.clients.custom` contains custom helpers built on
   top of the API mixins. Each helper has a synchronous implementation
-  (`_ticket_context.py`, `_statistics.py`) plus an optional async
-  override (`_ticket_context_async.py`, `_statistics_async.py`) that
-  fans the underlying calls out concurrently with `asyncio.gather`.
+  (`_ticket_context.py`, `_statistics.py`) plus an async override
+  (`_ticket_context_async.py`, `_statistics_async.py`) that fans the
+  underlying calls out concurrently with `asyncio.gather`. That is one
+  of two reasons a method needs a hand-written async override; the
+  other — a synchronous body calling a sibling public method through
+  `self` — is why `clients.api.knowledgebase` and `clients.api.plugins`
+  also ship one (see above).
 - `glpi_python_client.auth._v1_session` contains the legacy v1
   session used for binary document uploads.
 - `glpi_python_client.models` contains typed request and response
@@ -93,7 +102,11 @@ python -m pytest
    async client picks the new method up automatically through the
    `AsyncBridge` — do not duplicate the method on a parallel async
    mixin unless you genuinely need concurrent fan-out (`asyncio.gather`)
-   inside the method body.
+   inside the method body, **or** the method calls a sibling public
+   method through `self` (directly, or transitively via a private
+   helper): the bridge wraps that sibling into a coroutine, so the
+   un-awaited call silently drops instead of running. The guard in step
+   4 fails the suite if you miss this.
 3. Put reusable endpoint names, payload builders, response handling, or
    pagination logic in the focused
    `glpi_python_client.clients.commons` helper module named for that
@@ -101,7 +114,10 @@ python -m pytest
 4. Add unit tests for payload serialization, response parsing, and
    client behavior. The parity test in
    `glpi_python_client/clients/tests/test_parity.py` will fail if the
-   sync and async surfaces diverge.
+   sync and async surfaces diverge, and
+   `glpi_python_client/clients/tests/test_async_selfcall_guard.py` will
+   fail if a public method reaches another public method through `self`
+   without a hand-written async override.
 5. Document the new workflow in `docs/user_guide.rst` or the README.
 
 Keep organization-specific defaults outside the package core.

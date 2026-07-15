@@ -10,6 +10,19 @@ The mixin must sit **before** :class:`PluginFieldsMixin` in the
 :class:`~glpi_python_client.clients.AsyncGlpiClient` base list so the
 bridge's ``__init_subclass__`` hook finds the coroutine via ``getattr``
 and leaves it alone.
+
+Every awaited call below carries ``# type: ignore[misc]``: the awaited
+method (e.g. :meth:`PluginFieldsMixin.list_plugin_fields_containers`) is
+declared on this mixin's own parent, so mypy resolves it statically as
+the synchronous ``-> T`` method rather than the bridge-generated
+coroutine it becomes at runtime on
+:class:`~glpi_python_client.clients.AsyncGlpiClient`. See the matching
+note in
+:mod:`glpi_python_client.clients.api.knowledgebase._article_async` for
+the same vocabulary, and contrast with the ``[attr-defined]`` codes in
+:mod:`glpi_python_client.clients.custom._statistics_async`, where the
+awaited methods are declared on a *different* mixin and mypy cannot
+resolve them statically at all.
 """
 
 from __future__ import annotations

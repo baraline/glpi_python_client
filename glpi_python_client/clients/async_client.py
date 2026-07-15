@@ -4,10 +4,12 @@ The :class:`AsyncGlpiClient` reuses every synchronous mixin composed
 into :class:`~glpi_python_client.clients.sync_client.GlpiClient` and
 wraps each public method into a coroutine through
 :class:`~glpi_python_client.clients.commons._async_bridge.AsyncBridge`.
-Helpers that benefit from concurrent fan-out
-(:meth:`get_ticket_context`, :meth:`get_task_statistics`) are replaced
-by their dedicated async overrides under
-:mod:`glpi_python_client.clients.custom`.
+Some methods ship hand-written async overrides instead — for concurrent
+``asyncio.gather`` fan-out (:mod:`glpi_python_client.clients.custom`) or
+to stop the bridge from silently dropping an internal call to a sibling
+public method through ``self``
+(:mod:`glpi_python_client.clients.api.knowledgebase`,
+:mod:`glpi_python_client.clients.api.plugins`).
 
 The async client owns the same HTTP session and token manager as the
 synchronous client but its lifecycle is driven through ``async with`` /
@@ -86,9 +88,11 @@ class AsyncGlpiClient(  # type: ignore[misc]
 
     Every public sync method exposed by the inherited mixins is
     automatically wrapped into a coroutine that defers the blocking call
-    to a worker thread. The custom helpers that benefit from concurrent
-    fan-out provide hand-written async overrides which are preserved as
-    coroutine functions by the bridge.
+    to a worker thread. A handful of methods ship hand-written async
+    overrides instead — for concurrent fan-out or to stop the bridge
+    from silently dropping an internal call to a sibling public method
+    through ``self`` — which are preserved as coroutine functions by the
+    bridge.
 
     Construction parameters and :meth:`from_env` are documented on
     :class:`~glpi_python_client.clients._base_client._BaseGlpiClient`;

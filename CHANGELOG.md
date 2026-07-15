@@ -29,7 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `glpi_python_client/clients/tests/test_async_selfcall_guard.py`: a
   structural AST guard that fails the suite if any public method on
-  `GlpiClient` transitively reaches another public method through `self`
+  `GlpiClient` transitively reaches another public method through a
+  literal `self.name(...)` call (directly, or via a private helper)
   without a corresponding hand-written async override on
   `AsyncGlpiClient`. This prevents the same bug class — silent data loss
   or a `TypeError` at call time, depending on how the dropped coroutine is

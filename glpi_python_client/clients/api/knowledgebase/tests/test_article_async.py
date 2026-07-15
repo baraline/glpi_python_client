@@ -142,6 +142,38 @@ async def test_create_kb_article_wraps_missing_id_category(
         )
 
 
+async def test_update_kb_article_links_categories(client: AsyncGlpiClient) -> None:
+    """Updating with a non-empty list must issue the v1 category write.
+
+    This is the update-path counterpart of
+    ``test_create_kb_article_links_categories``. Without it, the
+    non-empty-list case on ``update_kb_article`` is only covered by
+    composition: the ``[]`` test below proves the update path fires the
+    legacy fallback at all, and the create test proves the id-collection
+    loop works, but neither proves a non-empty list on *update*, the
+    headline regression this branch fixed, actually reaches the v1
+    ``PUT``.
+    """
+
+    fake = _FakeV1()
+    client._v1 = fake  # type: ignore[assignment]
+
+    await client.update_kb_article(
+        42, PatchKBArticle(name="t3", categories=[IdNameRef(id=7, name="cat")])
+    )
+
+    assert fake.calls == [
+        {
+            "method": "PUT",
+            "path": "KnowbaseItem/42",
+            "json_body": {"input": {"_categories": [7]}},
+        }
+    ]
+    # The stripped v2 patch body must still carry every other field: only
+    # ``categories`` was removed before the worker-thread update call runs.
+    assert client.patch_bodies == [{"name": "t3"}]  # type: ignore[attr-defined]
+
+
 async def test_update_kb_article_clears_categories(client: AsyncGlpiClient) -> None:
     """An empty list clears every category through the v1 fallback."""
 
