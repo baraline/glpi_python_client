@@ -157,6 +157,11 @@ async def test_update_kb_article_clears_categories(client: AsyncGlpiClient) -> N
             "json_body": {"input": {"_categories": []}},
         }
     ]
+    # The stripped v2 patch body must still carry every other field: only
+    # ``categories`` was removed before the worker-thread update call runs.
+    # A ``model_copy(update=...)`` that nuked more than ``categories`` would
+    # otherwise pass every other assertion in this file undetected.
+    assert client.patch_bodies == [{"name": "t2"}]  # type: ignore[attr-defined]
 
 
 async def test_update_kb_article_raises_on_missing_id_category(
