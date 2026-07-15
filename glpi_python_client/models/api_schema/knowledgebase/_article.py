@@ -70,6 +70,12 @@ class PostKBArticle(GlpiModel):
     arrays. The contract marks ``user.id`` as writable (the article author),
     so ``user`` is exposed here even though the server defaults it to the
     current user when omitted.
+
+    ``categories`` looks writable but the GLPI 2.3.0 v2 API drops it (the
+    nested ``id`` is ``readOnly``). ``GlpiClient.create_kb_article`` /
+    ``update_kb_article`` apply it through a legacy fallback
+    (``set_kb_article_categories``), which needs a configured v1 session
+    pointing at the legacy ``apirest.php``.
     """
 
     name: str | None = None
