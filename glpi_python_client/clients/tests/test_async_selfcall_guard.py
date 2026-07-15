@@ -22,15 +22,6 @@ from glpi_python_client import AsyncGlpiClient, GlpiClient
 # Lifecycle helpers differ between the surfaces on purpose.
 _EXCLUDED = {"from_env", "close"}
 
-# Methods known to violate the rule, removed as each is fixed. Must reach
-# empty; a non-empty set here is a shipped bug, not an accepted state.
-_KNOWN_UNCOVERED: frozenset[str] = frozenset(
-    {
-        "create_kb_article",
-        "update_kb_article",
-    }
-)
-
 
 def _public_names(cls: type) -> set[str]:
     """Return the public callable names exposed by ``cls``."""
@@ -129,14 +120,12 @@ def _offenders() -> list[str]:
 def test_no_new_self_call_offenders() -> None:
     """No public method may self-call without a hand-written async override."""
 
-    assert set(_offenders()) == set(_KNOWN_UNCOVERED), (
-        "The set of bridge self-call offenders changed.\n"
-        f"  found:    {sorted(_offenders())}\n"
-        f"  expected: {sorted(_KNOWN_UNCOVERED)}\n"
-        "A NEW name means a sync body calls a public method through self "
-        "with no async override: it will silently drop that call on "
-        "AsyncGlpiClient. Add an async override mixin (see "
-        "clients/custom/_statistics_async.py) and remove the name here."
+    assert _offenders() == [], (
+        f"These public methods call a public method through self with no async "
+        f"override, so AsyncGlpiClient will silently drop those calls: "
+        f"{_offenders()}. Add an async override mixin (see "
+        "clients/custom/_statistics_async.py) and register it in "
+        "clients/async_client.py before the sync mixin."
     )
 
 
@@ -153,4 +142,49 @@ def test_guard_detects_the_covered_methods() -> None:
         )
     assert not _is_real_async_override(AsyncGlpiClient.get_ticket), (
         "get_ticket should be bridge-generated, not a hand-written override"
+    )
+
+
+def test_reaches_public_detects_transitive_and_direct_self_calls() -> None:
+    """Pin ``_reaches_public`` against a synthetic call map.
+
+    ``test_no_new_self_call_offenders`` now asserts ``_offenders() == []``.
+    That assertion passes both when every real offender has an async
+    override *and* when ``_reaches_public`` has regressed to returning
+    ``False`` for everything — the two cases are indistinguishable from the
+    assertion alone. The previous non-empty ``_KNOWN_UNCOVERED`` constant
+    protected against that regression by accident, since a broken detector
+    would drop the known offenders out of ``_offenders()`` and fail the
+    equality check; emptying it removed that safety net.
+
+    This test replaces it with a direct, synthetic check of the detection
+    logic itself, independent of whatever offenders exist on the real
+    client today. It fixes a call map shaped like the historical
+    ``create_kb_article`` bug — a public method reaching another public
+    method only transitively, through a private helper — and a call map
+    that never reaches anything public, and asserts ``_reaches_public``
+    still tells them apart.
+    """
+
+    public = {"create_thing", "set_thing_categories", "isolated_public"}
+    call_map: dict[str, set[str]] = {
+        # Mirrors create_kb_article -> _apply_category_fallback ->
+        # set_kb_article_categories: the public caller only reaches the
+        # public callee transitively, through a private helper.
+        "create_thing": {"_apply_fallback"},
+        "_apply_fallback": {"set_thing_categories"},
+        "set_thing_categories": set(),
+        # A public method that only ever touches private helpers which
+        # themselves reach nothing public must not be flagged.
+        "isolated_public": {"_do_local_work"},
+        "_do_local_work": {"_do_more_local_work"},
+        "_do_more_local_work": set(),
+    }
+
+    assert _reaches_public("create_thing", call_map, public) is True, (
+        "a public method reaching a public method through a private helper "
+        "must be detected"
+    )
+    assert _reaches_public("isolated_public", call_map, public) is False, (
+        "a public method whose private helpers reach nothing public must not be flagged"
     )
