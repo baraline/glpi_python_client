@@ -6,5 +6,6 @@ under this package go through the v1 session helper exposed by
 """
 
 from glpi_python_client.clients.api.plugins._fields import PluginFieldsMixin
+from glpi_python_client.clients.api.plugins._fields_async import AsyncPluginFieldsMixin
 
-__all__ = ["PluginFieldsMixin"]
+__all__ = ["AsyncPluginFieldsMixin", "PluginFieldsMixin"]
