@@ -31,9 +31,13 @@ from glpi_python_client.clients.api.knowledgebase import (
     KBCategoryMixin,
 )
 from glpi_python_client.clients.api.management import DocumentMixin
-from glpi_python_client.clients.api.plugins import PluginFieldsMixin
+from glpi_python_client.clients.api.plugins import (
+    AsyncPluginFieldsMixin,
+    PluginFieldsMixin,
+)
 
 __all__ = [
+    "AsyncPluginFieldsMixin",
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",

@@ -27,8 +27,6 @@ _EXCLUDED = {"from_env", "close"}
 _KNOWN_UNCOVERED: frozenset[str] = frozenset(
     {
         "create_kb_article",
-        "get_ticket_custom_fields",
-        "set_ticket_custom_fields",
         "update_kb_article",
     }
 )
