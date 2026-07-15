@@ -40,24 +40,36 @@ class _FakeV1:
 
 @pytest.fixture
 def client() -> AsyncGlpiClient:
-    """Return an async client with the v2 transport stubbed out."""
+    """Return an async client with the v2 transport stubbed out.
+
+    Both stubs record every ``json_body`` they receive (on the ``post_bodies``
+    / ``patch_bodies`` attributes attached to the client) so tests can assert
+    that stripping ``categories`` for the legacy fallback left the rest of
+    the v2 request body untouched.
+    """
 
     c = make_async_client()
+    post_bodies: list[dict[str, object] | None] = []
+    patch_bodies: list[dict[str, object] | None] = []
 
     def _post(
         endpoint: str,
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
     ) -> FakeResponse:
+        post_bodies.append(json_body)
         return FakeResponse(status_code=201, payload={"id": 42})
 
     def _patch(
         endpoint: str, json_body: dict[str, object] | None = None
     ) -> FakeResponse:
+        patch_bodies.append(json_body)
         return FakeResponse(status_code=200, payload={"id": 42})
 
     c._post_request = _post  # type: ignore[assignment]
     c._update_request = _patch  # type: ignore[assignment]
+    c.post_bodies = post_bodies  # type: ignore[attr-defined]
+    c.patch_bodies = patch_bodies  # type: ignore[attr-defined]
     return c
 
 
@@ -79,6 +91,11 @@ async def test_create_kb_article_links_categories(client: AsyncGlpiClient) -> No
             "json_body": {"input": {"_categories": [7]}},
         }
     ]
+    # The stripped v2 body must still carry every other field: only
+    # ``categories`` was removed before the worker-thread create call runs.
+    # A ``model_copy(update=...)`` that nuked more than ``categories`` would
+    # otherwise pass every other assertion in this file undetected.
+    assert client.post_bodies == [{"name": "t", "answer": "a"}]  # type: ignore[attr-defined]
 
 
 async def test_create_kb_article_without_categories_needs_no_v1(
@@ -105,6 +122,26 @@ async def test_create_kb_article_wraps_category_failure(
         )
 
 
+async def test_create_kb_article_wraps_missing_id_category(
+    client: AsyncGlpiClient,
+) -> None:
+    """A category ref without an id is wrapped in the same ``RuntimeError``.
+
+    ``_apply_category_fallback_async`` raises ``ValueError`` before ever
+    touching a v1 session when a category reference has no ``id`` (see
+    ``_article_async.py``). ``create_kb_article`` wraps every fallback
+    failure — including this one — into ``RuntimeError``. This is the
+    async copy of a branch already covered on the sync client; the two
+    copies can drift independently, so this branch needs its own test
+    rather than relying on sync coverage.
+    """
+
+    with pytest.raises(RuntimeError, match="KB article 42 was created but"):
+        await client.create_kb_article(
+            PostKBArticle(name="t", answer="a", categories=[IdNameRef(name="cat")])
+        )
+
+
 async def test_update_kb_article_clears_categories(client: AsyncGlpiClient) -> None:
     """An empty list clears every category through the v1 fallback."""
 
@@ -113,7 +150,32 @@ async def test_update_kb_article_clears_categories(client: AsyncGlpiClient) -> N
 
     await client.update_kb_article(42, PatchKBArticle(name="t2", categories=[]))
 
-    assert fake.calls[-1]["json_body"] == {"input": {"_categories": []}}
+    assert fake.calls == [
+        {
+            "method": "PUT",
+            "path": "KnowbaseItem/42",
+            "json_body": {"input": {"_categories": []}},
+        }
+    ]
+
+
+async def test_update_kb_article_raises_on_missing_id_category(
+    client: AsyncGlpiClient,
+) -> None:
+    """A category ref without an id raises the raw ``ValueError`` on update.
+
+    Unlike ``create_kb_article``, ``update_kb_article`` does not wrap the
+    fallback call in a ``try``/``except``: the v2 patch has already been
+    applied by the time categories are assigned, so there is nothing to
+    roll back and no article-was-created message to build around. The raw
+    ``ValueError`` from ``_apply_category_fallback_async`` must therefore
+    propagate unchanged.
+    """
+
+    with pytest.raises(ValueError, match="require an 'id'"):
+        await client.update_kb_article(
+            42, PatchKBArticle(name="t2", categories=[IdNameRef(name="cat")])
+        )
 
 
 async def test_update_kb_article_without_categories_skips_v1(

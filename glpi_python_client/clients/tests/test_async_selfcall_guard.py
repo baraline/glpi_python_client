@@ -188,3 +188,39 @@ def test_reaches_public_detects_transitive_and_direct_self_calls() -> None:
     assert _reaches_public("isolated_public", call_map, public) is False, (
         "a public method whose private helpers reach nothing public must not be flagged"
     )
+
+
+def test_reaches_public_fires_on_real_create_kb_article_shape() -> None:
+    """Pin all three ``_offenders`` helpers together against the real client.
+
+    ``test_reaches_public_detects_transitive_and_direct_self_calls`` only
+    proves ``_reaches_public`` is correct against a hand-built ``public``
+    set and ``call_map``. It cannot notice a regression in the other two
+    helpers ``_offenders`` depends on: if ``_public_names(GlpiClient)``
+    returned an empty set, or ``_self_call_map(GlpiClient)`` returned an
+    empty dict, ``_offenders()`` would be ``[]`` regardless of what
+    ``_reaches_public`` does, and ``test_no_new_self_call_offenders`` would
+    pass vacuously. ``_self_call_map`` is especially fragile here: it
+    silently ``continue``s past ``OSError``/``TypeError``/``SyntaxError``
+    raised by ``inspect.getsource``, so a source-less install (e.g. a
+    zipapp or a stripped wheel) would empty the map and green the guard
+    without detecting anything.
+
+    ``create_kb_article`` is a permanently-valid end-to-end canary for
+    this: ``glpi_python_client/clients/api/knowledgebase/_article.py`` is
+    untouched by the async-bridge fix and still has the exact shape that
+    caused the original bug — public ``create_kb_article`` reaches public
+    ``set_kb_article_categories`` only transitively, through the private
+    ``_apply_category_fallback``. Running the three real helpers together
+    against ``GlpiClient`` and asserting the detector still fires proves
+    that ``create_kb_article`` is absent from ``_offenders()`` today
+    because ``AsyncKBArticleMixin`` (in
+    :mod:`glpi_python_client.clients.api.knowledgebase._article_async`)
+    now supplies a real async override, not because the detector went
+    blind. This is the exact protection the old (now-removed)
+    ``_KNOWN_UNCOVERED`` constant used to provide by accident.
+    """
+
+    assert _reaches_public(
+        "create_kb_article", _self_call_map(GlpiClient), _public_names(GlpiClient)
+    ), "the detector must still fire on the real create_kb_article shape"

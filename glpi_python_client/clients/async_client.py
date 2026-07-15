@@ -101,13 +101,20 @@ class AsyncGlpiClient(  # type: ignore[misc]
         Parameters
         ----------
         executor : concurrent.futures.Executor | None, optional
-            Optional executor every wrapped call is routed through. When
-            ``None`` (the default) the bridge falls back to
-            :func:`asyncio.to_thread`, which uses the loop's default
-            thread pool executor. Supply a dedicated
+            Optional executor that every bridge-generated wrapped call
+            (see :class:`~glpi_python_client.clients.commons._async_bridge.AsyncBridge`)
+            is routed through. When ``None`` (the default) the bridge
+            falls back to :func:`asyncio.to_thread`, which uses the
+            loop's default thread pool executor. Supply a dedicated
             :class:`concurrent.futures.ThreadPoolExecutor` when the
             application performs aggressive fan-outs that would
-            otherwise saturate the default pool.
+            otherwise saturate the default pool. This does **not**
+            cover the hand-written
+            :class:`~glpi_python_client.clients.api.knowledgebase._article_async.AsyncKBArticleMixin`
+            overrides (``create_kb_article``/``update_kb_article``): they
+            dispatch their worker-thread call through a plain
+            :func:`asyncio.to_thread` and always use the loop's default
+            thread pool regardless of this argument.
         **kwargs : Any
             Remaining keyword arguments forwarded to
             :class:`~glpi_python_client.clients._base_client._BaseGlpiClient`.

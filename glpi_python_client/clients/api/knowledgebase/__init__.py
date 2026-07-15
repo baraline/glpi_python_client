@@ -1,4 +1,4 @@
-"""GLPI ``/Knowledgebase`` mixins for the Synchronous client."""
+"""GLPI ``/Knowledgebase`` mixins for the synchronous and asynchronous clients."""
 
 from __future__ import annotations
 
