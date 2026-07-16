@@ -36,7 +36,7 @@ from typing import Any, cast
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from glpi_python_client._errors import GlpiServerError
+from glpi_python_client._errors import GlpiProtocolError, GlpiServerError
 from glpi_python_client.clients.commons._http import (
     ensure_response_status,
     finalize_request_response,
@@ -126,7 +126,7 @@ class GLPIV1Session:
 
         token = response.json().get("session_token")
         if not token:
-            raise ValueError("GLPI v1 initSession returned no session_token")
+            raise GlpiProtocolError("GLPI v1 initSession returned no session_token")
 
         self._session_token = str(token)
         self._session_started_at = datetime.now(tz=timezone.utc)
@@ -401,7 +401,7 @@ class GLPIV1Session:
         )
         payload = response.json()
         if not isinstance(payload, dict):
-            raise ValueError(
+            raise GlpiProtocolError(
                 "GLPI v1 document upload returned unexpected payload: "
                 f"{type(payload).__name__}"
             )

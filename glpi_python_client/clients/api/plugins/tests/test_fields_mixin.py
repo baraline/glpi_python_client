@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import GlpiClient
+from glpi_python_client import GlpiClient, GlpiProtocolError
 from glpi_python_client.clients.api.plugins._fields import (
     _container_targets_itemtype,
     _extract_row_id,
@@ -103,14 +103,19 @@ def test_extract_row_id_parses_plugin_response() -> None:
 
 
 def test_extract_row_id_rejects_unexpected_payload() -> None:
-    """Unexpected payloads raise ``ValueError``."""
+    """Unexpected payloads raise ``GlpiProtocolError``, also a ``ValueError``."""
 
-    with pytest.raises(ValueError):
+    with pytest.raises(GlpiProtocolError) as excinfo:
         _extract_row_id([])
-    with pytest.raises(ValueError):
+    assert isinstance(excinfo.value, ValueError)
+
+    with pytest.raises(GlpiProtocolError) as excinfo:
         _extract_row_id([{"message": ""}])
-    with pytest.raises(ValueError):
+    assert isinstance(excinfo.value, ValueError)
+
+    with pytest.raises(GlpiProtocolError) as excinfo:
         _extract_row_id([42])
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_require_v1_raises_without_session(client: GlpiClient) -> None:

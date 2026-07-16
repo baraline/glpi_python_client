@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from glpi_python_client import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.clients.commons._http import (
     build_request_headers,
     build_request_url,
@@ -129,3 +130,32 @@ def test_fake_response_round_trip() -> None:
 
     response = FakeResponse(payload={"hello": "world"})
     assert json.loads(response.text.replace("'", '"')) == {"hello": "world"}
+
+
+def test_require_access_token_raises_protocol_error_when_missing() -> None:
+    """A missing token means the OAuth response was unusable, not a caller error."""
+
+    with pytest.raises(GlpiProtocolError) as excinfo:
+        require_access_token(None)
+
+    assert isinstance(excinfo.value, ValueError)
+    assert str(excinfo.value) == "Failed to acquire access token for API request"
+
+
+def test_require_response_int_raises_protocol_error_when_id_missing() -> None:
+    """A 2xx create response without a numeric id is a protocol failure."""
+
+    response = FakeResponse(status_code=201, payload={"nope": "x"})
+    with pytest.raises(GlpiProtocolError) as excinfo:
+        require_response_int(
+            response, keys=("id",), missing_message="GLPI create returned no id"
+        )
+
+    assert isinstance(excinfo.value, ValueError)
+    assert str(excinfo.value) == "GLPI create returned no id"
+
+
+def test_protocol_error_is_not_a_validation_error() -> None:
+    """A server-shape fault must not masquerade as a caller mistake."""
+
+    assert not issubclass(GlpiProtocolError, GlpiValidationError)

@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 import requests
 
-from glpi_python_client import GlpiServerError
+from glpi_python_client import GlpiProtocolError, GlpiServerError
 from glpi_python_client.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -253,7 +253,11 @@ def test_v1_upload_raises_on_4xx_without_retry() -> None:
 
 
 def test_v1_upload_raises_on_unexpected_payload() -> None:
-    """A non-mapping JSON payload raises ``ValueError`` without retry."""
+    """A non-mapping JSON payload raises ``GlpiProtocolError`` without retry.
+
+    ``GlpiProtocolError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     http = _FakeV1Http(
         responses={
@@ -263,8 +267,9 @@ def test_v1_upload_raises_on_unexpected_payload() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(ValueError, match="unexpected payload"):
+    with pytest.raises(GlpiProtocolError, match="unexpected payload") as excinfo:
         session.upload_document("a.txt", b"x", "text/plain")
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_init_raises_on_5xx_after_retries() -> None:
@@ -297,14 +302,19 @@ def test_v1_init_raises_on_4xx_without_retry() -> None:
 
 
 def test_v1_init_raises_when_token_missing() -> None:
-    """``initSession`` returning no token raises ``ValueError`` without retry."""
+    """``initSession`` returning no token raises ``GlpiProtocolError`` without retry.
+
+    ``GlpiProtocolError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     http = _FakeV1Http(
         responses={"init": [FakeResponse(status_code=200, payload={})]},
     )
     session = _make(http)
-    with pytest.raises(ValueError, match="no session_token"):
+    with pytest.raises(GlpiProtocolError, match="no session_token") as excinfo:
         session._init_session()
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_close_kills_session_and_closes_http() -> None:

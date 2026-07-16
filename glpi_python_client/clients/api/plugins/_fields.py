@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from glpi_python_client._errors import GlpiProtocolError
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.plugins import (
     GetPluginFieldsContainer,
@@ -81,15 +82,25 @@ def _extract_row_id(payload: object) -> int:
     """Return the row id reported by the v1 API for a CRUD response.
 
     The v1 plugin endpoints return ``[{"<id>": true, "message": ""}]``
-    where ``<id>`` is the affected row identifier. ``ValueError`` is
-    raised when the payload does not match this shape.
+    where ``<id>`` is the affected row identifier. ``GlpiProtocolError``
+    is raised when the payload does not match this shape.
+
+    Raises
+    ------
+    GlpiProtocolError
+        When ``payload`` is not a non-empty list of mappings, or no
+        mapping key parses as a numeric row id.
     """
 
     if not isinstance(payload, list) or not payload:
-        raise ValueError(f"GLPI Fields plugin response missing row id: {payload!r}")
+        raise GlpiProtocolError(
+            f"GLPI Fields plugin response missing row id: {payload!r}"
+        )
     first = payload[0]
     if not isinstance(first, dict):
-        raise ValueError(f"GLPI Fields plugin response not a mapping: {payload!r}")
+        raise GlpiProtocolError(
+            f"GLPI Fields plugin response not a mapping: {payload!r}"
+        )
     for key in first:
         if key == "message":
             continue
@@ -97,7 +108,7 @@ def _extract_row_id(payload: object) -> int:
             return int(key)
         except (TypeError, ValueError):
             continue
-    raise ValueError(
+    raise GlpiProtocolError(
         f"GLPI Fields plugin response did not include a numeric id: {payload!r}"
     )
 
