@@ -5,7 +5,9 @@ from typing import cast
 
 import pytest
 import requests
+from tenacity import wait_fixed
 
+from glpi_python_client import GlpiAuthError, GlpiServerError
 from glpi_python_client.auth.auth import GLPITokenManager
 from glpi_python_client.testing.utils import FakeResponse, TokenResponse
 
@@ -187,3 +189,60 @@ def test_token_manager_rejects_incomplete_credentials(
             username=kwargs.get("username"),
             password=kwargs.get("password"),
         )
+
+
+def test_oauth_401_raises_glpi_auth_error() -> None:
+    """A rejected credential surfaces as ``GlpiAuthError``, not a bare ValueError."""
+
+    session = _FakeSession(
+        response=TokenResponse(status_code=401, payload={"error": "invalid_client"})
+    )
+    manager = GLPITokenManager(
+        token_url="https://glpi.example.test/api.php/token",
+        client_id="client-id",
+        client_secret="wrong",
+        session=cast(requests.Session, session),
+    )
+    with pytest.raises(GlpiAuthError) as excinfo:
+        manager.ensure_token()
+
+    assert excinfo.value.status_code == 401
+    assert isinstance(excinfo.value, ValueError)
+
+
+def test_oauth_401_is_not_retried() -> None:
+    """A 4xx from the token endpoint is final; retrying cannot help."""
+
+    session = _FakeSession(
+        response=TokenResponse(status_code=401, payload={"error": "invalid_client"})
+    )
+    manager = GLPITokenManager(
+        token_url="https://glpi.example.test/api.php/token",
+        client_id="client-id",
+        client_secret="wrong",
+        session=cast(requests.Session, session),
+    )
+    with pytest.raises(GlpiAuthError):
+        manager.ensure_token()
+
+    assert len(session.calls) == 1
+
+
+def test_oauth_5xx_raises_glpi_server_error_after_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 5xx from the token endpoint is retried, then reraised as-is."""
+
+    monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
+    session = _FakeSession(response=TokenResponse(status_code=503, payload={}))
+    manager = GLPITokenManager(
+        token_url="https://glpi.example.test/api.php/token",
+        client_id="client-id",
+        client_secret="client-secret",
+        session=cast(requests.Session, session),
+    )
+    with pytest.raises(GlpiServerError) as excinfo:
+        manager.ensure_token()
+
+    assert excinfo.value.status_code == 503
+    assert len(session.calls) == 3

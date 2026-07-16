@@ -11,7 +11,9 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+
+from glpi_python_client._errors import GlpiServerError, status_error_class
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +225,12 @@ class GLPITokenManager:
             return False
         return now >= self.token_updated_at + self._auth_token_refresh_interval
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @retry(
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(3),
+        reraise=True,
+    )
     def _acquire_token(self) -> None:
         """Acquire an OAuth2 access token using the configured auth flow.
 
@@ -234,8 +241,13 @@ class GLPITokenManager:
 
         Raises
         ------
-        ValueError
-            If token acquisition fails.
+        GlpiAuthError
+            If GLPI rejects the credentials (401/403). Not retried.
+        GlpiServerError
+            If the token endpoint fails (5xx). Retried up to 3 attempts.
+        GlpiStatusError
+            If the token endpoint returns any other unexpected status. Not
+            retried.
         """
 
         data = self._build_token_request_data()
@@ -247,11 +259,20 @@ class GLPITokenManager:
             error_detail = response.json()
         except Exception:
             error_detail = response.text
-        raise ValueError(
-            f"GLPI OAuth token returned {response.status_code}: {error_detail}"
+        error_class = status_error_class(response.status_code)
+        raise error_class(
+            f"GLPI OAuth token returned {response.status_code}: {error_detail}",
+            status_code=response.status_code,
+            url=self._token_url,
+            response_text=str(error_detail)[:200],
         )
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @retry(
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(3),
+        reraise=True,
+    )
     def _refresh_access_token(self) -> None:
         """Refresh the OAuth2 access token using the stored refresh token.
 
