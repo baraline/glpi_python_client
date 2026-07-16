@@ -12,6 +12,7 @@ from collections.abc import Mapping
 
 import requests
 
+from glpi_python_client._errors import GlpiServerError, status_error_class
 from glpi_python_client.clients.commons._constants import RequestParamValue
 
 
@@ -121,7 +122,12 @@ def finalize_request_response(
             f"{response.status_code} {response.reason}"
         )
         logger.warning(message)
-        raise requests.HTTPError(message)
+        raise GlpiServerError(
+            message,
+            status_code=response.status_code,
+            url=url,
+            response_text=response.text[:200],
+        )
     if response.status_code not in success_statuses:
         logger.warning(
             "GLPI %s %s returned %s: %s",
@@ -139,15 +145,26 @@ def ensure_response_status(
     success_statuses: tuple[int, ...],
     failure_message: str,
 ) -> None:
-    """Raise a consistent ``ValueError`` for an unexpected response status.
+    """Raise a typed :class:`GlpiStatusError` for an unexpected response status.
 
     Higher-level client methods use this helper to keep their mutation and
-    fetch failure messages aligned across the per-endpoint mixins.
+    fetch failure messages aligned across the per-endpoint mixins. The
+    raised class narrows to :class:`GlpiAuthError`, :class:`GlpiNotFoundError`
+    or :class:`GlpiServerError` where the status allows it.
+
+    Raises
+    ------
+    GlpiStatusError
+        When ``response.status_code`` is outside ``success_statuses``.
     """
 
     if response.status_code not in success_statuses:
-        raise ValueError(
-            f"{failure_message}: {response.status_code} {response.text[:200]}"
+        error_class = status_error_class(response.status_code)
+        raise error_class(
+            f"{failure_message}: {response.status_code} {response.text[:200]}",
+            status_code=response.status_code,
+            url=str(response.url),
+            response_text=response.text[:200],
         )
 
 

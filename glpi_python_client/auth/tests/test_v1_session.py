@@ -7,8 +7,8 @@ from typing import Any, cast
 
 import pytest
 import requests
-import tenacity
 
+from glpi_python_client import GlpiServerError
 from glpi_python_client.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -214,7 +214,7 @@ def test_v1_upload_renews_session_on_401() -> None:
 
 
 def test_v1_upload_raises_on_5xx_after_retries() -> None:
-    """5xx upload responses surface as ``HTTPError`` after retries exhaust."""
+    """5xx upload responses are retried 3x and surface as ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -224,10 +224,14 @@ def test_v1_upload_raises_on_5xx_after_retries() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session.upload_document("a.txt", b"x", "text/plain")
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    # The retry predicate must retry GlpiServerError, not just RequestException:
+    # pin the attempt count so a predicate regression fails loudly instead of
+    # silently dropping to 1 attempt.
+    upload_calls = [c for c in http.calls if c["url"].endswith("/Document")]
+    assert len(upload_calls) == 3
 
 
 def test_v1_upload_raises_on_4xx_without_retry() -> None:
@@ -264,7 +268,7 @@ def test_v1_upload_raises_on_unexpected_payload() -> None:
 
 
 def test_v1_init_raises_on_5xx_after_retries() -> None:
-    """5xx ``initSession`` responses surface as ``HTTPError`` after retries."""
+    """5xx ``initSession`` responses are retried 3x and raise ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -272,10 +276,11 @@ def test_v1_init_raises_on_5xx_after_retries() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session._init_session()
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    init_calls = [c for c in http.calls if c["url"].endswith("/initSession")]
+    assert len(init_calls) == 3
 
 
 def test_v1_init_raises_on_4xx_without_retry() -> None:
@@ -408,7 +413,7 @@ def test_request_json_raises_on_4xx_without_retry() -> None:
 
 
 def test_request_json_retries_on_5xx() -> None:
-    """5xx responses surface as ``HTTPError`` after retries exhaust."""
+    """5xx responses are retried 3x and surface as ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -417,10 +422,11 @@ def test_request_json_retries_on_5xx() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session.request_json("GET", "PluginFieldsContainer")
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    json_calls = [c for c in http.calls if c["url"].endswith("/PluginFieldsContainer")]
+    assert len(json_calls) == 3
 
 
 def test_session_token_invalid_marker_triggers_renew() -> None:

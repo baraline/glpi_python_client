@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, TypeVar, cast
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from glpi_python_client._errors import GlpiServerError
 from glpi_python_client.clients.commons._http import (
     build_request_headers,
     build_request_url,
@@ -210,9 +211,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _get_request(
         self,
@@ -236,9 +238,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _post_request(
         self,
@@ -262,9 +265,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _update_request(
         self,
@@ -287,9 +291,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _delete_request(
         self,
