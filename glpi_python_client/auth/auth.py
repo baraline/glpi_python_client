@@ -13,7 +13,11 @@ from datetime import datetime, timedelta, timezone
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from glpi_python_client._errors import GlpiServerError, status_error_class
+from glpi_python_client._errors import (
+    GlpiServerError,
+    GlpiValidationError,
+    status_error_class,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,16 +115,16 @@ class GLPITokenManager:
         has_user_fields = len(missing_user_fields) < 2
 
         if has_client_fields and missing_client_fields:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI OAuth client credentials must include both client_id "
                 "and client_secret."
             )
         if has_user_fields and missing_user_fields:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI user credentials must include both username and password."
             )
         if not self._has_client_credentials and not self._has_user_credentials:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI authentication requires either client_id/client_secret, "
                 "username/password, or both."
             )
@@ -352,5 +356,7 @@ def _refresh_interval(value: int | None) -> timedelta | None:
     if value is None:
         return None
     if value < 1:
-        raise ValueError("auth_token_refresh must be a positive integer or None")
+        raise GlpiValidationError(
+            "auth_token_refresh must be a positive integer or None"
+        )
     return timedelta(seconds=value)

@@ -13,7 +13,12 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import AsyncGlpiClient, PatchKBArticle, PostKBArticle
+from glpi_python_client import (
+    AsyncGlpiClient,
+    GlpiValidationError,
+    PatchKBArticle,
+    PostKBArticle,
+)
 from glpi_python_client.models.api_schema._common import IdNameRef
 from glpi_python_client.testing.utils import FakeResponse, make_async_client
 
@@ -199,20 +204,23 @@ async def test_update_kb_article_clears_categories(client: AsyncGlpiClient) -> N
 async def test_update_kb_article_raises_on_missing_id_category(
     client: AsyncGlpiClient,
 ) -> None:
-    """A category ref without an id raises the raw ``ValueError`` on update.
+    """A category ref without an id raises the raw ``GlpiValidationError`` on update.
 
     Unlike ``create_kb_article``, ``update_kb_article`` does not wrap the
     fallback call in a ``try``/``except``: the v2 patch has already been
     applied by the time categories are assigned, so there is nothing to
     roll back and no article-was-created message to build around. The raw
-    ``ValueError`` from ``_apply_category_fallback_async`` must therefore
-    propagate unchanged.
+    ``GlpiValidationError`` from ``_apply_category_fallback_async`` must
+    therefore propagate unchanged. ``GlpiValidationError`` inherits
+    ``ValueError`` so existing callers that catch the broader type keep
+    working.
     """
 
-    with pytest.raises(ValueError, match="require an 'id'"):
+    with pytest.raises(GlpiValidationError, match="require an 'id'") as excinfo:
         await client.update_kb_article(
             42, PatchKBArticle(name="t2", categories=[IdNameRef(name="cat")])
         )
+    assert isinstance(excinfo.value, ValueError)
 
 
 async def test_update_kb_article_without_categories_skips_v1(

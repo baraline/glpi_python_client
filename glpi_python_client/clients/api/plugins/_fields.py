@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from glpi_python_client._errors import GlpiProtocolError
+from glpi_python_client._errors import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.plugins import (
     GetPluginFieldsContainer,
@@ -353,8 +353,8 @@ class PluginFieldsMixin(TransportMixin):
 
         Existing value rows are updated in place; missing rows are
         created with the supplied payload. Containers/fields that the
-        server does not know about raise ``ValueError`` *before* any
-        write to keep the call atomic from the caller's perspective.
+        server does not know about raise ``GlpiValidationError`` *before*
+        any write to keep the call atomic from the caller's perspective.
 
         Parameters
         ----------
@@ -376,14 +376,14 @@ class PluginFieldsMixin(TransportMixin):
         }
         unknown = sorted(set(values) - set(by_name))
         if unknown:
-            raise ValueError(
+            raise GlpiValidationError(
                 "Unknown plugin-fields container(s) for Ticket: " + ", ".join(unknown)
             )
 
         for container_name, column_values in values.items():
             container = by_name[container_name]
             if container.id is None:
-                raise ValueError(
+                raise GlpiValidationError(
                     f"Container {container_name!r} has no id; cannot write values"
                 )
 
@@ -394,7 +394,7 @@ class PluginFieldsMixin(TransportMixin):
             }
             unknown_fields = sorted(set(column_values) - declared)
             if unknown_fields:
-                raise ValueError(
+                raise GlpiValidationError(
                     f"Unknown field(s) for container {container_name!r}: "
                     + ", ".join(unknown_fields)
                 )

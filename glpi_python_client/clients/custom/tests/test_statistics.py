@@ -17,6 +17,7 @@ from glpi_python_client import (
     GlpiPriority,
     GlpiTicketStatus,
     GlpiTicketType,
+    GlpiValidationError,
 )
 from glpi_python_client.models.api_schema._common import (
     IdNameCompletenameRef,
@@ -134,12 +135,18 @@ def test_get_ticket_statistics_default_window_uses_today(
 
 
 def test_get_ticket_statistics_rejects_invalid_window(client: GlpiClient) -> None:
-    """Invalid date inputs raise locally before any HTTP request."""
+    """Invalid date inputs raise locally before any HTTP request.
 
-    with pytest.raises(ValueError, match="default_days"):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match="default_days") as exc1:
         client.get_ticket_statistics(default_days=0)
-    with pytest.raises(ValueError, match="start_date"):
+    assert isinstance(exc1.value, ValueError)
+    with pytest.raises(GlpiValidationError, match="start_date") as exc2:
         client.get_ticket_statistics(start_date="2026-02-01", end_date="2026-01-01")
+    assert isinstance(exc2.value, ValueError)
 
 
 def test_get_task_statistics_zero_for_empty_input(client: GlpiClient) -> None:
@@ -421,10 +428,15 @@ def test_get_task_durations_return_task_details_false(client: GlpiClient) -> Non
 
 
 def test_get_user_activity_raises_without_identifier(client: GlpiClient) -> None:
-    """Calling without any identifier raises ValueError."""
+    """Calling without any identifier raises ``GlpiValidationError``.
 
-    with pytest.raises(ValueError, match="user_id"):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match="user_id") as excinfo:
         client.get_user_activity()
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_get_user_activity_single_user_happy_path(client: GlpiClient) -> None:
@@ -487,7 +499,11 @@ def test_get_user_activity_single_user_happy_path(client: GlpiClient) -> None:
 
 
 def test_get_user_activity_raises_when_no_users_matched(client: GlpiClient) -> None:
-    """When search_users returns empty a ValueError is raised."""
+    """When search_users returns empty a ``GlpiValidationError`` is raised.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     from glpi_python_client.models.api_schema.administration._user import GetUser
 
@@ -501,8 +517,9 @@ def test_get_user_activity_raises_when_no_users_matched(client: GlpiClient) -> N
         return []
 
     client.search_users = fake_search_users  # type: ignore[method-assign]
-    with pytest.raises(ValueError, match="No users matched"):
+    with pytest.raises(GlpiValidationError, match="No users matched") as excinfo:
         client.get_user_activity(username="ghost")
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_get_user_activity_multi_user_merge(client: GlpiClient) -> None:

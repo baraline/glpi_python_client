@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.commons._constants import (
     DOCUMENT_ENDPOINT,
     GlpiId,
@@ -255,14 +256,14 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If ``filename`` is empty.
         RuntimeError
             If the v1 session is not configured on the client.
         """
 
         if not filename:
-            raise ValueError("GLPI document upload requires a filename")
+            raise GlpiValidationError("GLPI document upload requires a filename")
         v1 = self._require_v1_session("document uploads")
         return v1.upload_document(
             filename,

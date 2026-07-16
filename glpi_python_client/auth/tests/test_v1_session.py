@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 import requests
 
-from glpi_python_client import GlpiProtocolError, GlpiServerError
+from glpi_python_client import GlpiProtocolError, GlpiServerError, GlpiValidationError
 from glpi_python_client.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -130,15 +130,20 @@ def _make(http: _FakeV1Http) -> GLPIV1Session:
 
 
 def test_v1_session_rejects_bad_refresh_interval() -> None:
-    """Constructor enforces a positive refresh interval."""
+    """Constructor enforces a positive refresh interval.
 
-    with pytest.raises(ValueError):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError) as excinfo:
         GLPIV1Session(
             base_url="https://glpi.example.test/apirest.php",
             user_token="u",
             app_token="a",
             session_refresh_interval_seconds=0,
         )
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_upload_acquires_session_then_posts() -> None:

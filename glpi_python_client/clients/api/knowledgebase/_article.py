@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.commons._constants import (
     KB_ARTICLE_ENDPOINT,
     GlpiId,
@@ -189,8 +190,8 @@ class KBArticleMixin(TransportMixin):
 
         No-op when ``categories`` is ``None``. An empty list clears every
         category (used by update); ``create_kb_article`` skips the empty case
-        before calling this helper. Raises ``ValueError`` when a category
-        reference lacks an ``id``.
+        before calling this helper. Raises ``GlpiValidationError`` when a
+        category reference lacks an ``id``.
         """
 
         if categories is None:
@@ -198,7 +199,7 @@ class KBArticleMixin(TransportMixin):
         ids: list[int] = []
         for ref in categories:
             if ref.id is None:
-                raise ValueError(
+                raise GlpiValidationError(
                     "KB article categories require an 'id' to be linked; got a "
                     "category reference without an id."
                 )

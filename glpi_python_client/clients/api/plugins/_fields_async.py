@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.api.plugins._fields import (
     _TICKET_ITEMTYPE,
     PluginFieldsMixin,
@@ -111,14 +112,14 @@ class AsyncPluginFieldsMixin(PluginFieldsMixin):
         }
         unknown = sorted(set(values) - set(by_name))
         if unknown:
-            raise ValueError(
+            raise GlpiValidationError(
                 "Unknown plugin-fields container(s) for Ticket: " + ", ".join(unknown)
             )
 
         for container_name, column_values in values.items():
             container = by_name[container_name]
             if container.id is None:
-                raise ValueError(
+                raise GlpiValidationError(
                     f"Container {container_name!r} has no id; cannot write values"
                 )
 
@@ -128,7 +129,7 @@ class AsyncPluginFieldsMixin(PluginFieldsMixin):
             declared = {f.name for f in declared_fields if f.name is not None}
             unknown_fields = sorted(set(column_values) - declared)
             if unknown_fields:
-                raise ValueError(
+                raise GlpiValidationError(
                     f"Unknown field(s) for container {container_name!r}: "
                     + ", ".join(unknown_fields)
                 )

@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import TypedDict
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.commons._filters import (
     rsql_all_filter,
     rsql_any_filter,
@@ -421,14 +422,14 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If none of ``user_id``, ``username``, ``realname``, or
             ``firstname`` are supplied, or if the supplied criteria match
             no GLPI users.
         """
 
         if all(v is None for v in (user_id, username, realname, firstname)):
-            raise ValueError(
+            raise GlpiValidationError(
                 "At least one of user_id, username, realname, or "
                 "firstname must be supplied"
             )
@@ -454,7 +455,7 @@ class StatisticsMixin(TransportMixin):
                 limit=200,
             )
             if not matched_users:
-                raise ValueError("No users matched the supplied criteria")
+                raise GlpiValidationError("No users matched the supplied criteria")
             resolved_user_ids = [u.id for u in matched_users if u.id is not None]
             user_display_map = {
                 u.id: (
@@ -564,7 +565,7 @@ def _resolve_window(
     """
 
     if default_days < 1:
-        raise ValueError("default_days must be a positive integer")
+        raise GlpiValidationError("default_days must be a positive integer")
     parsed_end = date.fromisoformat(end_date) if end_date else date.today()
     parsed_start = (
         date.fromisoformat(start_date)
@@ -572,7 +573,7 @@ def _resolve_window(
         else parsed_end - timedelta(days=default_days - 1)
     )
     if parsed_start > parsed_end:
-        raise ValueError("start_date must be less than or equal to end_date")
+        raise GlpiValidationError("start_date must be less than or equal to end_date")
     return parsed_start, parsed_end
 
 

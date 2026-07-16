@@ -7,7 +7,7 @@ import pytest
 import requests
 from tenacity import wait_fixed
 
-from glpi_python_client import GlpiAuthError, GlpiServerError
+from glpi_python_client import GlpiAuthError, GlpiServerError, GlpiValidationError
 from glpi_python_client.auth.auth import GLPITokenManager
 from glpi_python_client.testing.utils import FakeResponse, TokenResponse
 
@@ -139,13 +139,18 @@ def test_token_manager_refreshes_when_configured_interval_elapses() -> None:
 def test_token_manager_rejects_non_positive_refresh_interval(
     refresh_interval: int,
 ) -> None:
-    with pytest.raises(ValueError, match="auth_token_refresh"):
+    """``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match="auth_token_refresh") as excinfo:
         GLPITokenManager(
             token_url="https://glpi.example.test/api.php/token",
             client_id="client-id",
             client_secret="client-secret",
             auth_token_refresh=refresh_interval,
         )
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_token_manager_logout_clears_cached_tokens() -> None:
@@ -181,7 +186,11 @@ def test_token_manager_rejects_incomplete_credentials(
     kwargs: dict[str, str],
     message: str,
 ) -> None:
-    with pytest.raises(ValueError, match=message):
+    """``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match=message) as excinfo:
         GLPITokenManager(
             token_url="https://glpi.example.test/api.php/token",
             client_id=kwargs.get("client_id"),
@@ -189,6 +198,7 @@ def test_token_manager_rejects_incomplete_credentials(
             username=kwargs.get("username"),
             password=kwargs.get("password"),
         )
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_oauth_401_raises_glpi_auth_error() -> None:

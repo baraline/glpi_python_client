@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import AsyncGlpiClient
+from glpi_python_client import AsyncGlpiClient, GlpiValidationError
 from glpi_python_client.testing.utils import FakeResponse, make_async_client
 
 
@@ -515,11 +515,16 @@ async def test_async_get_ticket_statistics_with_entity_id() -> None:
 
 
 async def test_async_get_user_activity_raises_without_criteria() -> None:
-    """ValueError is raised when no user criteria are supplied."""
+    """``GlpiValidationError`` is raised when no user criteria are supplied.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     client = make_async_client()
-    with pytest.raises(ValueError, match="At least one of"):
+    with pytest.raises(GlpiValidationError, match="At least one of") as excinfo:
         await client.get_user_activity()
+    assert isinstance(excinfo.value, ValueError)
     await client.close()
 
 
@@ -554,7 +559,11 @@ async def test_async_get_user_activity_by_user_id() -> None:
 
 
 async def test_async_get_user_activity_by_username_no_match_raises() -> None:
-    """ValueError is raised when no users match the supplied criteria."""
+    """``GlpiValidationError`` is raised when no users match the criteria.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     client = make_async_client()
 
@@ -563,8 +572,9 @@ async def test_async_get_user_activity_by_username_no_match_raises() -> None:
 
     client.search_users = fake_search_users  # type: ignore[method-assign]
 
-    with pytest.raises(ValueError, match="No users matched"):
+    with pytest.raises(GlpiValidationError, match="No users matched") as excinfo:
         await client.get_user_activity(username="ghost")
+    assert isinstance(excinfo.value, ValueError)
     await client.close()
 
 

@@ -36,7 +36,11 @@ from typing import Any, cast
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from glpi_python_client._errors import GlpiProtocolError, GlpiServerError
+from glpi_python_client._errors import (
+    GlpiProtocolError,
+    GlpiServerError,
+    GlpiValidationError,
+)
 from glpi_python_client.clients.commons._http import (
     ensure_response_status,
     finalize_request_response,
@@ -78,7 +82,7 @@ class GLPIV1Session:
         self._user_token = user_token
         self._app_token = app_token
         if session_refresh_interval_seconds < 1:
-            raise ValueError(
+            raise GlpiValidationError(
                 "session_refresh_interval_seconds must be a positive integer"
             )
         self._session_refresh_interval = timedelta(

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import GlpiClient, GlpiProtocolError
+from glpi_python_client import GlpiClient, GlpiProtocolError, GlpiValidationError
 from glpi_python_client.clients.api.plugins._fields import (
     _container_targets_itemtype,
     _extract_row_id,
@@ -341,18 +341,48 @@ def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> No
 
 
 def test_set_ticket_custom_fields_rejects_unknown_container(client: GlpiClient) -> None:
-    """A typo in the container name raises before any write."""
+    """A typo in the container name raises before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     fake = _FakeV1(responses=[[{"id": 10, "name": "real", "itemtypes": '["Ticket"]'}]])
     client._v1 = fake  # type: ignore[assignment]
-    with pytest.raises(ValueError, match="Unknown plugin-fields container"):
+    with pytest.raises(
+        GlpiValidationError, match="Unknown plugin-fields container"
+    ) as excinfo:
         client.set_ticket_custom_fields(62571, {"typo": {"any": "value"}})
     # No mutation was sent.
     assert all(c["method"] == "GET" for c in fake.calls)
+    assert isinstance(excinfo.value, ValueError)
+
+
+def test_set_ticket_custom_fields_rejects_container_without_id(
+    client: GlpiClient,
+) -> None:
+    """A matched container with no ``id`` raises before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    fake = _FakeV1(responses=[[{"name": "aidelarsolution", "itemtypes": '["Ticket"]'}]])
+    client._v1 = fake  # type: ignore[assignment]
+    with pytest.raises(GlpiValidationError, match="has no id") as excinfo:
+        client.set_ticket_custom_fields(
+            62571, {"aidelarsolution": {"aidelarsolutionfield": "value"}}
+        )
+    assert all(c["method"] == "GET" for c in fake.calls)
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> None:
-    """A typo in the field name raises before any write."""
+    """A typo in the field name raises before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     fake = _FakeV1(
         responses=[
@@ -367,8 +397,9 @@ def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> N
         ]
     )
     client._v1 = fake  # type: ignore[assignment]
-    with pytest.raises(ValueError, match="Unknown field"):
+    with pytest.raises(GlpiValidationError, match="Unknown field") as excinfo:
         client.set_ticket_custom_fields(62571, {"aidelarsolution": {"typo": "value"}})
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_set_ticket_custom_fields_with_empty_mapping_is_noop(

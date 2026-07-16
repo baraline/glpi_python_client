@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.api.knowledgebase._article import KBArticleMixin
 from glpi_python_client.clients.commons._constants import GlpiId
 from glpi_python_client.models.api_schema._common import IdNameRef
@@ -54,7 +55,7 @@ class AsyncKBArticleMixin(KBArticleMixin):
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             When a category reference lacks an ``id``.
         """
 
@@ -63,7 +64,7 @@ class AsyncKBArticleMixin(KBArticleMixin):
         ids: list[int] = []
         for ref in categories:
             if ref.id is None:
-                raise ValueError(
+                raise GlpiValidationError(
                     "KB article categories require an 'id' to be linked; got a "
                     "category reference without an id."
                 )

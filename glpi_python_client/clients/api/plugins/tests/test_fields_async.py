@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import AsyncGlpiClient
+from glpi_python_client import AsyncGlpiClient, GlpiValidationError
 from glpi_python_client.testing.utils import make_async_client
 
 
@@ -88,11 +88,57 @@ async def test_set_ticket_custom_fields_updates_existing_row(
 async def test_set_ticket_custom_fields_rejects_unknown_container(
     client: AsyncGlpiClient,
 ) -> None:
-    """Unknown containers raise before any write."""
+    """Unknown containers raise before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     client._v1 = _FakeV1(  # type: ignore[assignment]
         [[{"id": 1, "name": "custom", "itemtypes": '["Ticket"]'}]]
     )
 
-    with pytest.raises(ValueError, match="Unknown plugin-fields container"):
+    with pytest.raises(
+        GlpiValidationError, match="Unknown plugin-fields container"
+    ) as excinfo:
         await client.set_ticket_custom_fields(1, {"nope": {"x": 1}})
+    assert isinstance(excinfo.value, ValueError)
+
+
+async def test_set_ticket_custom_fields_rejects_container_without_id(
+    client: AsyncGlpiClient,
+) -> None:
+    """A matched container with no ``id`` raises before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    client._v1 = _FakeV1(  # type: ignore[assignment]
+        [[{"name": "custom", "itemtypes": '["Ticket"]'}]]
+    )
+
+    with pytest.raises(GlpiValidationError, match="has no id") as excinfo:
+        await client.set_ticket_custom_fields(1, {"custom": {"customfield": "x"}})
+    assert isinstance(excinfo.value, ValueError)
+
+
+async def test_set_ticket_custom_fields_rejects_unknown_field(
+    client: AsyncGlpiClient,
+) -> None:
+    """A typo in the field name raises before any write.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    client._v1 = _FakeV1(  # type: ignore[assignment]
+        [
+            [{"id": 1, "name": "custom", "itemtypes": '["Ticket"]'}],
+            [{"id": 9, "plugin_fields_containers_id": 1, "name": "customfield"}],
+        ]
+    )
+
+    with pytest.raises(GlpiValidationError, match="Unknown field") as excinfo:
+        await client.set_ticket_custom_fields(1, {"custom": {"typo": "value"}})
+    assert isinstance(excinfo.value, ValueError)
