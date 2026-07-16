@@ -280,6 +280,31 @@ class GLPITokenManager:
         -------
         None
             Stores the refreshed token or acquires a new one.
+
+        Raises
+        ------
+        GlpiAuthError
+            If GLPI rejects the credentials while refreshing (401/403). This
+            method does not raise directly on a non-2xx response: it logs a
+            warning and falls through to a nested :meth:`_acquire_token`
+            call, which raises. That nested call is not retried by either
+            decorator, so a persistent 401 costs 1 refresh POST + 1 acquire
+            POST (2 total) before this propagates.
+        GlpiServerError
+            If the token endpoint fails (5xx) while refreshing. Both this
+            method's retry decorator and the nested :meth:`_acquire_token`
+            call's decorator treat ``GlpiServerError`` as retryable, and each
+            retries independently. A persistent 5xx therefore costs up to
+            3 (this method's attempts) x (1 refresh POST + 3 nested acquire
+            POSTs) = 12 POST requests, not the 3 attempts the retry
+            configuration alone would suggest. This nested-retry
+            multiplication predates this decorator and is a known,
+            measured behavior (see the auth tests), not something this
+            method's docstring papers over.
+        GlpiStatusError
+            If the token endpoint returns any other unexpected status while
+            refreshing, raised by the nested :meth:`_acquire_token` call.
+            Not retried.
         """
 
         if not self.refresh_token:
