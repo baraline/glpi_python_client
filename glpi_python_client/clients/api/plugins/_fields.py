@@ -383,7 +383,7 @@ class PluginFieldsMixin(TransportMixin):
         for container_name, column_values in values.items():
             container = by_name[container_name]
             if container.id is None:
-                raise GlpiValidationError(
+                raise GlpiProtocolError(
                     f"Container {container_name!r} has no id; cannot write values"
                 )
 

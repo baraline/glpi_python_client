@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from glpi_python_client._errors import GlpiValidationError
+from glpi_python_client._errors import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.clients.api.plugins._fields import (
     _TICKET_ITEMTYPE,
     PluginFieldsMixin,
@@ -119,7 +119,7 @@ class AsyncPluginFieldsMixin(PluginFieldsMixin):
         for container_name, column_values in values.items():
             container = by_name[container_name]
             if container.id is None:
-                raise GlpiValidationError(
+                raise GlpiProtocolError(
                     f"Container {container_name!r} has no id; cannot write values"
                 )
 

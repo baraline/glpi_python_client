@@ -1,14 +1,18 @@
 """Audit every raise statement in library code against the error contract.
 
 This is a structural guard, not a behavioural one. It exists because the
-0.4.0 error migration is a mechanical sweep across dozens of raise sites and a
-missed one is invisible: a bare ValueError still passes every existing
+0.4.0 error migration is a mechanical sweep across 39 raise sites in
+non-test library code -- 21 ``GlpiValidationError``, 9 ``GlpiProtocolError``,
+4 ``RuntimeError``, 2 ``TypeError``, 1 ``GlpiServerError``, plus 2
+``status_error_class(...)`` dispatch sites -- and a missed one is
+invisible: a bare ValueError still passes every existing
 ``pytest.raises(ValueError)`` test.
 
 The RuntimeError and TypeError sites are deliberately exempt. Converting
 them to GlpiValidationError -- which inherits ValueError, not TypeError --
 would silently break ``except TypeError`` / ``except RuntimeError`` in user
-code and a dozen tests. See plan-1 decision D3.
+code and the 12 tests in this repo that assert on those two types. See
+plan-1 decision D3.
 """
 
 from __future__ import annotations

@@ -363,13 +363,17 @@ def test_set_ticket_custom_fields_rejects_container_without_id(
 ) -> None:
     """A matched container with no ``id`` raises before any write.
 
-    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
-    catch the broader type keep working.
+    The container came from the server's own
+    :meth:`~glpi_python_client.clients.api.plugins._fields.PluginFieldsMixin.list_plugin_fields_containers`
+    response, so a missing ``id`` is a server-side contract violation, not
+    a caller mistake: ``GlpiProtocolError``. It still inherits
+    ``ValueError`` so existing callers that catch the broader type keep
+    working.
     """
 
     fake = _FakeV1(responses=[[{"name": "aidelarsolution", "itemtypes": '["Ticket"]'}]])
     client._v1 = fake  # type: ignore[assignment]
-    with pytest.raises(GlpiValidationError, match="has no id") as excinfo:
+    with pytest.raises(GlpiProtocolError, match="has no id") as excinfo:
         client.set_ticket_custom_fields(
             62571, {"aidelarsolution": {"aidelarsolutionfield": "value"}}
         )

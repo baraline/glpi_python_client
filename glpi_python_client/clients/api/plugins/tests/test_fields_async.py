@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import AsyncGlpiClient, GlpiValidationError
+from glpi_python_client import AsyncGlpiClient, GlpiProtocolError, GlpiValidationError
 from glpi_python_client.testing.utils import make_async_client
 
 
@@ -110,15 +110,18 @@ async def test_set_ticket_custom_fields_rejects_container_without_id(
 ) -> None:
     """A matched container with no ``id`` raises before any write.
 
-    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
-    catch the broader type keep working.
+    The container came from the server's own
+    ``list_plugin_fields_containers`` response, so a missing ``id`` is a
+    server-side contract violation, not a caller mistake:
+    ``GlpiProtocolError``. It still inherits ``ValueError`` so existing
+    callers that catch the broader type keep working.
     """
 
     client._v1 = _FakeV1(  # type: ignore[assignment]
         [[{"name": "custom", "itemtypes": '["Ticket"]'}]]
     )
 
-    with pytest.raises(GlpiValidationError, match="has no id") as excinfo:
+    with pytest.raises(GlpiProtocolError, match="has no id") as excinfo:
         await client.set_ticket_custom_fields(1, {"custom": {"customfield": "x"}})
     assert isinstance(excinfo.value, ValueError)
 
