@@ -14,6 +14,17 @@ package root.
 
 from __future__ import annotations
 
+from glpi_python_client._errors import (
+    GlpiAuthError,
+    GlpiError,
+    GlpiNotFoundError,
+    GlpiProtocolError,
+    GlpiServerError,
+    GlpiStatusError,
+    GlpiTimeoutError,
+    GlpiTransportError,
+    GlpiValidationError,
+)
 from glpi_python_client.clients import AsyncGlpiClient, GlpiClient
 from glpi_python_client.models import (
     DeleteDocument,
@@ -123,17 +134,26 @@ __all__ = [
     "GetTicketTask",
     "GetTimelineDocument",
     "GetUser",
+    "GlpiAuthError",
     "GlpiClient",
     "GlpiEnum",
+    "GlpiError",
     "GlpiGlobalValidation",
+    "GlpiNotFoundError",
     "GlpiPriority",
+    "GlpiProtocolError",
+    "GlpiServerError",
     "GlpiSolutionStatus",
+    "GlpiStatusError",
     "GlpiTaskState",
     "GlpiTicketContext",
     "GlpiTicketStatus",
     "GlpiTicketType",
     "GlpiTimelinePosition",
+    "GlpiTimeoutError",
+    "GlpiTransportError",
     "GlpiUserAuthType",
+    "GlpiValidationError",
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",

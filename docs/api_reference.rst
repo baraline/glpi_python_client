@@ -28,6 +28,50 @@ the asynchronous one wraps each synchronous method into a coroutine.
    :members:
    :show-inheritance:
 
+Exceptions
+----------
+
+Every exception raised by the client derives from :class:`GlpiError`.
+:class:`GlpiStatusError`, :class:`GlpiValidationError` and
+:class:`GlpiProtocolError` also inherit :class:`ValueError` for backwards
+compatibility with releases that raised bare ``ValueError``.
+
+.. autoexception:: GlpiError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiTransportError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiTimeoutError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiStatusError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiAuthError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiNotFoundError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiServerError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiValidationError
+   :members:
+   :show-inheritance:
+
+.. autoexception:: GlpiProtocolError
+   :members:
+   :show-inheritance:
+
 Aggregated Models
 -----------------
 
