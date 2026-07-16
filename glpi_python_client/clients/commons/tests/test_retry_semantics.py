@@ -50,8 +50,17 @@ def client() -> Iterator[Any]:
     c.close()
 
 
-def test_5xx_is_retried_three_times_and_reraises_server_error(client: Any) -> None:
-    """A persistent 5xx costs 3 attempts and surfaces as ``GlpiServerError``."""
+@pytest.mark.parametrize("method_name", _RETRIED_METHODS)
+def test_5xx_is_retried_three_times_and_reraises_server_error(
+    client: Any, method_name: str
+) -> None:
+    """A persistent 5xx costs 3 attempts and surfaces as ``GlpiServerError``.
+
+    Parametrized across all four retried verbs (``_get_request``,
+    ``_post_request``, ``_update_request``, ``_delete_request``): they share
+    the same decorator, but before this test only ``_get_request``'s attempt
+    count was pinned.
+    """
 
     attempts: list[int] = []
 
@@ -63,7 +72,7 @@ def test_5xx_is_retried_three_times_and_reraises_server_error(client: Any) -> No
 
     client._send_request = _send
     with pytest.raises(GlpiServerError) as excinfo:
-        client._get_request("Assistance/Ticket")
+        getattr(client, method_name)("Assistance/Ticket")
 
     assert len(attempts) == 3
     assert excinfo.value.status_code == 500
@@ -83,8 +92,13 @@ def test_persistent_5xx_does_not_surface_as_retry_error(client: Any) -> None:
     assert not isinstance(excinfo.value, tenacity.RetryError)
 
 
-def test_4xx_is_not_retried_by_the_transport(client: Any) -> None:
-    """A 4xx is logged and returned by ``finalize_request_response``, not retried."""
+@pytest.mark.parametrize("method_name", _RETRIED_METHODS)
+def test_4xx_is_not_retried_by_the_transport(client: Any, method_name: str) -> None:
+    """A 4xx is logged and returned by ``finalize_request_response``, not retried.
+
+    Parametrized across all four retried verbs so a predicate regression
+    that starts retrying 4xx on any single verb fails loudly.
+    """
 
     attempts: list[int] = []
 
@@ -93,7 +107,7 @@ def test_4xx_is_not_retried_by_the_transport(client: Any) -> None:
         return FakeResponse(status_code=404, payload={}, text="nope")
 
     client._send_request = _send
-    response = client._get_request("Assistance/Ticket/1")
+    response = getattr(client, method_name)("Assistance/Ticket/1")
 
     assert len(attempts) == 1
     assert response.status_code == 404
@@ -128,8 +142,13 @@ def test_tolerant_search_still_returns_empty_on_4xx(client: Any) -> None:
     assert client.search_tickets() == []
 
 
-def test_network_errors_are_still_retried(client: Any) -> None:
-    """Real ``requests`` transport faults keep their retry behaviour."""
+@pytest.mark.parametrize("method_name", _RETRIED_METHODS)
+def test_network_errors_are_still_retried(client: Any, method_name: str) -> None:
+    """Real ``requests`` transport faults keep their retry behaviour.
+
+    Parametrized across all four retried verbs so the network-fault attempt
+    count is pinned for each, not just ``_get_request``.
+    """
 
     attempts: list[int] = []
 
@@ -139,6 +158,6 @@ def test_network_errors_are_still_retried(client: Any) -> None:
 
     client._send_request = _send
     with pytest.raises(requests.ConnectionError):
-        client._get_request("Assistance/Ticket")
+        getattr(client, method_name)("Assistance/Ticket")
 
     assert len(attempts) == 3

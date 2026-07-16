@@ -224,9 +224,11 @@ class TransportMixin:
     ) -> requests.Response:
         """Execute one authenticated GLPI ``GET`` request.
 
-        Network-level request exceptions are retried according to the
-        transport retry policy before the response is returned to the
-        caller.
+        Network errors (:class:`requests.RequestException`) and 5xx
+        responses (:class:`~glpi_python_client.GlpiServerError`) are
+        retried up to 3 times, with ``reraise=True`` so the real error
+        propagates once retries are exhausted; 4xx responses are
+        returned as-is without a retry.
         """
 
         return self._execute_request(

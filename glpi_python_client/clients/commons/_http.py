@@ -113,6 +113,11 @@ def finalize_request_response(
     Server errors are raised immediately while non-success statuses outside
     the accepted set are logged for higher-level mutation and lookup helpers
     to interpret consistently.
+
+    Raises
+    ------
+    GlpiServerError
+        When ``response.status_code`` is a 5xx server error.
     """
 
     method_name = method.upper()

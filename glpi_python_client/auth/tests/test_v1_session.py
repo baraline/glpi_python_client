@@ -429,6 +429,51 @@ def test_request_json_retries_on_5xx() -> None:
     assert len(json_calls) == 3
 
 
+def test_request_json_retries_on_network_error() -> None:
+    """Network faults during ``request_json`` are retried 3x, not swallowed.
+
+    Pins the ``requests.RequestException`` member of the v1 retry predicate
+    (``_RETRY_ON_NETWORK_ERRORS`` in ``_v1_session.py``): the 5xx tests above
+    only exercise the ``GlpiServerError`` member. Without this test a future
+    edit that narrows the predicate to drop ``requests.RequestException``
+    (for example when plan 3 swaps in ``GlpiTransportError``) would silently
+    drop v1 network retries from 3 attempts to 1 while every committed test
+    stayed green.
+    """
+
+    class _FlakyHttp(_FakeV1Http):
+        def get(
+            self,
+            url: str,
+            headers: dict[str, str],
+            timeout: int,
+            **kwargs: Any,
+        ) -> FakeResponse:
+            if url.endswith("/PluginFieldsContainer"):
+                self.calls.append(
+                    {
+                        "method": "GET",
+                        "url": url,
+                        "headers": headers,
+                        "timeout": timeout,
+                        **kwargs,
+                    }
+                )
+                raise requests.ConnectionError("network down")
+            return super().get(url, headers, timeout, **kwargs)
+
+    http = _FlakyHttp(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+        }
+    )
+    session = _make(http)
+    with pytest.raises(requests.ConnectionError):
+        session.request_json("GET", "PluginFieldsContainer")
+    json_calls = [c for c in http.calls if c["url"].endswith("/PluginFieldsContainer")]
+    assert len(json_calls) == 3
+
+
 def test_session_token_invalid_marker_triggers_renew() -> None:
     """An ``ERROR_SESSION_TOKEN_INVALID`` body marker counts as an auth failure."""
 

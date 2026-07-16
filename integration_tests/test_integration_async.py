@@ -270,10 +270,16 @@ async def test_exception_propagates_from_worker_thread(
     """Errors raised on the worker thread propagate to the awaiter unchanged.
 
     We trigger one by reading a ticket id that almost certainly does
-    not exist. The async client must surface the same
-    :class:`requests.HTTPError` (or any
-    :class:`requests.RequestException` subclass after retry) that the
-    sync client would raise.
+    not exist. The async client must surface the same typed error the
+    sync client would raise: a 404 status raises
+    :class:`~glpi_python_client.GlpiNotFoundError` immediately (no
+    retry), while a persistent 5xx would instead raise
+    :class:`~glpi_python_client.GlpiServerError` after the transport's
+    retries are exhausted, and a network fault would raise the real
+    :class:`requests.RequestException` after its own retries. The
+    assertion below covers all three: the two GLPI-typed errors both
+    inherit :class:`ValueError` via
+    :class:`~glpi_python_client.GlpiStatusError`.
     """
 
     with pytest.raises((requests.RequestException, ValueError)):
