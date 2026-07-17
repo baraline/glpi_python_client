@@ -315,26 +315,26 @@ def test_refresh_401_stays_final_with_one_nested_acquire_call(
     assert len(session.calls) == 2
 
 
-def test_refresh_5xx_persistent_multiplies_past_three_attempts(
+def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A persistent 5xx during refresh costs 12 POSTs, not 3.
+    """A persistent 5xx during refresh costs 4 POSTs, not 12.
 
-    KNOWN DEFECT, measured and pinned here (pre-existing, not introduced by
-    the 4xx-fail-fast change in this task): ``_refresh_access_token`` falls
-    through to a *nested* ``_acquire_token()`` call on any non-2xx response
-    instead of raising directly (auth.py:302-303). Both methods are
-    independently decorated with ``stop_after_attempt(3)``, and
-    ``GlpiServerError`` is retryable by *both* decorators. A persistent 5xx
-    therefore costs 3 (this method's attempts) x (1 refresh POST + 3 nested
-    acquire POSTs) = 12 POST calls -- and ~24s of ``wait_fixed(3)`` sleep in
-    production -- not the 3 attempts / ~6s the retry configuration alone
-    would suggest.
+    ``_refresh_access_token`` falls through to a *nested* ``_acquire_token()``
+    call on any non-2xx response instead of raising directly
+    (auth.py:327-332). That nested call is independently decorated with
+    ``stop_after_attempt(3)`` and retries ``GlpiServerError``. This method's
+    own decorator only matches ``requests.RequestException`` (a genuine
+    network fault on the refresh POST itself), not ``GlpiServerError``, so it
+    does not retry the fall-through a second time on top of the nested
+    call's own retries.
 
-    This test pins the measured reality so a future change (e.g. plan 3's
-    httpx swap) cannot silently alter it. Restructuring the nested-retry
-    topology itself is a deliberate design change and is out of scope here;
-    see the plan-1 task-3 report for the full write-up.
+    A persistent 5xx therefore costs exactly 1 refresh POST + 3 nested
+    acquire POSTs = 4 POST calls -- not the 3 (this method's attempts) x 4
+    = 12 that resulted from a previous predicate that also matched
+    ``GlpiServerError`` here, duplicating the nested retries. This test pins
+    the fixed count so a future change (e.g. plan 3's httpx swap) cannot
+    silently reintroduce the multiplication.
     """
 
     monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
@@ -348,7 +348,7 @@ def test_refresh_5xx_persistent_multiplies_past_three_attempts(
         manager.ensure_token()
 
     assert excinfo.value.status_code == 503
-    assert len(session.calls) == 12
+    assert len(session.calls) == 4
 
 
 def test_acquire_token_network_error_is_retried_three_times(
@@ -391,10 +391,10 @@ def test_refresh_network_error_is_retried_three_times(
     """A connection-level failure during refresh is retried by refresh's own decorator.
 
     Pins the one predicate member not yet covered by another test:
-    ``_refresh_access_token``'s network-error retry. Its ``GlpiServerError``
-    member is pinned by
-    ``test_refresh_5xx_persistent_multiplies_past_three_attempts`` above, and
-    ``_acquire_token``'s network retry is pinned by
+    ``_refresh_access_token``'s network-error retry. The fall-through
+    ``GlpiServerError`` case is pinned by
+    ``test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts``
+    above, and ``_acquire_token``'s network retry is pinned by
     ``test_acquire_token_network_error_is_retried_three_times``. A
     ``requests.ConnectionError`` raised by ``session.post`` propagates
     *before* ``_refresh_access_token`` reaches its non-2xx fallthrough

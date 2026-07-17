@@ -1493,15 +1493,15 @@ OAuth token acquisition follows the same 3-attempt policy, with one
 exception: refreshing an already-issued token does not raise directly on
 a failed response. It logs a warning and falls through to a fresh token
 acquisition, which carries its own independent 3-attempt retry
-decorator. A persistent 5xx encountered while refreshing can therefore
-cost up to 12 POST requests before
-:class:`~glpi_python_client.GlpiServerError` reaches you — not the 3
-attempts the retry configuration alone would suggest. The refresh
-method's own retry decorator makes up to 3 refresh attempts; each
-refresh attempt sends 1 refresh POST and, on failure, falls through to a
-nested token-acquisition call with its own independent 3-attempt retry,
-sending up to 3 more POSTs. That is 3 × (1 refresh POST + 3 nested
-acquisition POSTs) = 12 POST requests in the worst case. A rejected
+decorator. The refresh method's own retry decorator only retries a
+network-level fault on the refresh request itself (a
+``requests.RequestException`` raised before any response is received) —
+it does **not** retry a :class:`~glpi_python_client.GlpiServerError`
+from the fall-through, since that failure is already being retried by
+the nested acquisition call. A persistent 5xx encountered while
+refreshing therefore costs exactly 1 refresh POST + up to 3 nested
+acquisition POSTs = 4 POST requests before
+:class:`~glpi_python_client.GlpiServerError` reaches you. A rejected
 credential (401/403) is not retried at either layer and fails after at
 most 2 POST requests.
 

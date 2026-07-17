@@ -272,7 +272,7 @@ class GLPITokenManager:
         )
 
     @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+        retry=retry_if_exception_type(requests.RequestException),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
         reraise=True,
@@ -295,16 +295,16 @@ class GLPITokenManager:
             decorator, so a persistent 401 costs 1 refresh POST + 1 acquire
             POST (2 total) before this propagates.
         GlpiServerError
-            If the token endpoint fails (5xx) while refreshing. Both this
-            method's retry decorator and the nested :meth:`_acquire_token`
-            call's decorator treat ``GlpiServerError`` as retryable, and each
-            retries independently. A persistent 5xx therefore costs up to
-            3 (this method's attempts) x (1 refresh POST + 3 nested acquire
-            POSTs) = 12 POST requests, not the 3 attempts the retry
-            configuration alone would suggest. This nested-retry
-            multiplication predates this decorator and is a known,
-            measured behavior (see the auth tests), not something this
-            method's docstring papers over.
+            If the token endpoint fails (5xx) while refreshing. This
+            method's own retry decorator only matches
+            ``requests.RequestException`` (network-level faults), not
+            ``GlpiServerError``, so it does not retry the fall-through to
+            :meth:`_acquire_token`. The nested call carries its own
+            independent decorator, which does retry ``GlpiServerError`` up
+            to 3 attempts. A persistent 5xx therefore costs exactly 1
+            refresh POST + 3 nested acquire POSTs = 4 POST requests, not the
+            12 an earlier, less precise predicate produced by retrying the
+            already-retried nested failure a second time.
         GlpiStatusError
             If the token endpoint returns any other unexpected status while
             refreshing, raised by the nested :meth:`_acquire_token` call.

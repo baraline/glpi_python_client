@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `GLPITokenManager._refresh_access_token`'s retry decorator no longer
+  retries a `GlpiServerError` from its fall-through to the nested
+  `_acquire_token()` call. That nested call already carries its own
+  independent 3-attempt retry decorator for `GlpiServerError`, so the
+  outer decorator retrying it too meant a persistent 5xx during token
+  refresh cost 3 (outer attempts) × (1 refresh POST + 3 nested acquire
+  POSTs) = 12 POST requests and ~33s of `wait_fixed(3)` sleep, instead of
+  the 3 attempts the retry configuration alone would suggest. The outer
+  decorator now only retries `requests.RequestException` (a genuine
+  network fault on the refresh POST itself), which is not covered by the
+  nested call at all. A persistent 5xx now costs exactly 1 refresh POST +
+  3 nested acquire POSTs = 4 POST requests. A persistent 401 (2 POSTs) and
+  a network error on the refresh POST (3 POSTs) are unaffected.
 - `AsyncGlpiClient.create_kb_article` / `update_kb_article` no longer
   silently drop `categories`. Both methods called the public
   `set_kb_article_categories` through `self` from inside a synchronous
