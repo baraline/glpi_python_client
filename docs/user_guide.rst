@@ -1471,7 +1471,7 @@ usually want:
    except GlpiNotFoundError as exc:
        print(exc.status_code)    # 404
        print(exc.url)            # the absolute URL that was requested
-       print(exc.response_text)  # the response body, truncated to 200 chars
+       print(exc.response_text)  # the response body
 
 .. note::
 

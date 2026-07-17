@@ -268,7 +268,7 @@ class GLPITokenManager:
             f"GLPI OAuth token returned {response.status_code}: {error_detail}",
             status_code=response.status_code,
             url=self._token_url,
-            response_text=str(error_detail)[:200],
+            response_text=str(error_detail),
         )
 
     @retry(

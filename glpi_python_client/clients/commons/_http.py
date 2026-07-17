@@ -140,7 +140,7 @@ def finalize_request_response(
             message,
             status_code=response.status_code,
             url=url,
-            response_text=response.text[:200],
+            response_text=response.text,
         )
     if response.status_code not in success_statuses:
         logger.warning(
@@ -148,7 +148,7 @@ def finalize_request_response(
             method_name,
             url,
             response.status_code,
-            response.text[:200],
+            response.text,
         )
     return response
 
@@ -175,10 +175,10 @@ def ensure_response_status(
     if response.status_code not in success_statuses:
         error_class = status_error_class(response.status_code)
         raise error_class(
-            f"{failure_message}: {response.status_code} {response.text[:200]}",
+            f"{failure_message}: {response.status_code} {response.text}",
             status_code=response.status_code,
             url=str(response.url),
-            response_text=response.text[:200],
+            response_text=response.text,
         )
 
 
