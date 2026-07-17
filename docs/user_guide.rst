@@ -1405,9 +1405,10 @@ Example output::
 7. Error handling
 -----------------
 
-Every exception the client raises derives from
-:class:`~glpi_python_client.GlpiError`, so one handler covers the whole
-library surface:
+Exceptions the client raises for a bad argument, an unexpected HTTP
+status, or an unusable response body derive from
+:class:`~glpi_python_client.GlpiError`, so one handler covers that part
+of the library surface:
 
 .. code-block:: python
 
@@ -1419,13 +1420,37 @@ library surface:
    except GlpiError as exc:
        print(f"GLPI call failed: {exc}")
 
+This is not yet the client's entire failure surface. The client is still
+built on ``requests``, and network-level faults -- connection failures,
+DNS errors, timeouts -- still propagate as ``requests`` exceptions today
+rather than a :class:`~glpi_python_client.GlpiError` subclass. Catch
+``requests.RequestException`` alongside :class:`~glpi_python_client.GlpiError`
+if you need to handle those too:
+
+.. code-block:: python
+
+   import requests
+   from glpi_python_client import GlpiClient, GlpiError
+
+   client = GlpiClient.from_env()
+   try:
+       ticket = client.get_ticket(42)
+   except (GlpiError, requests.RequestException) as exc:
+       print(f"GLPI call failed: {exc}")
+
+A handful of sites also deliberately still raise bare ``RuntimeError``
+(using a closed client, a missing v1 document session, a partially
+failed knowledge-base write) or ``TypeError`` (a malformed environment
+value) instead of a library type, so ``except RuntimeError`` / ``except
+TypeError`` code written against earlier releases keeps working.
+
 The hierarchy lets you narrow as far as you need:
 
 .. code-block:: text
 
    GlpiError
-   ├── GlpiTransportError      the request never got a response
-   │   └── GlpiTimeoutError    ... because it timed out
+   ├── GlpiTransportError      reserved for the httpx transport swap;
+   │   └── GlpiTimeoutError    not raised yet -- see the note above
    ├── GlpiStatusError         GLPI answered with an unexpected status
    │   ├── GlpiAuthError       401 / 403
    │   ├── GlpiNotFoundError   404
@@ -1469,10 +1494,14 @@ exception: refreshing an already-issued token does not raise directly on
 a failed response. It logs a warning and falls through to a fresh token
 acquisition, which carries its own independent 3-attempt retry
 decorator. A persistent 5xx encountered while refreshing can therefore
-cost up to 12 POST requests (3 refresh attempts, each falling through to
-up to 3 nested acquisition attempts) before
+cost up to 12 POST requests before
 :class:`~glpi_python_client.GlpiServerError` reaches you — not the 3
-attempts the retry configuration alone would suggest. A rejected
+attempts the retry configuration alone would suggest. The refresh
+method's own retry decorator makes up to 3 refresh attempts; each
+refresh attempt sends 1 refresh POST and, on failure, falls through to a
+nested token-acquisition call with its own independent 3-attempt retry,
+sending up to 3 more POSTs. That is 3 × (1 refresh POST + 3 nested
+acquisition POSTs) = 12 POST requests in the worst case. A rejected
 credential (401/403) is not retried at either layer and fails after at
 most 2 POST requests.
 

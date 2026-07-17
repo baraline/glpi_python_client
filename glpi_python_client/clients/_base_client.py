@@ -98,7 +98,7 @@ class _BaseGlpiClient:
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If the supplied configuration is incomplete or invalid (e.g.
             missing OAuth credentials together with no v1 fallback).
         """
@@ -163,7 +163,7 @@ class _BaseGlpiClient:
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If the resolved configuration is missing a required field.
         """
 

@@ -296,8 +296,9 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         from glpi_python_client.clients.commons._filters import (

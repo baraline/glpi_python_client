@@ -122,6 +122,14 @@ def parse_optional_env_int(value: object) -> int | None:
     ``None`` is preserved, native integers are accepted as-is, and strings
     are converted through ``int()`` so explicit overrides and environment
     values follow the same normalisation path.
+
+    Raises
+    ------
+    GlpiValidationError
+        If a string value cannot be parsed as an integer (e.g.
+        ``GLPI_TIMEOUT=abc``).
+    TypeError
+        If ``value`` is neither ``None``, ``int``, nor ``str``.
     """
 
     if value is None:
@@ -129,7 +137,12 @@ def parse_optional_env_int(value: object) -> int | None:
     if isinstance(value, int):
         return value
     if isinstance(value, str):
-        return int(value)
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise GlpiValidationError(
+                f"Invalid integer environment value: {value!r}"
+            ) from exc
     raise TypeError("Integer environment values must be strings or integers")
 
 

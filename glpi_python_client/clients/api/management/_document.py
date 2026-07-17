@@ -78,7 +78,7 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -107,9 +107,10 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If the create response is missing ``id`` or returns a
-            non-success HTTP status.
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        GlpiProtocolError
+            If the create response is missing the ``id`` field.
         """
 
         return self._resource_create(
@@ -137,7 +138,7 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -167,7 +168,7 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -196,7 +197,7 @@ class DocumentMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 

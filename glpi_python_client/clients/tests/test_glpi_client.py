@@ -91,6 +91,20 @@ def test_parse_optional_env_int_rejects_other_types() -> None:
         parse_optional_env_int(1.5)
 
 
+def test_parse_optional_env_int_rejects_unparseable_string() -> None:
+    """A non-numeric string (e.g. ``GLPI_TIMEOUT=abc``) raises ``GlpiValidationError``.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working, and the original ``int()``
+    ``ValueError`` is chained via ``from`` rather than swallowed.
+    """
+
+    with pytest.raises(GlpiValidationError, match="abc") as excinfo:
+        parse_optional_env_int("abc")
+    assert isinstance(excinfo.value, ValueError)
+    assert isinstance(excinfo.value.__cause__, ValueError)
+
+
 @pytest.mark.parametrize(
     ("value", "default", "expected"),
     [

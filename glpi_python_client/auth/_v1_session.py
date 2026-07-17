@@ -22,8 +22,14 @@ triggered by :class:`requests.RequestException` (network faults) and
 :class:`~glpi_python_client.GlpiServerError` (which
 :func:`finalize_request_response` raises for 5xx server errors), with
 ``reraise=True`` so the real error surfaces once retries are exhausted.
-:class:`ValueError` raised by status-code or payload checks does not
-trigger a retry — client-side or 4xx failures are surfaced immediately.
+Not every :class:`ValueError` subclass is retried, only the one named in
+the predicate above: :class:`~glpi_python_client.GlpiServerError` (5xx)
+*is* a ``ValueError`` and *is* retried by this decorator.
+:class:`~glpi_python_client.GlpiStatusError` subclasses for 4xx statuses,
+:class:`~glpi_python_client.GlpiValidationError`, and
+:class:`~glpi_python_client.GlpiProtocolError` are also ``ValueError``
+subclasses but are not in the retry predicate, so they surface
+immediately without a retry.
 """
 
 from __future__ import annotations
@@ -312,9 +318,9 @@ class GLPIV1Session:
             HTTP status codes considered successful (default covers the
             CRUD codes returned by the v1 API).
         failure_message : str | None, optional
-            Prefix used in the :class:`ValueError` raised on a
-            non-success status. Defaults to ``"GLPI v1 {METHOD} {path}
-            failed"``.
+            Prefix used in the :class:`~glpi_python_client.GlpiStatusError`
+            raised on a non-success status. Defaults to ``"GLPI v1
+            {METHOD} {path} failed"``.
 
         Returns
         -------

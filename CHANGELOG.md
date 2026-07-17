@@ -24,6 +24,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unusable. Same root cause as above: a sync method reaching a sibling
   public method through `self` received a coroutine instead of a result.
   Fixed with hand-written async overrides in `_fields_async.py`.
+- `parse_optional_env_int` (environment/config parsing) and
+  `StatisticsMixin._resolve_window` (the date-window helper behind
+  `get_ticket_statistics` / `get_task_durations` / `get_user_activity`)
+  no longer let a malformed value escape as a bare stdlib `ValueError`
+  from `int()` / `date.fromisoformat()` (e.g. `GLPI_TIMEOUT=abc` or
+  `get_ticket_statistics(start_date="2026-13-45")`). Both now raise
+  `GlpiValidationError`, chaining the original error via `from` rather
+  than swallowing it. Non-breaking: `GlpiValidationError` inherits
+  `ValueError`, so `except ValueError` still catches it.
 
 ### Added
 

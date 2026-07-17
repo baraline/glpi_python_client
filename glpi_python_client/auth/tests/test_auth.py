@@ -383,3 +383,45 @@ def test_acquire_token_network_error_is_retried_three_times(
         manager.ensure_token()
 
     assert len(session.calls) == 3
+
+
+def test_refresh_network_error_is_retried_three_times(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A connection-level failure during refresh is retried by refresh's own decorator.
+
+    Pins the one predicate member not yet covered by another test:
+    ``_refresh_access_token``'s network-error retry. Its ``GlpiServerError``
+    member is pinned by
+    ``test_refresh_5xx_persistent_multiplies_past_three_attempts`` above, and
+    ``_acquire_token``'s network retry is pinned by
+    ``test_acquire_token_network_error_is_retried_three_times``. A
+    ``requests.ConnectionError`` raised by ``session.post`` propagates
+    *before* ``_refresh_access_token`` reaches its non-2xx fallthrough
+    branch (auth.py:327-332), so the nested ``_acquire_token`` call is
+    never reached here -- unlike the persistent-5xx case, this pins
+    refresh's network retry count at 3, not 12. If a future rewrite of the
+    retry predicate (e.g. the httpx transport swap) drops this to 1
+    without remapping the equivalent network exception, this test catches
+    it with every other test still green.
+    """
+
+    monkeypatch.setattr(
+        GLPITokenManager._refresh_access_token.retry, "wait", wait_fixed(0)
+    )
+
+    class _FailingSession:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def post(self, url: str, data: dict[str, str], timeout: int) -> FakeResponse:
+            self.calls.append({"url": url, "data": data, "timeout": timeout})
+            raise requests.ConnectionError("network down")
+
+    session = _FailingSession()
+    manager = _make_refresh_ready_manager(cast(_FakeSession, session))
+
+    with pytest.raises(requests.ConnectionError):
+        manager.ensure_token()
+
+    assert len(session.calls) == 3

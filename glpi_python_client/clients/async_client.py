@@ -125,7 +125,7 @@ class AsyncGlpiClient(  # type: ignore[misc]
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If the supplied configuration is incomplete or invalid (e.g.
             missing OAuth credentials together with no v1 fallback).
         """

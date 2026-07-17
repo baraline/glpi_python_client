@@ -135,7 +135,7 @@ class TicketMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -161,9 +161,10 @@ class TicketMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If the create response is missing the ``id`` field or the
-            HTTP status is not success.
+        GlpiStatusError
+            If the HTTP status is not success.
+        GlpiProtocolError
+            If the create response is missing the ``id`` field.
         """
 
         return self._resource_create(
@@ -190,7 +191,7 @@ class TicketMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -219,7 +220,7 @@ class TicketMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 

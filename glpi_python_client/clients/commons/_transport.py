@@ -391,8 +391,8 @@ class TransportMixin:
         model : type[ModelT]
             Pydantic class used to validate the response payload.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         skip_entity : bool, optional
             When ``True`` the ``GLPI-Entity`` header is omitted.
 
@@ -430,10 +430,10 @@ class TransportMixin:
         body_model : GlpiModel
             Pydantic body serialised through :func:`model_to_payload`.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         missing_message : str
-            Message embedded in the ``ValueError`` raised when the
+            Message embedded in the ``GlpiProtocolError`` raised when the
             response payload does not contain any of the expected
             identifier keys.
         log_message_factory : Callable[[int], str]
@@ -484,8 +484,8 @@ class TransportMixin:
             Partial Pydantic body serialised through
             :func:`model_to_payload`.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         log_message : str
             Pre-formatted message logged at ``INFO`` level on success.
 
@@ -520,8 +520,8 @@ class TransportMixin:
         endpoint : str
             Resource path forwarded to the transport ``DELETE`` helper.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         log_message : str
             Pre-formatted message logged at ``INFO`` level on success.
         force : bool | None, optional

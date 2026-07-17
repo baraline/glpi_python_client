@@ -126,8 +126,9 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         start, end = _resolve_window(
@@ -266,8 +267,9 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         start, end = _resolve_window(
@@ -562,16 +564,29 @@ def _resolve_window(
 
     Validation matches the legacy analytics helper: positive default span,
     parsed ISO dates, and ``start <= end``.
+
+    Raises
+    ------
+    GlpiValidationError
+        If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+        valid ISO ``YYYY-MM-DD`` string, or ``start_date`` is after
+        ``end_date``.
     """
 
     if default_days < 1:
         raise GlpiValidationError("default_days must be a positive integer")
-    parsed_end = date.fromisoformat(end_date) if end_date else date.today()
-    parsed_start = (
-        date.fromisoformat(start_date)
-        if start_date
-        else parsed_end - timedelta(days=default_days - 1)
-    )
+    try:
+        parsed_end = date.fromisoformat(end_date) if end_date else date.today()
+    except ValueError as exc:
+        raise GlpiValidationError(f"Invalid end_date: {end_date!r}") from exc
+    try:
+        parsed_start = (
+            date.fromisoformat(start_date)
+            if start_date
+            else parsed_end - timedelta(days=default_days - 1)
+        )
+    except ValueError as exc:
+        raise GlpiValidationError(f"Invalid start_date: {start_date!r}") from exc
     if parsed_start > parsed_end:
         raise GlpiValidationError("start_date must be less than or equal to end_date")
     return parsed_start, parsed_end

@@ -75,7 +75,7 @@ class KBArticleMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -171,7 +171,7 @@ class KBArticleMixin(TransportMixin):
         ------
         RuntimeError
             When no legacy v1 session is configured on the client.
-        ValueError
+        GlpiStatusError
             When the legacy API returns a non-success status.
         """
 

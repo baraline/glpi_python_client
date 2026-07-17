@@ -1,8 +1,23 @@
 """Public exception hierarchy raised by :mod:`glpi_python_client`.
 
-Every exception the client raises deliberately derives from :class:`GlpiError`,
-so callers can catch the whole library surface with a single ``except`` clause
-without importing the underlying HTTP library.
+Every exception the client raises for a bad argument, an unexpected HTTP
+status, or an unusable response body deliberately derives from
+:class:`GlpiError`, so callers can catch that part of the library surface
+with a single ``except`` clause. This is not yet the library's entire
+failure surface, and importing the underlying HTTP library is still
+sometimes necessary:
+
+* Network-level faults (connection failures, DNS errors, timeouts) still
+  propagate as ``requests`` exceptions today. :class:`GlpiTransportError`
+  and :class:`GlpiTimeoutError` are reserved for that case but are not
+  raised until the httpx transport swap replaces ``requests`` (a later
+  release); catch ``requests.RequestException`` alongside
+  :class:`GlpiError` if you need to handle them now.
+* A handful of sites also deliberately still raise bare ``RuntimeError``
+  (using a closed client, a missing v1 document session, a partially
+  failed knowledge-base write) or ``TypeError`` (a malformed environment
+  value) instead of a library type, so ``except RuntimeError`` / ``except
+  TypeError`` code written against earlier releases is not broken.
 
 :class:`GlpiStatusError`, :class:`GlpiValidationError` and
 :class:`GlpiProtocolError` also inherit :class:`ValueError` so code written
@@ -22,13 +37,24 @@ class GlpiError(Exception):
 class GlpiTransportError(GlpiError):
     """The HTTP request never produced a response.
 
-    Raised for connection failures, DNS errors, and other network-level
-    faults where GLPI returned no status code at all.
+    Reserved for connection failures, DNS errors, and other network-level
+    faults where GLPI returned no status code at all -- but **not raised
+    yet**. The client is still built on ``requests``, and those faults
+    currently propagate as ``requests`` exceptions (e.g.
+    ``requests.ConnectionError``) instead. This class exists for the
+    httpx transport swap planned for a later release, which will raise it
+    in their place; until then, catch ``requests.RequestException``
+    alongside :class:`GlpiError` if you need to handle network faults.
     """
 
 
 class GlpiTimeoutError(GlpiTransportError):
-    """The HTTP request exceeded its timeout before GLPI responded."""
+    """The HTTP request exceeded its timeout before GLPI responded.
+
+    Like its parent :class:`GlpiTransportError`, this is reserved for the
+    httpx transport swap and is **not raised yet**; a timeout today
+    surfaces as ``requests.Timeout``.
+    """
 
 
 class GlpiStatusError(GlpiError, ValueError):

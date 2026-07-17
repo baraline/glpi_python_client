@@ -149,6 +149,24 @@ def test_get_ticket_statistics_rejects_invalid_window(client: GlpiClient) -> Non
     assert isinstance(exc2.value, ValueError)
 
 
+def test_get_ticket_statistics_rejects_malformed_iso_date(
+    client: GlpiClient,
+) -> None:
+    """A malformed ISO date string raises ``GlpiValidationError``, not a bare
+    ``date.fromisoformat`` ``ValueError``.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working, and the original ``ValueError``
+    from ``date.fromisoformat`` is chained via ``from`` rather than
+    swallowed.
+    """
+
+    with pytest.raises(GlpiValidationError, match="start_date") as excinfo:
+        client.get_ticket_statistics(start_date="2026-13-45", end_date="2026-01-31")
+    assert isinstance(excinfo.value, ValueError)
+    assert isinstance(excinfo.value.__cause__, ValueError)
+
+
 def test_get_task_statistics_zero_for_empty_input(client: GlpiClient) -> None:
     """An empty ticket list returns zeroed totals without any HTTP call."""
 
