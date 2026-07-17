@@ -37,6 +37,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unusable. Same root cause as above: a sync method reaching a sibling
   public method through `self` received a coroutine instead of a result.
   Fixed with hand-written async overrides in `_fields_async.py`.
+- The integration suite is runnable end-to-end again. Two defects, both in
+  `integration_tests/` only (no library code involved):
+  - `test_iter_search_tickets_multi_page` walked *every* matching ticket in
+    batches of 3 with no upper bound — it was the only one of the suite's
+    seven `iter_search` loops missing a `break`. Against a real instance
+    (59,879 matching tickets) that is ~19,960 requests and several hours,
+    which stalled the whole suite. It now stops after 3 pages and asserts
+    that ids do not repeat across pages, which actually verifies that the
+    `start` offset advances — the old unbounded loop asserted only
+    `isinstance(collected, list)` and so could not have detected a stuck
+    offset.
+  - The three GLPI Fields plugin tests failed rather than skipped when the
+    plugin is not installed. `_skip_when_no_v1` only checked that v1
+    *credentials were configured*, never that the *plugin existed*; an
+    absent plugin makes GLPI reject the `PluginFieldsContainer` itemtype
+    with a 400 rather than return an empty list. A new `fields_containers`
+    fixture skips on exactly that signature (400 +
+    `ERROR_RESOURCE_NOT_FOUND_NOR_COMMONDBTM`) and re-raises anything else.
 - `parse_optional_env_int` (environment/config parsing) and
   `StatisticsMixin._resolve_window` (the date-window helper behind
   `get_ticket_statistics` / `get_task_durations` / `get_user_activity`)
