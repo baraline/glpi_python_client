@@ -35,6 +35,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `AsyncGlpiClient`. This prevents the same bug class — silent data loss
   or a `TypeError` at call time, depending on how the dropped coroutine is
   used — from being reintroduced by a future endpoint.
+- A public exception hierarchy, exported from the package root:
+  `GlpiError`, `GlpiTransportError`, `GlpiTimeoutError`, `GlpiStatusError`,
+  `GlpiAuthError`, `GlpiNotFoundError`, `GlpiServerError`,
+  `GlpiValidationError` and `GlpiProtocolError`. `GlpiStatusError` and its
+  subclasses carry `.status_code`, `.url` and `.response_text`. A GLPI 404
+  and a bad argument were previously both a bare `ValueError` and could not
+  be told apart.
+- `FakeResponse` (in the public `glpi_python_client.testing` module) gained
+  a `url` attribute.
+- A user-guide "Error handling" section documenting the exception
+  hierarchy and the retry behaviour for both the transport layer and OAuth
+  token acquisition/refresh.
+
+### Changed
+
+- **Breaking:** a persistent 5xx now raises `GlpiServerError` instead of
+  `tenacity.RetryError`. The retry decorators gained `reraise=True`. Code
+  doing `except tenacity.RetryError` and digging out
+  `.last_attempt.exception()` should now catch `GlpiServerError` directly.
+- **Breaking:** unexpected HTTP statuses raise a `GlpiStatusError` subclass;
+  rejected arguments and configuration raise `GlpiValidationError`; 2xx
+  responses with an unusable body raise `GlpiProtocolError`. All three
+  inherit `ValueError`, so existing `except ValueError` handlers keep
+  working.
+- **Breaking:** a non-2xx OAuth token response raises `GlpiAuthError` (401/403)
+  or `GlpiServerError` (5xx). The token retry decorators had no `retry=`
+  predicate and therefore retried every failure, including a rejected
+  credential; a wrong `client_secret` cost 3 attempts and 6 seconds. OAuth
+  4xx is now final, matching the rest of the library. OAuth 5xx is still
+  retried.
+- **Breaking:** the private `glpi_python_client.clients.commons._errors`
+  module and its `remote_error_message` helper are removed. It had no
+  library call sites, and `reraise=True` leaves it nothing to unwrap.
+
+### Unchanged (deliberately)
+
+- Retry semantics: 5xx retried 3 times with a 3-second fixed wait, 4xx never
+  retried.
+- Tolerant search endpoints still return `[]` rather than raising on a 4xx.
+- The `TypeError` sites in environment parsing and the `RuntimeError` sites
+  for closed clients, missing v1 sessions and partial KB failures still
+  raise those types. `GlpiValidationError` inherits `ValueError`, not
+  `TypeError`, so converting them would break `except TypeError` callers.
+- The transport is still `requests`. Network faults (connection reset, DNS,
+  timeout) still surface as `requests` exceptions; they become
+  `GlpiTransportError` / `GlpiTimeoutError` when the transport moves to
+  httpx, with no change to the class names above.
 
 ### Notes
 

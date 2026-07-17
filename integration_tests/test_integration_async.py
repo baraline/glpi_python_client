@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import pytest_asyncio
-import requests
 from test_integration import (  # noqa: F401
     _LiveGlpiConfig,
     _suffix,
@@ -34,6 +33,7 @@ from test_integration import (  # noqa: F401
 
 from glpi_python_client import (
     AsyncGlpiClient,
+    GlpiNotFoundError,
     GlpiTicketContext,
     PostFollowup,
     PostLocation,
@@ -267,22 +267,15 @@ async def test_cancellation_releases_awaiter(
 async def test_exception_propagates_from_worker_thread(
     async_client: AsyncGlpiClient,
 ) -> None:
-    """Errors raised on the worker thread propagate to the awaiter unchanged.
+    """A missing ticket surfaces as a typed GLPI error.
 
     We trigger one by reading a ticket id that almost certainly does
-    not exist. The async client must surface the same typed error the
-    sync client would raise: a 404 status raises
-    :class:`~glpi_python_client.GlpiNotFoundError` immediately (no
-    retry), while a persistent 5xx would instead raise
-    :class:`~glpi_python_client.GlpiServerError` after the transport's
-    retries are exhausted, and a network fault would raise the real
-    :class:`requests.RequestException` after its own retries. The
-    assertion below covers all three: the two GLPI-typed errors both
-    inherit :class:`ValueError` via
-    :class:`~glpi_python_client.GlpiStatusError`.
+    not exist. The async client must surface the same
+    :class:`~glpi_python_client.GlpiNotFoundError` the sync client
+    would raise — users never import the HTTP library to catch it.
     """
 
-    with pytest.raises((requests.RequestException, ValueError)):
+    with pytest.raises(GlpiNotFoundError):
         await async_client.get_ticket(2**31 - 1)
 
 
