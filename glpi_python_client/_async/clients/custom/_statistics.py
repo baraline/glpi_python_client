@@ -586,7 +586,7 @@ class StatisticsMixin(TransportMixin):
 
         ticket_ids: list[int] = []
         ticket_entity_map: dict[int, str] = {}
-        for batch in await self.iter_search_tickets(  # type: ignore[attr-defined]
+        async for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
             rsql_filter,
             batch_size=200,
         ):
@@ -740,7 +740,7 @@ class StatisticsMixin(TransportMixin):
         # v2 both walks returned the same unfiltered window.
         window_filter = rsql_all_filter(date_range, _LIVE_TICKETS) or ""
         window_ids: set[int] = set()
-        for batch in await self.iter_search_tickets(  # type: ignore[attr-defined]
+        async for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
             window_filter,
             batch_size=200,
         ):

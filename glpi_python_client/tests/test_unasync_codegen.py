@@ -129,6 +129,71 @@ def test_no_identifier_collides_with_a_substitution_key() -> None:
     )
 
 
+def _async_generator_names() -> set[str]:
+    """Return the name of every ``async def`` in ``_async/`` that yields."""
+
+    names: set[str] = set()
+    for path in sorted(_ASYNC_DIR.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AsyncFunctionDef):
+                continue
+            if any(
+                isinstance(inner, ast.Yield | ast.YieldFrom) for inner in ast.walk(node)
+            ):
+                names.add(node.name)
+    return names
+
+
+def test_no_async_generator_is_awaited() -> None:
+    """An async generator is driven with ``async for``, never awaited.
+
+    This is a mistake the sync tree cannot reveal. ``await gen()`` and
+    ``async for x in gen()`` both generate the *same* correct synchronous
+    loop once ``async``/``await`` are stripped, so the generated client
+    works, the diff gate is clean, mypy is satisfied on both trees, and
+    every test that exercises the sync surface passes -- while the async
+    surface raises ``TypeError: object async_generator can't be used in
+    'await' expression`` the moment that code path is reached.
+
+    It was found by running the async client against a live server; this
+    check makes that failure a static one.
+    """
+
+    generators = _async_generator_names()
+    assert generators, "no async generators found -- this check is vacuous"
+
+    offenders: list[tuple[str, int, str]] = []
+    for path in sorted(_ASYNC_DIR.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = path.relative_to(_REPO_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Await):
+                continue
+            call = node.value
+            if not isinstance(call, ast.Call):
+                continue
+            func = call.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else func.id
+                if isinstance(func, ast.Name)
+                else None
+            )
+            if name in generators:
+                offenders.append((rel, node.lineno, name or "?"))
+
+    assert offenders == [], (
+        "these async generators are awaited instead of being driven with "
+        f"`async for`: {offenders}"
+    )
+
+
 def test_the_concurrency_twins_expose_the_same_surface() -> None:
     """Both hand-written ``_concurrency`` twins export the same names.
 

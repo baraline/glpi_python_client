@@ -9,7 +9,7 @@ that only shows up at runtime on the async surface:
 * OAuth token-acquisition lock contention from many coroutines racing
   for the very first authenticated call.
 * Routing every call through a caller-supplied
-  :class:`concurrent.futures.ThreadPoolExecutor`.
+  real non-blocking I/O on the caller's event loop.
 * Cancellation of an in-flight awaiting coroutine.
 * Exception propagation from a worker thread back to the awaiter.
 
@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import pytest_asyncio
@@ -47,11 +46,7 @@ from glpi_python_client import (
 pytestmark = pytest.mark.integration
 
 
-def _build_async_client(
-    config: _LiveGlpiConfig,
-    *,
-    executor: ThreadPoolExecutor | None = None,
-) -> AsyncGlpiClient:
+def _build_async_client(config: _LiveGlpiConfig) -> AsyncGlpiClient:
     """Return one configured :class:`AsyncGlpiClient` for the live instance.
 
     Parameters
@@ -59,9 +54,6 @@ def _build_async_client(
     config : _LiveGlpiConfig
         Live GLPI configuration loaded from the secrets directory or
         the ``GLPI_*`` environment variables.
-    executor : concurrent.futures.ThreadPoolExecutor | None
-        Optional pool routed through :class:`AsyncBridge`. When
-        ``None`` the bridge falls back to :func:`asyncio.to_thread`.
     """
 
     return AsyncGlpiClient(
@@ -77,7 +69,6 @@ def _build_async_client(
         v1_base_url=config.v1_base_url,
         v1_user_token=config.v1_user_token,
         v1_app_token=config.v1_app_token,
-        executor=executor,
     )
 
 
@@ -172,7 +163,7 @@ async def test_gather_fan_out_read_only(
     """Fan out independent read-only calls and confirm each returns a list.
 
     This stresses the bridge: many coroutines hit
-    :func:`asyncio.to_thread` simultaneously, contending for the OAuth
+    the event loop simultaneously, contending for the OAuth
     token lock on the first call and then for the requests pool.
     """
 
@@ -208,63 +199,55 @@ async def test_oauth_lock_contention_on_fresh_client(
             assert isinstance(value, list)
 
 
-async def test_custom_executor_routing(
-    live_config: _LiveGlpiConfig,  # noqa: F811
+async def test_calls_run_on_the_event_loop_not_a_worker_thread(
+    async_client: AsyncGlpiClient,
 ) -> None:
-    """A caller-supplied executor handles every wrapped call.
+    """Requests are issued from the calling thread, on the event loop.
 
-    The bridge takes the ``glpi-itest`` named pool when one is passed
-    in. We check that thread names observed during fan-out come from
-    that pool, proving the bridge respects the override.
+    This replaces an earlier test that asserted a caller-supplied
+    executor received the work. There is no executor and no worker thread
+    any more: the client performs real non-blocking I/O, so the whole
+    call runs on the thread that owns the loop.
+
+    A live fan-out is the honest way to check it -- a stubbed transport
+    would prove nothing about how real sockets are driven.
     """
 
-    seen_thread_names: set[str] = set()
+    import threading
 
-    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="glpi-itest")
-    try:
-        async with _build_async_client(live_config, executor=pool) as client:
-            results = await asyncio.gather(
-                *(client.search_users(limit=1) for _ in range(6))
-            )
-            assert len(results) == 6
+    main_thread = threading.current_thread().name
+    observed: list[str] = []
 
-        # Quick worker-name probe: schedule a no-op through the same
-        # pool and capture the worker thread name.
-        loop = asyncio.get_running_loop()
+    async def _probe() -> None:
+        await async_client.search_users(limit=1)
+        observed.append(threading.current_thread().name)
 
-        def _name() -> str:
-            import threading
+    await asyncio.gather(*(_probe() for _ in range(6)))
 
-            return threading.current_thread().name
-
-        for _ in range(4):
-            seen_thread_names.add(await loop.run_in_executor(pool, _name))
-    finally:
-        pool.shutdown(wait=True)
-
-    assert seen_thread_names, "expected at least one worker name to be captured"
-    assert all(name.startswith("glpi-itest") for name in seen_thread_names)
+    assert len(observed) == 6
+    assert all(name == main_thread for name in observed), (
+        f"calls ran off the loop thread: {set(observed)}"
+    )
 
 
 async def test_cancellation_releases_awaiter(
     async_client: AsyncGlpiClient,
 ) -> None:
-    """Cancelling the awaiter releases the coroutine even if HTTP keeps running.
+    """Cancelling the task raises ``CancelledError`` promptly.
 
-    The bridge documents cancellation as best-effort: the in-flight
-    ``requests`` call still completes on its worker thread, but the
-    awaiting coroutine must raise :class:`asyncio.CancelledError`
-    promptly.
+    With real async I/O the cancellation reaches the in-flight request
+    itself rather than being best-effort against a detached worker
+    thread, so the awaiting coroutine must unwind immediately.
     """
 
     task = asyncio.create_task(async_client.search_tickets("status==1", limit=50))
-    await asyncio.sleep(0)  # let the task enter to_thread
+    await asyncio.sleep(0)  # let the task reach its first await
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
 
 
-async def test_exception_propagates_from_worker_thread(
+async def test_exception_propagates_from_an_awaited_call(
     async_client: AsyncGlpiClient,
 ) -> None:
     """A missing ticket surfaces as a typed GLPI error.
