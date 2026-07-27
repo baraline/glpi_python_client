@@ -20,6 +20,10 @@ import asyncio
 
 from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.custom._statistics import (
+    _LIVE_TICKETS,
+    _V1_SO_ASSIGNEE,
+    _V1_SO_REQUESTER,
+    _V1_TASK_BULK_THRESHOLD,
     StatisticsMixin,
     TaskDurationsResult,
     TaskStatisticsResult,
@@ -150,7 +154,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
         date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
         entity_filter: str | None = None
         if entity_id is not None:
-            entity_filter = f"entities_id=={entity_id}"
+            entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
             entities = await self.search_entities(  # type: ignore[attr-defined]
@@ -168,31 +172,47 @@ class AsyncStatisticsMixin(StatisticsMixin):
                     tasks=None,
                 )
             entity_filter = rsql_any_filter(
-                *(f"entities_id=={e.id}" for e in entities if e.id is not None)
+                *(f"entity.id=={e.id}" for e in entities if e.id is not None)
             )
 
-        user_filter: str | None = None
+        # Mirrors the synchronous mixin: v2 cannot filter on ticket actors,
+        # so the id set comes from v1 and is intersected below. The v1 call
+        # is blocking, so it runs in a worker thread.
+        actor_ticket_ids: set[int] | None = None
         if user_id is not None:
-            user_filter = rsql_any_filter(
-                f"users_id_assign=={user_id}",
-                f"users_id_requester=={user_id}",
+            actor_ticket_ids = await asyncio.to_thread(
+                StatisticsMixin._v1_ticket_ids_for_actor,
+                self,
+                user_id,
+                search_options=(_V1_SO_ASSIGNEE, _V1_SO_REQUESTER),
+                parameter="user_id",
             )
+            if not actor_ticket_ids:
+                return TaskDurationsResult(
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                    total_duration=0,
+                    task_count=0,
+                    duration_by_user={},
+                    duration_by_entity={},
+                    tasks=None,
+                )
 
         editor_filter: str | None = None
         if user_editor_id is not None:
-            editor_filter = f"users_id_lastupdater=={user_editor_id}"
+            editor_filter = f"user_editor.id=={user_editor_id}"
 
         recipient_filter: str | None = None
         if user_recipient_id is not None:
-            recipient_filter = f"users_id_requester=={user_recipient_id}"
+            recipient_filter = f"user_recipient.id=={user_recipient_id}"
 
         rsql_filter = (
             rsql_all_filter(
                 date_filter,
                 entity_filter,
-                user_filter,
                 editor_filter,
                 recipient_filter,
+                _LIVE_TICKETS,
                 extra_filter,
             )
             or ""
@@ -205,11 +225,25 @@ class AsyncStatisticsMixin(StatisticsMixin):
             batch_size=200,
         ):
             for ticket in batch:
-                if ticket.id is not None:
-                    ticket_ids.append(ticket.id)
-                    ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
+                if ticket.id is None:
+                    continue
+                if actor_ticket_ids is not None and ticket.id not in actor_ticket_ids:
+                    continue
+                ticket_ids.append(ticket.id)
+                ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
 
-        result = await self.get_task_statistics(ticket_ids)
+        # Mirrors the synchronous mixin: one bulk v1 sweep replaces the
+        # per-ticket fan-out for large ticket sets. The v1 call is blocking,
+        # so it runs in a worker thread.
+        if self._v1 is not None and len(ticket_ids) >= _V1_TASK_BULK_THRESHOLD:
+            result = await asyncio.to_thread(
+                StatisticsMixin._v1_task_statistics,
+                self,
+                ticket_ids,
+                since=start,
+            )
+        else:
+            result = await self.get_task_statistics(ticket_ids)
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
         for tid, dur in result["duration_by_ticket"].items():
@@ -319,7 +353,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         entity_filter: str | None = None
         if entity_id is not None:
-            entity_filter = f"entities_id=={entity_id}"
+            entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
             entities = await self.search_entities(  # type: ignore[attr-defined]
@@ -329,7 +363,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
             if not entities:
                 return {"entities": {}}
             entity_filter = rsql_any_filter(
-                *(f"entities_id=={e.id}" for e in entities if e.id is not None)
+                *(f"entity.id=={e.id}" for e in entities if e.id is not None)
             )
 
         date_filter = f"date_creation=ge={start.isoformat()};"
@@ -337,6 +371,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
         query = rsql_all_filter(
             date_filter,
             entity_filter,
+            _LIVE_TICKETS,
             extra_filter,
         )
         tickets = await self.search_tickets(  # type: ignore[attr-defined]
@@ -449,21 +484,39 @@ class AsyncStatisticsMixin(StatisticsMixin):
         date_range = f"date_creation=ge={start.isoformat()};"
         date_range += f"date_creation=le={end.isoformat()} 23:59:59"
 
+        # Mirrors the synchronous mixin: the window is walked once for all
+        # users, and the per-role split comes from intersecting v1 id sets.
+        window_filter = rsql_all_filter(date_range, _LIVE_TICKETS) or ""
+        window_ids: set[int] = set()
+        async for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
+            window_filter,
+            batch_size=200,
+        ):
+            for ticket in batch:
+                if ticket.id is not None:
+                    window_ids.add(ticket.id)
+
         users_output: dict[str, UserActivityEntry] = {}
         for uid in resolved_user_ids:
             display_key = user_display_map.get(uid, str(uid))
-            tech_count = 0
-            async for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
-                f"users_id_assign=={uid};{date_range}",
-                batch_size=200,
-            ):
-                tech_count += len(batch)
-            recipient_count = 0
-            async for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
-                f"users_id_requester=={uid};{date_range}",
-                batch_size=200,
-            ):
-                recipient_count += len(batch)
+            assigned_ids, requested_ids = await asyncio.gather(
+                asyncio.to_thread(
+                    StatisticsMixin._v1_ticket_ids_for_actor,
+                    self,
+                    uid,
+                    search_options=(_V1_SO_ASSIGNEE,),
+                    parameter="user_id",
+                ),
+                asyncio.to_thread(
+                    StatisticsMixin._v1_ticket_ids_for_actor,
+                    self,
+                    uid,
+                    search_options=(_V1_SO_REQUESTER,),
+                    parameter="user_id",
+                ),
+            )
+            tech_count = len(window_ids & assigned_ids)
+            recipient_count = len(window_ids & requested_ids)
             task_dur = await self.get_task_durations(
                 start_date=start_date,
                 end_date=end_date,

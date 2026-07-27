@@ -43,12 +43,23 @@ def rsql_any_filter(*filters: str | None) -> str | None:
     """Join non-empty RSQL filter fragments with OR semantics.
 
     Empty fragments are ignored and an all-empty input returns ``None``.
+
+    The joined result is wrapped in parentheses whenever it contains more
+    than one fragment. RSQL binds ``;`` (AND) tighter than ``,`` (OR), so
+    an unparenthesised group silently loses every preceding AND clause for
+    all but its first alternative: ``date;e==1,e==2`` parses as
+    ``(date AND e==1) OR e==2``, which matches every ``e==2`` ticket
+    regardless of the date window. Measured against a live GLPI 11
+    instance, the unparenthesised form returned 16,245 tickets where the
+    parenthesised form correctly returned 1,552.
     """
 
     parts = [fragment for fragment in filters if fragment]
     if not parts:
         return None
-    return ",".join(parts)
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + ",".join(parts) + ")"
 
 
 def rsql_all_filter(*filters: str | None) -> str | None:

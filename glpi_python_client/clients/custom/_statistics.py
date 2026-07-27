@@ -34,6 +34,75 @@ from glpi_python_client.models.api_schema.enums import (
     GlpiTicketType,
 )
 
+#: The GLPI v2 ticket search includes soft-deleted ("trashed") tickets by
+#: default, while the v1 search excludes them. Every aggregation here is
+#: about live work, so the v2 queries pin the flag explicitly. Measured on
+#: a live GLPI 11 instance: 59,690 live + 258 trashed = 59,948 unfiltered,
+#: and for some users the trashed rows were the large majority of matches.
+_LIVE_TICKETS = "is_deleted==false"
+
+#: v1 ``search/Ticket`` searchOption ids. The v2 API exposes no filterable
+#: assignee at all -- its ``team`` array cannot be joined by the RSQL engine
+#: (the contract-declared subfields answer HTTP 500 and every other spelling
+#: is silently ignored) -- so actor-based selection has to go through v1.
+_V1_SO_TICKET_ID = 2
+_V1_SO_REQUESTER = 4  # "Demandeur" -- glpi_tickets_users.users_id, type=1
+_V1_SO_ASSIGNEE = 5  # "Technicien" -- glpi_tickets_users.users_id, type=2
+
+#: v1 rejects a ``range`` that starts past the end of the result set with
+#: HTTP 400, so paging is bounded by ``totalcount`` rather than by probing.
+_V1_SEARCH_PAGE_SIZE = 1000
+
+#: Rows fetched per page from the v1 ``TicketTask`` collection.
+_V1_TASK_PAGE_SIZE = 1000
+
+#: Above this many tickets, one bulk v1 task sweep beats a per-ticket v2
+#: request each. The sweep costs one page per 1000 tasks created since the
+#: window opened -- typically one or two -- while the per-ticket path costs
+#: exactly ``len(ticket_ids)`` requests. Below the threshold the per-ticket
+#: path is cheaper and needs no v1 session, so it stays the default.
+_V1_TASK_BULK_THRESHOLD = 25
+
+
+def _validate_actor_id(value: int, parameter: str) -> int:
+    """Return ``value`` when it is usable as a GLPI user identifier.
+
+    The v1 search engine fails *open* on a malformed actor value instead of
+    rejecting it, so a bad id yields a plausible-looking but meaningless
+    result set rather than an error. Measured on a live instance:
+    ``equals 0`` matched 20,905 tickets (a LEFT-JOIN-NULL "has no actor"
+    match), an empty value matched the entire 59,689-ticket baseline, and a
+    non-numeric value returned the same arbitrary 3 rows whatever the
+    string. Guarding at the boundary is what keeps this fix from
+    reintroducing the class of bug it exists to remove.
+
+    Parameters
+    ----------
+    value : int
+        Candidate GLPI user identifier.
+    parameter : str
+        Name of the public parameter, used in the error message.
+
+    Returns
+    -------
+    int
+        The validated identifier.
+
+    Raises
+    ------
+    GlpiValidationError
+        When ``value`` is not a positive integer. ``bool`` is rejected
+        explicitly because it is an ``int`` subclass in Python.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise GlpiValidationError(
+            f"{parameter} must be a positive integer GLPI user id; got "
+            f"{value!r}. GLPI's v1 search silently returns unrelated rows "
+            "for 0, empty or non-numeric actor values instead of failing."
+        )
+    return value
+
 
 class TaskStatisticsResult(TypedDict):
     """Typed shape returned by :meth:`StatisticsMixin.get_task_statistics`."""
@@ -74,6 +143,177 @@ class UserActivityResult(TypedDict):
 
 class StatisticsMixin(TransportMixin):
     """Synchronous custom statistics built on the contract API mixins."""
+
+    def _v1_ticket_ids_for_actor(
+        self, user_id: int, *, search_options: tuple[int, ...], parameter: str
+    ) -> set[int]:
+        """Return ids of tickets linking ``user_id`` under any given role.
+
+        Actor selection cannot be expressed in the v2 API, so this reads the
+        v1 search engine, OR-ing one criterion per requested searchOption.
+        Unlike v2 -- which silently ignores a filter field it does not know
+        and answers with the complete unfiltered set -- v1 rejects an
+        unknown searchOption with HTTP 400, so a mistake here fails loudly.
+
+        Parameters
+        ----------
+        user_id : int
+            GLPI user identifier; validated by :func:`_validate_actor_id`.
+        search_options : tuple[int, ...]
+            v1 searchOption ids to OR together, e.g.
+            ``(_V1_SO_ASSIGNEE, _V1_SO_REQUESTER)``.
+        parameter : str
+            Public parameter name quoted in validation errors.
+
+        Returns
+        -------
+        set[int]
+            Ticket identifiers visible to the configured v1 session.
+
+        Raises
+        ------
+        GlpiValidationError
+            When ``user_id`` is not a positive integer.
+        RuntimeError
+            When the client has no v1 session configured.
+        """
+
+        uid = _validate_actor_id(user_id, parameter)
+        v1 = self._require_v1_session("actor-based ticket statistics")
+
+        params: dict[str, object] = {"forcedisplay[0]": _V1_SO_TICKET_ID}
+        for index, option in enumerate(search_options):
+            if index:
+                params[f"criteria[{index}][link]"] = "OR"
+            params[f"criteria[{index}][field]"] = option
+            params[f"criteria[{index}][searchtype]"] = "equals"
+            params[f"criteria[{index}][value]"] = uid
+
+        ids: set[int] = set()
+        start = 0
+        while True:
+            page = dict(params)
+            page["range"] = f"{start}-{start + _V1_SEARCH_PAGE_SIZE - 1}"
+            payload = v1.request_json("GET", "search/Ticket", params=page)
+            if not isinstance(payload, dict):
+                break
+            rows = payload.get("data")
+            if isinstance(rows, list):
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    raw = row.get(str(_V1_SO_TICKET_ID))
+                    if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+                        continue
+                    try:
+                        ids.add(int(raw))
+                    except (TypeError, ValueError):
+                        continue
+            total = payload.get("totalcount")
+            # Bound by totalcount: asking for a range that starts past the
+            # end is an HTTP 400 on this API, not an empty page.
+            if not isinstance(total, int):
+                break
+            start += _V1_SEARCH_PAGE_SIZE
+            if start >= total:
+                break
+        return ids
+
+    def _v1_task_statistics(
+        self, ticket_ids: list[int], *, since: date
+    ) -> TaskStatisticsResult:
+        """Aggregate tasks for ``ticket_ids`` with one bulk v1 sweep.
+
+        Replaces the per-ticket fan-out for large ticket sets. The v2 API
+        publishes tasks only under ``/Assistance/Ticket/{id}/Timeline/Task``,
+        so aggregating N tickets costs N requests; the v1 ``TicketTask``
+        collection returns whole rows -- including ``tickets_id`` -- and
+        pages 1000 at a time.
+
+        Note that v1 ``search/TicketTask`` is *not* usable here: its
+        searchOptions expose the task's own id, content, category, date,
+        privacy, technician, duration and state, but no parent ticket id,
+        so results could not be attributed back to a ticket.
+
+        Rows are swept newest-first and paging stops once a page predates
+        ``since``. A task cannot be created before the ticket it belongs to,
+        and every ticket under consideration was created on or after
+        ``since``, so no relevant task is missed. The upper end is
+        deliberately unbounded: a ticket created inside the window may still
+        gain tasks long afterwards.
+
+        The returned aggregate is identical to :meth:`get_task_statistics`
+        for the same tickets -- v1 ``actiontime`` is v2 ``duration``, and v1
+        ``users_id`` is the v2 task ``user`` (the author; the technician
+        lives in ``users_id_tech``, which v2 does not expose). Rows are
+        mapped into ``GetTicketTask`` and summarised by the same helper, so
+        the two paths cannot drift apart.
+
+        Parameters
+        ----------
+        ticket_ids : list[int]
+            Tickets whose tasks should be aggregated.
+        since : date
+            Lower bound on task creation; the start of the caller's window.
+
+        Returns
+        -------
+        TaskStatisticsResult
+            Same shape and keys as :meth:`get_task_statistics`.
+
+        Raises
+        ------
+        RuntimeError
+            When the client has no v1 session configured.
+        """
+
+        v1 = self._require_v1_session("bulk task statistics")
+        wanted = set(ticket_ids)
+        cutoff = since.isoformat()
+        tasks: list[GetTicketTask] = []
+        start = 0
+        while True:
+            payload = v1.request_json(
+                "GET",
+                "TicketTask",
+                params={
+                    "range": f"{start}-{start + _V1_TASK_PAGE_SIZE - 1}",
+                    "sort": "date_creation",
+                    "order": "DESC",
+                },
+            )
+            if not isinstance(payload, list) or not payload:
+                break
+            oldest_seen: str | None = None
+            for row in payload:
+                if not isinstance(row, dict):
+                    continue
+                created = row.get("date_creation")
+                if isinstance(created, str) and created:
+                    oldest_seen = created
+                ticket_id = row.get("tickets_id")
+                if not isinstance(ticket_id, int) or ticket_id not in wanted:
+                    continue
+                author = row.get("users_id")
+                duration = row.get("actiontime")
+                tasks.append(
+                    GetTicketTask(
+                        id=row.get("id") if isinstance(row.get("id"), int) else None,
+                        tickets_id=ticket_id,
+                        duration=duration if isinstance(duration, int) else 0,
+                        user=(
+                            IdNameRef(id=author)
+                            if isinstance(author, int) and author
+                            else None
+                        ),
+                    )
+                )
+            if len(payload) < _V1_TASK_PAGE_SIZE:
+                break
+            if oldest_seen is not None and oldest_seen[:10] < cutoff:
+                break
+            start += _V1_TASK_PAGE_SIZE
+        return _summarize_tasks(ticket_ids, tasks)
 
     def get_ticket_statistics(
         self,
@@ -139,7 +379,7 @@ class StatisticsMixin(TransportMixin):
 
         entity_filter: str | None = None
         if entity_id is not None:
-            entity_filter = f"entities_id=={entity_id}"
+            entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
             entities = self.search_entities(  # type: ignore[attr-defined]
@@ -149,13 +389,14 @@ class StatisticsMixin(TransportMixin):
             if not entities:
                 return {"entities": {}}
             entity_filter = rsql_any_filter(
-                *(f"entities_id=={e.id}" for e in entities if e.id is not None)
+                *(f"entity.id=={e.id}" for e in entities if e.id is not None)
             )
         date_filter = f"date_creation=ge={start.isoformat()};"
         date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
         query = rsql_all_filter(
             date_filter,
             entity_filter,
+            _LIVE_TICKETS,
             extra_filter,
         )
         tickets: list[GetTicket] = self.search_tickets(  # type: ignore[attr-defined]
@@ -282,7 +523,7 @@ class StatisticsMixin(TransportMixin):
 
         entity_filter: str | None = None
         if entity_id is not None:
-            entity_filter = f"entities_id=={entity_id}"
+            entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
             entities = self.search_entities(  # type: ignore[attr-defined]
@@ -300,31 +541,44 @@ class StatisticsMixin(TransportMixin):
                     tasks=None,
                 )
             entity_filter = rsql_any_filter(
-                *(f"entities_id=={e.id}" for e in entities if e.id is not None)
+                *(f"entity.id=={e.id}" for e in entities if e.id is not None)
             )
 
-        user_filter: str | None = None
+        # ``user_id`` selects on the ticket's actors, which v2 cannot
+        # express; resolve the id set through v1 and intersect below.
+        actor_ticket_ids: set[int] | None = None
         if user_id is not None:
-            user_filter = rsql_any_filter(
-                f"users_id_assign=={user_id}",
-                f"users_id_requester=={user_id}",
+            actor_ticket_ids = self._v1_ticket_ids_for_actor(
+                user_id,
+                search_options=(_V1_SO_ASSIGNEE, _V1_SO_REQUESTER),
+                parameter="user_id",
             )
+            if not actor_ticket_ids:
+                return TaskDurationsResult(
+                    start_date=start.isoformat(),
+                    end_date=end.isoformat(),
+                    total_duration=0,
+                    task_count=0,
+                    duration_by_user={},
+                    duration_by_entity={},
+                    tasks=None,
+                )
 
         editor_filter: str | None = None
         if user_editor_id is not None:
-            editor_filter = f"users_id_lastupdater=={user_editor_id}"
+            editor_filter = f"user_editor.id=={user_editor_id}"
 
         recipient_filter: str | None = None
         if user_recipient_id is not None:
-            recipient_filter = f"users_id_requester=={user_recipient_id}"
+            recipient_filter = f"user_recipient.id=={user_recipient_id}"
 
         rsql_filter = (
             rsql_all_filter(
                 date_filter,
                 entity_filter,
-                user_filter,
                 editor_filter,
                 recipient_filter,
+                _LIVE_TICKETS,
                 extra_filter,
             )
             or ""
@@ -337,11 +591,19 @@ class StatisticsMixin(TransportMixin):
             batch_size=200,
         ):
             for ticket in batch:
-                if ticket.id is not None:
-                    ticket_ids.append(ticket.id)
-                    ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
+                if ticket.id is None:
+                    continue
+                if actor_ticket_ids is not None and ticket.id not in actor_ticket_ids:
+                    continue
+                ticket_ids.append(ticket.id)
+                ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
 
-        result = self.get_task_statistics(ticket_ids)
+        # One bulk v1 sweep replaces the per-ticket fan-out once the ticket
+        # set is big enough to pay for it; the aggregate is identical.
+        if self._v1 is not None and len(ticket_ids) >= _V1_TASK_BULK_THRESHOLD:
+            result = self._v1_task_statistics(ticket_ids, since=start)
+        else:
+            result = self.get_task_statistics(ticket_ids)
         duration_by_ticket = result["duration_by_ticket"]
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
@@ -472,21 +734,37 @@ class StatisticsMixin(TransportMixin):
         date_range = f"date_creation=ge={start.isoformat()};"
         date_range += f"date_creation=le={end.isoformat()} 23:59:59"
 
+        # The date window is resolved once for every user rather than once
+        # per user per role. Previously each user drove two full pagings of
+        # the corpus, and because the actor clause was silently dropped by
+        # v2 both walks returned the same unfiltered window.
+        window_filter = rsql_all_filter(date_range, _LIVE_TICKETS) or ""
+        window_ids: set[int] = set()
+        for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
+            window_filter,
+            batch_size=200,
+        ):
+            for ticket in batch:
+                if ticket.id is not None:
+                    window_ids.add(ticket.id)
+
         users_output: dict[str, UserActivityEntry] = {}
         for uid in resolved_user_ids:
             display_key = user_display_map.get(uid, str(uid))
-            tech_count = 0
-            for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
-                f"users_id_assign=={uid};{date_range}",
-                batch_size=200,
-            ):
-                tech_count += len(batch)
-            recipient_count = 0
-            for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
-                f"users_id_requester=={uid};{date_range}",
-                batch_size=200,
-            ):
-                recipient_count += len(batch)
+            # Assignee and requester are counted separately, so they are
+            # resolved as separate v1 id sets rather than one OR-ed query.
+            tech_count = len(
+                window_ids
+                & self._v1_ticket_ids_for_actor(
+                    uid, search_options=(_V1_SO_ASSIGNEE,), parameter="user_id"
+                )
+            )
+            recipient_count = len(
+                window_ids
+                & self._v1_ticket_ids_for_actor(
+                    uid, search_options=(_V1_SO_REQUESTER,), parameter="user_id"
+                )
+            )
             task_dur = self.get_task_durations(
                 start_date=start_date,
                 end_date=end_date,
