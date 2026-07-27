@@ -1,9 +1,9 @@
 """Public GLPI client class.
 
 Composes the per-endpoint mixins from
-:mod:`glpi_python_client._async.clients.api` with the aggregated helpers
-from :mod:`glpi_python_client._async.clients.custom` and the transport
-mixin from :mod:`glpi_python_client._async.clients.commons` to expose the
+:mod:`glpi_python_client._sync.clients.api` with the aggregated helpers
+from :mod:`glpi_python_client._sync.clients.custom` and the transport
+mixin from :mod:`glpi_python_client._sync.clients.commons` to expose the
 full public client surface.
 
 This module is written once. Its counterpart on the other surface is
@@ -75,12 +75,12 @@ class GlpiClient(
     The client owns the shared HTTP session, the OAuth token manager, and
     the optional legacy v1 session used for binary document uploads and
     the Fields plugin endpoints. Token acquisition is serialised by the
-    lock from :mod:`glpi_python_client._async._concurrency`, which is the
+    lock from :mod:`glpi_python_client._sync._concurrency`, which is the
     right primitive for this surface -- see that module for why the two
     surfaces cannot share one.
 
     Construction parameters and :meth:`from_env` are documented on
-    :class:`~glpi_python_client._async.clients._base_client._BaseGlpiClient`.
+    :class:`~glpi_python_client._sync.clients._base_client._BaseGlpiClient`.
     """
 
     def close(self) -> None:

@@ -241,6 +241,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   module and its `remote_error_message` helper are removed. It had no
   library call sites, and `reraise=True` leaves it nothing to unwrap.
 
+### Documentation
+
+- **The documentation still described the deleted bridge**, in the places
+  users actually read: the README, the user guide, the API reference, the
+  package docstring, and two skills all said `AsyncGlpiClient` wraps each
+  synchronous method into a coroutine dispatched to a worker thread via
+  `asyncio.to_thread`. None of that has been true since the codegen
+  rewrite. The worst of it was live API: the user guide's *Custom thread
+  pools* section and step 8 of `glpi-client-setup` documented an
+  `executor=` constructor argument that no longer exists, so anyone
+  copying either example got a `TypeError`. That section is now
+  *Bounding concurrency* and shows an `asyncio.Semaphore`, which is what
+  actually bounds a fan-out now.
+- **Fourteen docstring cross-references pointed at modules the rewrite had
+  renamed or deleted** (`clients.async_client`, `clients.sync_client`,
+  `custom._ticket_context_async`). Nothing caught them: Sphinx runs with
+  `nitpicky` off, so an unresolvable target renders as plain text rather
+  than failing the build, and these private modules are not autodoc'd in
+  the first place. `tests/test_docstring_references.py` now resolves every
+  qualified reference in the package against the live modules.
+- **The generated sync tree documented itself in terms of the async one.**
+  unasync repoints imports, where `_async` is its own NAME token, but a
+  dotted path inside a docstring is a single string token and passes
+  through untouched — so 47 cross-references in the shipped sync client
+  pointed into `_async/`. The diff gate is blind to this for the same
+  reason it is blind to a token collision: the omission is deterministic,
+  so regeneration reproduces it and the diff stays clean. `unasync_build`
+  now repoints the qualified prefix, and a test asserts the generated tree
+  never names `_async` at all.
+- `TicketContextMixin` claimed its five calls ran sequentially and that an
+  async override fanned them out, contradicting both the code and its own
+  method docstring. The development guide still described the deleted
+  `_ticket_context_async.py` / `_statistics_async.py` and the retired
+  `test_parity.py` / `test_async_selfcall_guard.py` suites.
+- The `requests` intersphinx mapping is removed; it survived the transport
+  swap and made every docs build fetch an inventory nothing referenced.
+
 ### Unchanged (deliberately)
 
 - Retry semantics: 5xx retried 3 times with a 3-second fixed wait, 4xx never

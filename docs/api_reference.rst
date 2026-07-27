@@ -11,8 +11,8 @@ Clients
 -------
 
 The package exposes two clients with identical endpoint surfaces. The
-synchronous one is the single source of truth for endpoint behaviour;
-the asynchronous one wraps each synchronous method into a coroutine.
+asynchronous one is hand-written and the synchronous one is generated
+from it, so neither wraps the other and the two cannot drift apart.
 
 .. autoclass:: GlpiClient
    :members:

@@ -2,8 +2,8 @@
 
 The :class:`_BaseGlpiClient` mixin holds the constructor signature, the
 resource-bundle assignment, and the :meth:`from_env` classmethod that
-both :class:`~glpi_python_client._async.clients.sync_client.GlpiClient` and
-:class:`~glpi_python_client._async.clients.async_client.AsyncGlpiClient` use.
+both :class:`~glpi_python_client.GlpiClient` and
+:class:`~glpi_python_client.AsyncGlpiClient` use.
 Lifecycle helpers (``close``, ``__enter__``/``__exit__`` versus
 ``__aenter__``/``__aexit__``) stay on the concrete subclasses because
 they differ between the sync and async surfaces.

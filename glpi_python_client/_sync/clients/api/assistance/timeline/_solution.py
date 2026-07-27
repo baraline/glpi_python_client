@@ -10,7 +10,7 @@ in a ``{"type": "ITILSolution", "item": {...}}`` envelope, even though
 the OpenAPI contract documents a flat array of ``ITILSolution``. Real
 behaviour wins over the contract, so :func:`list_ticket_solutions`
 unwraps the envelope through the shared
-:meth:`~glpi_python_client._async.clients.commons._transport.TransportMixin._resource_list`
+:meth:`~glpi_python_client._sync.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 

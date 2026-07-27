@@ -11,7 +11,7 @@ in a ``{"type": "ITILFollowup", "item": {...}}`` envelope, even though
 the OpenAPI contract documents a flat array of ``ITILFollowup``. Real
 behaviour wins over the contract, so :func:`list_ticket_followups`
 unwraps the envelope via the shared
-:meth:`~glpi_python_client._async.clients.commons._transport.TransportMixin._resource_list`
+:meth:`~glpi_python_client._sync.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 

@@ -65,7 +65,7 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 ## Gotchas
 
 - `upload_document` raises `RuntimeError` when the v1 session is not configured. Pass `v1_base_url` and `v1_user_token` to the client constructor or `from_env`.
-- `upload_document` requires a non-empty `filename` and dispatches the blocking HTTP call through `asyncio.to_thread`; the running event loop is not blocked.
+- `upload_document` requires a non-empty `filename`. On the async client the multipart POST is awaited like any other call, so the event loop is not blocked.
 - `download_document_content` returns `bytes` and raises on non-200 responses.
 - `mime_type` defaults to `application/octet-stream` when omitted on `upload_document`.
 - All methods are async; always `await` them.

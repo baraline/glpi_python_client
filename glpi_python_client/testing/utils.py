@@ -26,7 +26,7 @@ class FakeResponse:
     by the package's tests. It is duck-typed rather than a subclass of the
     transport's response class, so it survived the move from ``requests`` to
     ``httpx`` unchanged: the library reads the reason phrase through
-    :func:`~glpi_python_client.clients.commons._http.response_reason`, which
+    :func:`~glpi_python_client._async.clients.commons._http.response_reason`, which
     accepts either the ``reason`` spelling used here or the ``reason_phrase``
     spelling ``httpx`` uses.
     """

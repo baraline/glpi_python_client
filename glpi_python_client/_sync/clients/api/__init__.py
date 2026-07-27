@@ -2,7 +2,7 @@
 
 The mixins under this package mirror the endpoints documented in
 ``docs/glpi_api_contract.json`` one for one. They wrap the
-transport helpers from :mod:`glpi_python_client._async.clients.commons` and exchange
+transport helpers from :mod:`glpi_python_client._sync.clients.commons` and exchange
 typed ``Get<Name>``, ``Post<Name>``, ``Patch<Name>``, and ``Delete<Name>``
 models with the GLPI API.
 """

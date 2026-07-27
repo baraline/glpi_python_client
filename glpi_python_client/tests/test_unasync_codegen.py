@@ -129,6 +129,43 @@ def test_no_identifier_collides_with_a_substitution_key() -> None:
     )
 
 
+def test_the_generated_tree_never_names_the_async_one() -> None:
+    """No module under ``_sync/`` mentions ``_async`` anywhere.
+
+    unasync repoints the imports for free, because there ``_async`` is
+    its own NAME token. Inside a docstring the whole thing is a *single*
+    string token, and substitution only fires when a literal's entire
+    content is a key -- so a cross-reference such as
+    ``:mod:`glpi_python_client._async.clients.api``` passes straight
+    through, and the shipped sync client ends up documenting itself in
+    terms of a tree its users never import.
+
+    The diff gate cannot see this either: the omission is deterministic,
+    so regeneration reproduces it and the diff stays clean.
+    ``unasync_build`` rewrites the qualified prefix; this asserts the
+    result from the other end, and additionally catches a *bare* mention
+    that the prefix rewrite is deliberately too narrow to touch.
+
+    The hand-written twins are exempt. They are not generated, and each
+    one names its counterpart on purpose: pointing at the other file is
+    the only way to explain why the pair exists.
+    """
+
+    build = _build_module()
+    hand_written: set[str] = build.HAND_WRITTEN  # type: ignore[attr-defined]
+    offenders = [
+        f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}: {line.strip()}"
+        for path in sorted(_SYNC_DIR.rglob("*.py"))
+        if "__pycache__" not in path.parts and path.name not in hand_written
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "_async" in line
+    ]
+    assert offenders == [], (
+        "the generated sync tree still refers to the async one:\n"
+        + "\n".join(offenders)
+    )
+
+
 def _async_generator_names() -> set[str]:
     """Return the name of every ``async def`` in ``_async/`` that yields."""
 

@@ -5,10 +5,12 @@ The ``glpi_python_client`` package exposes two high-level clients
 whose surface is built from contract-aligned per-endpoint mixins:
 
 * :class:`glpi_python_client.GlpiClient` — synchronous, blocking
-  client. The single source of truth for endpoint behaviour.
-* :class:`glpi_python_client.AsyncGlpiClient` — asynchronous facade
-  that wraps every synchronous method into a coroutine and dispatches
-  it to a worker thread via :func:`asyncio.to_thread`.
+  client.
+* :class:`glpi_python_client.AsyncGlpiClient` — asynchronous client
+  doing real non-blocking I/O on the event loop.
+
+Neither is a wrapper around the other; both are the same code, as
+*Sync vs async surface* below explains.
 
 Both clients speak the GLPI **v2** high-level API and fall back to the
 legacy v1 API for features that are not exposed by v2, currently
@@ -29,8 +31,8 @@ The guide is split into the following sections:
 
 1. **Creating a client** — how to instantiate either client from
    explicit parameters or from environment variables.
-2. **Sync vs async surface** — when to pick which client and how the
-   async facade is implemented.
+2. **Sync vs async surface** — when to pick which client and how both
+   are produced from a single source.
 3. **Seed data for the examples** — a self-contained snippet that
    creates the records reused by every later example. Run it once on a
    throwaway GLPI instance to follow along.
@@ -119,10 +121,6 @@ Optional constructor arguments
     fallback used by :meth:`GlpiClient.upload_document` and the
     ``Fields`` plugin helpers such as
     :meth:`GlpiClient.get_ticket_custom_fields`.
-* ``executor`` (:class:`AsyncGlpiClient` only) — an explicit
-  :class:`concurrent.futures.Executor` used to dispatch the wrapped
-  synchronous calls. Defaults to the standard library thread pool
-  through :func:`asyncio.to_thread`.
 
 ``from_env``
 ~~~~~~~~~~~~
@@ -214,26 +212,34 @@ without blocking the event loop:
 The synchronous versions of the same helpers issue the calls
 sequentially.
 
-Custom thread pools
-~~~~~~~~~~~~~~~~~~~
+Bounding concurrency
+~~~~~~~~~~~~~~~~~~~~
 
-Applications that want to bound the worker pool size, name the worker
-threads, or share a pool with other components can pass an explicit
-executor:
+There is no thread pool to size and no ``executor`` argument: the async
+client issues real non-blocking requests, so concurrency is bounded by
+the underlying HTTP connection pool rather than by worker threads.
+
+To keep a large fan-out from overwhelming the GLPI server, bound it on
+your side with an :class:`asyncio.Semaphore`:
 
 .. code-block:: python
 
    import asyncio
-   from concurrent.futures import ThreadPoolExecutor
 
    from glpi_python_client import AsyncGlpiClient
 
 
    async def main() -> None:
-       with ThreadPoolExecutor(max_workers=8, thread_name_prefix="glpi") as pool:
-           async with AsyncGlpiClient.from_env(executor=pool) as client:
-               tickets = await client.search_tickets("status==1", limit=200)
-               print(len(tickets))
+       limit = asyncio.Semaphore(8)
+
+       async with AsyncGlpiClient.from_env() as client:
+
+           async def fetch(ticket_id: int):
+               async with limit:
+                   return await client.get_ticket(ticket_id)
+
+           tickets = await asyncio.gather(*(fetch(i) for i in range(1, 101)))
+           print(len(tickets))
 
 
    asyncio.run(main())

@@ -3,7 +3,7 @@
 The `Fields plugin <https://github.com/pluginsGLPI/fields>`_ adds
 user-defined custom fields to any GLPI itemtype. It is not exposed
 through the GLPI v2 REST contract so this mixin talks to the legacy v1
-REST API through :class:`~glpi_python_client._async.auth._v1_session.GLPIV1Session`.
+REST API through :class:`~glpi_python_client._sync.auth._v1_session.GLPIV1Session`.
 
 Two abstraction layers are provided:
 
@@ -117,8 +117,8 @@ class PluginFieldsMixin(TransportMixin):
     """Helpers for the GLPI ``Fields`` plugin v1 endpoints.
 
     Every method requires the v1 session to be configured on the client
-    (see :class:`~glpi_python_client._async.clients.sync_client.GlpiClient`'s
-    ``v1_base_url`` and ``v1_user_token`` constructor arguments).
+    (see the ``v1_base_url`` and ``v1_user_token`` constructor
+    arguments).
     """
 
     def list_plugin_fields_containers(

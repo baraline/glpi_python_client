@@ -2,13 +2,13 @@
 
 The transport mixin owns token handling, header construction, retries, and
 HTTP request dispatch so the per-endpoint mixins under
-:mod:`glpi_python_client._async.clients.api` can stay focused on resource-specific
+:mod:`glpi_python_client._sync.clients.api` can stay focused on resource-specific
 behaviour.
 
 Concurrency model
 -----------------
 Access to the auth token manager is serialised with the lock from
-:mod:`glpi_python_client._async._concurrency`. That module is one of only
+:mod:`glpi_python_client._sync._concurrency`. That module is one of only
 two maintained separately for each surface, because the correct primitive
 genuinely differs: an :class:`asyncio.Lock` for concurrent tasks on one
 event loop, a :class:`threading.Lock` for a client shared across threads.
@@ -68,7 +68,7 @@ ModelT = TypeVar("ModelT", bound=GlpiModel)
 #: the different libraries are completely disjoint — and retries then vanish
 #: with no error, no warning and a green test suite. Naming
 #: :class:`~glpi_python_client.GlpiTransportError`, which
-#: :func:`~glpi_python_client._async.clients.commons._http.transport_error_from`
+#: :func:`~glpi_python_client._sync.clients.commons._http.transport_error_from`
 #: guarantees every network fault is translated into, makes that failure
 #: impossible to reintroduce.
 _RETRY_ON_NETWORK_ERRORS = retry(
@@ -89,13 +89,13 @@ class TransportMixin:
 
     Thread safety
     -------------
-    Token acquisition and refresh are serialised by ``_auth_lock``
-    (:class:`threading.Lock`) so concurrent threads — whether spawned by
-    the sync client directly or by the async client through
-    :func:`asyncio.to_thread` — never race while updating shared
-    authentication state. HTTP dispatch runs outside the lock and relies
-    on the thread-safety of :class:`httpx.AsyncClient` for concurrent
-    calls.
+    Token acquisition and refresh are serialised by ``_auth_lock``, the
+    ``Lock`` from :mod:`glpi_python_client._sync._concurrency`, so
+    concurrent callers never race while updating shared authentication
+    state. That module is hand-written on both surfaces because the
+    right primitive differs in kind between them. HTTP dispatch runs
+    outside the lock and relies on the underlying httpx client being
+    safe to use from concurrent callers.
     """
 
     _auth: GLPITokenManager

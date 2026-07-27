@@ -11,7 +11,7 @@ in a ``{"type": "Task", "item": {...}}`` envelope, even though the
 OpenAPI contract documents a flat array of ``TicketTask``. Real behaviour
 wins over the contract, so :func:`list_ticket_tasks` unwraps the envelope
 through the shared
-:meth:`~glpi_python_client._async.clients.commons._transport.TransportMixin._resource_list`
+:meth:`~glpi_python_client._sync.clients.commons._transport.TransportMixin._resource_list`
 helper and tolerates both shapes.
 """
 

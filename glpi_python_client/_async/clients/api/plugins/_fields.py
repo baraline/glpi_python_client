@@ -117,8 +117,8 @@ class PluginFieldsMixin(TransportMixin):
     """Helpers for the GLPI ``Fields`` plugin v1 endpoints.
 
     Every method requires the v1 session to be configured on the client
-    (see :class:`~glpi_python_client._async.clients.sync_client.GlpiClient`'s
-    ``v1_base_url`` and ``v1_user_token`` constructor arguments).
+    (see the ``v1_base_url`` and ``v1_user_token`` constructor
+    arguments).
     """
 
     async def list_plugin_fields_containers(

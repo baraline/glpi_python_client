@@ -228,10 +228,9 @@ class DocumentMixin(TransportMixin):
 
         Document uploads use the legacy v1 multipart endpoint because
         the GLPI v2 API does not advertise a binary upload route. The
-        async :class:`~glpi_python_client._async.clients.AsyncGlpiClient`
-        offloads this blocking call to a worker thread automatically;
-        callers using the sync :class:`~glpi_python_client._async.clients.GlpiClient`
-        invoke it directly.
+        upload is dispatched through the same v1 session as every other
+        v1 call, so it needs ``v1_base_url`` and ``v1_user_token`` to be
+        configured on the client.
 
         Parameters
         ----------

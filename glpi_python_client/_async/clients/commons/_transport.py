@@ -89,13 +89,13 @@ class TransportMixin:
 
     Thread safety
     -------------
-    Token acquisition and refresh are serialised by ``_auth_lock``
-    (:class:`threading.Lock`) so concurrent threads — whether spawned by
-    the sync client directly or by the async client through
-    :func:`asyncio.to_thread` — never race while updating shared
-    authentication state. HTTP dispatch runs outside the lock and relies
-    on the thread-safety of :class:`httpx.AsyncClient` for concurrent
-    calls.
+    Token acquisition and refresh are serialised by ``_auth_lock``, the
+    ``Lock`` from :mod:`glpi_python_client._async._concurrency`, so
+    concurrent callers never race while updating shared authentication
+    state. That module is hand-written on both surfaces because the
+    right primitive differs in kind between them. HTTP dispatch runs
+    outside the lock and relies on the underlying httpx client being
+    safe to use from concurrent callers.
     """
 
     _auth: GLPITokenManager

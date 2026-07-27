@@ -17,11 +17,12 @@ class TicketContextMixin(TransportMixin):
     """Ticket-context aggregation helper.
 
     The mixin assumes the consuming client also exposes the ticket and
-    ticket-timeline helpers from :mod:`glpi_python_client._async.clients.api`.
-    The five underlying calls are executed sequentially; the async
-    variant under
-    :mod:`glpi_python_client._async.clients.custom._ticket_context_async`
-    overrides :meth:`get_ticket_context` to fan them out concurrently.
+    ticket-timeline helpers from :mod:`glpi_python_client._sync.clients.api`.
+    The five underlying calls are independent and are issued through the
+    ``gather`` helper from
+    :mod:`glpi_python_client._sync._concurrency`, so this one
+    implementation fans them out on the async surface and runs them one
+    after another on the generated sync one.
     """
 
     def get_ticket_context(self, ticket_id: GlpiId) -> GlpiTicketContext:

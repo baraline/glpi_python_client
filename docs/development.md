@@ -42,43 +42,43 @@ python -m pytest
 
 - `glpi_python_client.__init__` exposes the public import surface,
   including both client classes and the Pydantic models.
-- `glpi_python_client._sync.clients.client.GlpiClient` is the
-  synchronous, blocking client. It is the single source of truth for
-  endpoint behaviour: each public method lives on one of the sync
-  endpoint mixins under `glpi_python_client._async.clients.api.*` and
-  `glpi_python_client._async.clients.custom.*`.
-- `glpi_python_client._async.clients.client.AsyncGlpiClient` is the
-  asynchronous facade. It inherits the same endpoint mixins and uses
-  `glpi_python_client._async._concurrency` to wrap
-  every inherited public sync method into a coroutine dispatched on a
-  worker thread (`asyncio.to_thread` by default, or a caller-supplied
-  `concurrent.futures.Executor`).
+- `glpi_python_client/_async/` is the **only hand-written client tree**,
+  and `glpi_python_client/_sync/` is generated from it by
+  `unasync_build.py` and committed. Every endpoint method is therefore
+  written exactly once, as an `async def`, and the sync client is a
+  mechanical token transform of it. CI regenerates the tree and fails on
+  any difference.
+- `glpi_python_client._async.clients.client.AsyncGlpiClient` and its
+  generated twin `glpi_python_client._sync.clients.client.GlpiClient` are
+  composed from the same endpoint mixins. Neither wraps the other:
+  the async client performs real non-blocking I/O and the sync one real
+  blocking I/O.
+- `glpi_python_client._async._concurrency` is the one module hand-written
+  on *both* sides, because the two surfaces need primitives that differ
+  in kind rather than in spelling: the auth lock is an `asyncio.Lock`
+  against a `threading.Lock`, and `gather` is a real fan-out against
+  plain sequential evaluation. Neither substitutes for the other — see
+  the module for what breaks in each direction. Call `gather` from there
+  for concurrent fan-out, never `asyncio.gather` directly, which unasync
+  would leave intact and emit as broken sync code.
 - `glpi_python_client._async.clients.commons` holds the reusable building
   blocks shared by every endpoint mixin: configuration helpers
-  (`_config`), constants (`_constants`), errors (`_errors`), filters
-  (`_filters`), HTTP helpers (`_http`), payload builders (`_payloads`),
-  and the `TransportMixin` (`_transport`). The transport serialises OAuth
-  token acquisition with the lock from `_async/_concurrency.py`, so
-  concurrent callers cannot race the token manager.
+  (`_config`), constants (`_constants`), filters (`_filters`), HTTP
+  helpers (`_http`), payload builders (`_payloads`), and the
+  `TransportMixin` (`_transport`). The transport serialises OAuth token
+  acquisition with the lock from `_concurrency`, so concurrent callers
+  cannot race the token manager.
+- `glpi_python_client._errors` defines the public exception hierarchy
+  (`GlpiError` and its subclasses), re-exported from the package root.
 - `glpi_python_client._async.clients.api.*` contains the contract-aligned
   endpoint mixins, grouped by GLPI subtree (administration, assistance,
   assistance/timeline, dropdowns, management, knowledgebase, plugins).
-  Each mixin is written once, in the async tree. (Historically some had
-  hand-written async overrides needed
-  because their synchronous bodies call a sibling public method through
-  `self` (see the `clients.custom` entry below for the other reason a
-  method needs one).
-- `glpi_python_client._async.clients.custom` contains custom helpers built on
-  top of the API mixins. Each helper has a synchronous implementation
-  (`_ticket_context.py`, `_statistics.py`) plus an async override
-  (`_ticket_context_async.py`, `_statistics_async.py`) that fans the
-  underlying calls out concurrently with `asyncio.gather`. That is one
-  of two reasons a method needs a hand-written async override; the
-  other — a synchronous body calling a sibling public method through
-  `self` — is why `clients.api.knowledgebase` and `clients.api.plugins`
-  also ship one (see above).
+- `glpi_python_client._async.clients.custom` contains helpers built on top
+  of the API mixins (`_ticket_context.py`, `_statistics.py`). Their
+  independent calls go through `gather`, so one implementation fans out
+  on the async surface and runs sequentially on the generated one.
 - `glpi_python_client._async.auth._v1_session` contains the legacy v1
-  session used for binary document uploads.
+  session used for binary document uploads and the `Fields` plugin.
 - `glpi_python_client.models` contains typed request and response
   models.
 - `glpi_python_client.content` handles HTML/Markdown conversion for
@@ -111,13 +111,20 @@ python -m pytest
    pagination logic in the focused
    `glpi_python_client._async.clients.commons` helper module named for that
    responsibility.
-4. Add unit tests for payload serialization, response parsing, and
-   client behavior. The parity test in
-   `glpi_python_client/clients/tests/test_parity.py` will fail if the
-   sync and async surfaces diverge, and
-   `glpi_python_client/clients/tests/test_async_selfcall_guard.py` will
-   fail if a public method reaches another public method through `self`
-   without a hand-written async override.
+4. Add unit tests under `glpi_python_client/tests/**` for payload
+   serialization, response parsing, and client behaviour. They exercise
+   the generated sync client, which shares its statements with the async
+   one.
+
+   Two suites cover what that cannot reach.
+   `glpi_python_client/tests/test_unasync_codegen.py` holds the
+   invariants the CI diff gate is blind to — a token collision is
+   deterministic, so regeneration reproduces it and the diff stays clean.
+   `glpi_python_client/tests/test_async_surface.py` runs the async client
+   for real: that a method actually awaits, that contending tasks do not
+   deadlock on the auth lock, and that `gather` genuinely overlaps its
+   arguments. Add to it whenever a change is only observable once
+   `async`/`await` are real.
 5. Document the new workflow in `docs/user_guide.rst` or the README.
 
 Keep organization-specific defaults outside the package core.

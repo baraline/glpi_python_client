@@ -22,8 +22,10 @@ this build:
   name is handled by the hand-written ``_concurrency.py`` twins instead.
 * It rewrites a **string literal whose entire content** is a substitution
   key. That is what makes ``__all__ = ["AsyncGlpiClient"]`` generate
-  correctly. It is narrow: an embedded mention inside a longer string or a
-  docstring is left alone, so prose is safe.
+  correctly. It is narrow: an embedded mention inside a longer string is
+  left alone. That is right for prose but wrong for a *qualified path*
+  written in prose, so this script repoints those itself -- see
+  :data:`PROSE_PACKAGE_PREFIX`.
 * It leaves ``asyncio.gather`` and friends **intact**, which would produce
   broken sync code. Those live only in ``_concurrency.py``, which is
   excluded from generation and hand-written on both sides.
@@ -85,6 +87,24 @@ TOKEN_REPLACEMENTS = {
 }
 
 
+#: The qualified package prefix, and what it becomes in the generated tree.
+#:
+#: In an ``import`` statement ``_async`` is its own NAME token, so unasync
+#: repoints every intra-tree import for free. Inside a docstring the whole
+#: thing is a *single* string token, and substitution only fires when a
+#: literal's entire content is a key -- so a cross-reference such as
+#: ``:mod:`glpi_python_client._async.clients.api``` sails through untouched
+#: and the generated client documents itself in terms of the other tree.
+#:
+#: Rewriting the qualified prefix afterwards is safe precisely because it is
+#: qualified: it names this package and a tree that the generated code must
+#: never mention. A bare ``_async`` in prose would be ambiguous; this is not.
+#: ``tests/test_unasync_codegen.py`` holds the invariant from the other end,
+#: asserting the generated tree contains no ``_async`` at all -- which also
+#: fails if someone writes a bare mention this rewrite cannot see.
+PROSE_PACKAGE_PREFIX = ("glpi_python_client._async", "glpi_python_client._sync")
+
+
 def _source_files() -> list[pathlib.Path]:
     """Return every ``_async/`` module that should be generated from."""
 
@@ -95,6 +115,22 @@ def _source_files() -> list[pathlib.Path]:
     )
 
 
+def _repoint_prose(into: pathlib.Path, generated: list[pathlib.Path]) -> None:
+    """Point qualified package paths in the generated files at the sync tree.
+
+    Runs over the freshly written modules only, and is idempotent: unasync
+    has already turned the import statements into ``_sync``, so the stale
+    prefix survives nowhere but inside string literals.
+    """
+
+    stale, fresh = PROSE_PACKAGE_PREFIX
+    for rel in generated:
+        path = into / rel
+        text = path.read_text(encoding="utf-8")
+        if stale in text:
+            path.write_text(text.replace(stale, fresh), encoding="utf-8")
+
+
 def _generate(into: pathlib.Path) -> None:
     """Run unasync over the async tree, writing the sync tree into ``into``."""
 
@@ -103,7 +139,9 @@ def _generate(into: pathlib.Path) -> None:
         todir=str(into),
         additional_replacements=TOKEN_REPLACEMENTS,
     )
-    unasync.unasync_files([str(p) for p in _source_files()], [rule])
+    sources = _source_files()
+    unasync.unasync_files([str(p) for p in sources], [rule])
+    _repoint_prose(into, [p.relative_to(ASYNC_DIR) for p in sources])
 
     # The hand-written twins are never generated. When building into a
     # scratch directory for --check they must still be carried across, or

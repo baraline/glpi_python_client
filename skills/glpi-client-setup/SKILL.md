@@ -15,10 +15,9 @@ The package exposes two clients with identical endpoint surfaces:
 - `glpi_python_client.GlpiClient` — synchronous, blocking client. Use it from
   scripts, CLI tools, or any code that is not already running inside an
   event loop.
-- `glpi_python_client.AsyncGlpiClient` — asynchronous facade. Each method
-  is a coroutine that dispatches the underlying blocking call on a worker
-  thread (`asyncio.to_thread` by default, or a caller-supplied
-  `concurrent.futures.Executor`). Use it when an event loop is already
+- `glpi_python_client.AsyncGlpiClient` — asynchronous client. Each method is
+  a coroutine performing real non-blocking I/O on the event loop; there is
+  no worker thread and no executor. Use it when an event loop is already
   running or when you want concurrent fan-out via `asyncio.gather`.
 
 Both clients share the same method names and signatures, including
@@ -47,8 +46,9 @@ call `client.close()` (or `await client.close()`) when finished.
    uploads are needed (`upload_document`). `v1_app_token` is optional.
 7. Keep `verify_ssl=True` unless the user explicitly confirms a test or
    internal endpoint that cannot validate TLS.
-8. For the async client only, optionally pass `executor=` a
-   `concurrent.futures.ThreadPoolExecutor` to bound worker threads.
+8. To bound a large async fan-out, wrap the calls in an
+   `asyncio.Semaphore` on the caller side. There is no `executor=`
+   argument and no thread pool to size.
 
 ## Environment Defaults
 

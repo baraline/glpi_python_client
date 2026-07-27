@@ -8,10 +8,10 @@ that only shows up at runtime on the async surface:
 * Concurrent fan-out via :func:`asyncio.gather` (read-only).
 * OAuth token-acquisition lock contention from many coroutines racing
   for the very first authenticated call.
-* Routing every call through a caller-supplied
-  real non-blocking I/O on the caller's event loop.
+* Real non-blocking I/O on the caller's event loop, with no worker
+  thread anywhere on the path.
 * Cancellation of an in-flight awaiting coroutine.
-* Exception propagation from a worker thread back to the awaiter.
+* Exception propagation from the transport back to the awaiter.
 
 The shared configuration loader from :mod:`test_integration` is reused
 so the same secrets/env layout drives both suites.

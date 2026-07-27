@@ -2,7 +2,7 @@
 
 The mixin exposes simple aggregations over ticket and ticket-task results
 returned by the contract-aligned helpers in
-:mod:`glpi_python_client._async.clients.api`. These operations are intentionally
+:mod:`glpi_python_client._sync.clients.api`. These operations are intentionally
 kept small and do not perform name resolution or rich label formatting; the
 caller can correlate the returned numeric identifiers with the dedicated
 ``search_*`` helpers when required.
