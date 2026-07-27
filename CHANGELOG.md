@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A `Major` priority ticket made the whole search fail.** GLPI's priority
+  scale has six levels; the published contract advertises five, and
+  `GlpiPriority` followed the contract. Since `GetTicket.priority` is typed
+  with that enum and validation runs per record, a single escalated ticket
+  anywhere in a result set raised `ValidationError` and took the entire
+  query down with it — most likely to bite exactly the reporting queries
+  that filter on high priority. `GlpiPriority.MAJOR = 6` is now defined.
+  The five existing members keep their identifiers, so stored filters are
+  unaffected. `urgency` and `impact` genuinely do stop at 5 and now accept a
+  value GLPI will never send, which is harmless in the direction that
+  matters.
+
 - **The statistics layer sent GLPI v1 field names to the v2 API, which
   silently ignored them and returned unfiltered results.** v2 drops a
   `filter=` conjunct whose field it does not recognise, honours the rest,
