@@ -658,3 +658,121 @@ def test_get_user_activity_multi_user_merge(client: GlpiClient) -> None:
     assert sorted(data["user_ids"]) == [1, 2]
     assert data["tickets_as_technician"] == 2  # 1 per user
     assert data["task_durations"]["total_duration"] == 600  # 300 per user
+
+
+class _FakeV1Tasks:
+    """v1 stand-in serving pages of raw ``TicketTask`` collection rows."""
+
+    def __init__(self, rows: list[dict[str, Any]], page_size: int = 1000) -> None:
+        self.rows = rows
+        self.page_size = page_size
+        self.calls: list[dict[str, Any]] = []
+
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        json_body: dict[str, object] | None = None,
+        success_statuses: tuple[int, ...] = (200, 201, 204, 206),
+        failure_message: str | None = None,
+    ) -> object:
+        self.calls.append({"path": path, "params": params})
+        rng = str((params or {}).get("range", "0-999"))
+        start = int(rng.split("-")[0])
+        return self.rows[start : start + self.page_size]
+
+    def close(self) -> None:
+        """No-op."""
+
+
+def _task_row(
+    task_id: int, ticket_id: int, duration: int, author: int
+) -> dict[str, Any]:
+    return {
+        "id": task_id,
+        "tickets_id": ticket_id,
+        "actiontime": duration,
+        "users_id": author,
+        "users_id_tech": 999,
+        "date_creation": "2026-07-10 09:00:00",
+    }
+
+
+def test_v1_task_statistics_matches_the_per_ticket_shape(client: GlpiClient) -> None:
+    """The bulk v1 sweep produces the same aggregate as the per-ticket path.
+
+    v1 ``actiontime`` is v2 ``duration`` and v1 ``users_id`` is the v2 task
+    ``user``; both were confirmed equal against a live GLPI 11 instance, so
+    the optimisation must not change any returned value.
+    """
+
+    rows = [
+        _task_row(1, 10, 600, 5),
+        _task_row(2, 10, 300, 5),
+        _task_row(3, 11, 900, 7),
+        # Belongs to a ticket outside the requested set and must be ignored.
+        _task_row(4, 99, 12345, 5),
+    ]
+    client._v1 = _FakeV1Tasks(rows)  # type: ignore[assignment]
+
+    result = client._v1_task_statistics([10, 11], since=date(2026, 7, 1))
+
+    assert result["ticket_count"] == 2
+    assert result["task_count"] == 3
+    assert result["total_duration"] == 1800
+    assert result["duration_by_ticket"] == {10: 900, 11: 900}
+    assert result["duration_by_user"] == {"5": 900, "7": 900}
+
+
+def test_v1_task_statistics_stops_paging_before_the_window(
+    client: GlpiClient,
+) -> None:
+    """Paging stops once a page predates the window start.
+
+    A task cannot exist before its ticket, so nothing relevant is skipped.
+    """
+
+    old = _task_row(5, 10, 60, 5) | {"date_creation": "2020-01-01 09:00:00"}
+    fake = _FakeV1Tasks([_task_row(1, 10, 600, 5), old], page_size=2)
+    client._v1 = fake  # type: ignore[assignment]
+
+    result = client._v1_task_statistics([10], since=date(2026, 7, 1))
+
+    # Both rows are in the first page, so they are both aggregated; the
+    # sweep then stops rather than requesting another page.
+    assert result["task_count"] == 2
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["path"] == "TicketTask"
+    assert fake.calls[0]["params"]["sort"] == "date_creation"
+    assert fake.calls[0]["params"]["order"] == "DESC"
+
+
+def test_get_task_durations_uses_per_ticket_path_below_threshold(
+    client: GlpiClient,
+) -> None:
+    """A small ticket set keeps the v2 per-ticket path and needs no v1."""
+
+    def fake_iter(rsql_filter: str = "", *, batch_size: int = 200):
+        yield [_make_ticket(1)]
+
+    calls: list[list[int]] = []
+
+    def fake_task_stats(ticket_ids: list[int]) -> dict[str, Any]:
+        calls.append(ticket_ids)
+        return {
+            "ticket_count": len(ticket_ids),
+            "task_count": 0,
+            "total_duration": 0,
+            "duration_by_user": {},
+            "duration_by_ticket": {},
+        }
+
+    client.iter_search_tickets = fake_iter  # type: ignore[method-assign]
+    client.get_task_statistics = fake_task_stats  # type: ignore[method-assign]
+    # No v1 session configured at all: the small-set path must not need one.
+    result = client.get_task_durations(start_date="2026-07-01", end_date="2026-07-31")
+
+    assert result["task_count"] == 0
+    assert calls == [[1]]

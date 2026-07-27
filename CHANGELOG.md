@@ -48,6 +48,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   baseline, and a non-numeric value returned the same arbitrary 3 rows
   whatever the string. A non-positive or non-`int` id now raises
   `GlpiValidationError`.
+- **The per-ticket task fan-out is replaced by one bulk sweep.** The v2 API
+  publishes tasks only under `/Assistance/Ticket/{id}/Timeline/Task`, so
+  aggregating N tickets cost N requests. The v1 `TicketTask` *collection*
+  returns whole rows including `tickets_id`, paged 1000 at a time, so the
+  same aggregate now costs one page per 1000 tasks created since the window
+  opened. Measured live on a 120-ticket set: **120 requests / 11.7 s -> 2
+  requests / 0.4 s**, with `ticket_count`, `task_count`, `total_duration`,
+  `duration_by_ticket` and `duration_by_user` all byte-identical between the
+  two paths. Below 25 tickets the per-ticket path is cheaper and is kept, so
+  clients without a v1 session are unaffected.
+
+  Note v1 `search/TicketTask` is *not* usable for this: its searchOptions
+  expose the task id, content, category, date, privacy, technician, duration
+  and state, but no parent ticket id, so results cannot be attributed back
+  to a ticket. The plain collection endpoint is what carries `tickets_id`.
+
 - `get_user_activity` walks the date window **once** for all users instead of
   twice per user. Combined with the corrected filters this took one user over
   90 days from **979 requests / 120 s to 9 requests / 5.1 s**, verified live.

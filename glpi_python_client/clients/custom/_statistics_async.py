@@ -23,6 +23,7 @@ from glpi_python_client.clients.custom._statistics import (
     _LIVE_TICKETS,
     _V1_SO_ASSIGNEE,
     _V1_SO_REQUESTER,
+    _V1_TASK_BULK_THRESHOLD,
     StatisticsMixin,
     TaskDurationsResult,
     TaskStatisticsResult,
@@ -231,7 +232,18 @@ class AsyncStatisticsMixin(StatisticsMixin):
                 ticket_ids.append(ticket.id)
                 ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
 
-        result = await self.get_task_statistics(ticket_ids)
+        # Mirrors the synchronous mixin: one bulk v1 sweep replaces the
+        # per-ticket fan-out for large ticket sets. The v1 call is blocking,
+        # so it runs in a worker thread.
+        if self._v1 is not None and len(ticket_ids) >= _V1_TASK_BULK_THRESHOLD:
+            result = await asyncio.to_thread(
+                StatisticsMixin._v1_task_statistics,
+                self,
+                ticket_ids,
+                since=start,
+            )
+        else:
+            result = await self.get_task_statistics(ticket_ids)
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
         for tid, dur in result["duration_by_ticket"].items():

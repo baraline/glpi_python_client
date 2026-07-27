@@ -53,6 +53,16 @@ _V1_SO_ASSIGNEE = 5  # "Technicien" -- glpi_tickets_users.users_id, type=2
 #: HTTP 400, so paging is bounded by ``totalcount`` rather than by probing.
 _V1_SEARCH_PAGE_SIZE = 1000
 
+#: Rows fetched per page from the v1 ``TicketTask`` collection.
+_V1_TASK_PAGE_SIZE = 1000
+
+#: Above this many tickets, one bulk v1 task sweep beats a per-ticket v2
+#: request each. The sweep costs one page per 1000 tasks created since the
+#: window opened -- typically one or two -- while the per-ticket path costs
+#: exactly ``len(ticket_ids)`` requests. Below the threshold the per-ticket
+#: path is cheaper and needs no v1 session, so it stays the default.
+_V1_TASK_BULK_THRESHOLD = 25
+
 
 def _validate_actor_id(value: int, parameter: str) -> int:
     """Return ``value`` when it is usable as a GLPI user identifier.
@@ -208,6 +218,102 @@ class StatisticsMixin(TransportMixin):
             if start >= total:
                 break
         return ids
+
+    def _v1_task_statistics(
+        self, ticket_ids: list[int], *, since: date
+    ) -> TaskStatisticsResult:
+        """Aggregate tasks for ``ticket_ids`` with one bulk v1 sweep.
+
+        Replaces the per-ticket fan-out for large ticket sets. The v2 API
+        publishes tasks only under ``/Assistance/Ticket/{id}/Timeline/Task``,
+        so aggregating N tickets costs N requests; the v1 ``TicketTask``
+        collection returns whole rows -- including ``tickets_id`` -- and
+        pages 1000 at a time.
+
+        Note that v1 ``search/TicketTask`` is *not* usable here: its
+        searchOptions expose the task's own id, content, category, date,
+        privacy, technician, duration and state, but no parent ticket id,
+        so results could not be attributed back to a ticket.
+
+        Rows are swept newest-first and paging stops once a page predates
+        ``since``. A task cannot be created before the ticket it belongs to,
+        and every ticket under consideration was created on or after
+        ``since``, so no relevant task is missed. The upper end is
+        deliberately unbounded: a ticket created inside the window may still
+        gain tasks long afterwards.
+
+        The returned aggregate is identical to :meth:`get_task_statistics`
+        for the same tickets -- v1 ``actiontime`` is v2 ``duration``, and v1
+        ``users_id`` is the v2 task ``user`` (the author; the technician
+        lives in ``users_id_tech``, which v2 does not expose). Rows are
+        mapped into ``GetTicketTask`` and summarised by the same helper, so
+        the two paths cannot drift apart.
+
+        Parameters
+        ----------
+        ticket_ids : list[int]
+            Tickets whose tasks should be aggregated.
+        since : date
+            Lower bound on task creation; the start of the caller's window.
+
+        Returns
+        -------
+        TaskStatisticsResult
+            Same shape and keys as :meth:`get_task_statistics`.
+
+        Raises
+        ------
+        RuntimeError
+            When the client has no v1 session configured.
+        """
+
+        v1 = self._require_v1_session("bulk task statistics")
+        wanted = set(ticket_ids)
+        cutoff = since.isoformat()
+        tasks: list[GetTicketTask] = []
+        start = 0
+        while True:
+            payload = v1.request_json(
+                "GET",
+                "TicketTask",
+                params={
+                    "range": f"{start}-{start + _V1_TASK_PAGE_SIZE - 1}",
+                    "sort": "date_creation",
+                    "order": "DESC",
+                },
+            )
+            if not isinstance(payload, list) or not payload:
+                break
+            oldest_seen: str | None = None
+            for row in payload:
+                if not isinstance(row, dict):
+                    continue
+                created = row.get("date_creation")
+                if isinstance(created, str) and created:
+                    oldest_seen = created
+                ticket_id = row.get("tickets_id")
+                if not isinstance(ticket_id, int) or ticket_id not in wanted:
+                    continue
+                author = row.get("users_id")
+                duration = row.get("actiontime")
+                tasks.append(
+                    GetTicketTask(
+                        id=row.get("id") if isinstance(row.get("id"), int) else None,
+                        tickets_id=ticket_id,
+                        duration=duration if isinstance(duration, int) else 0,
+                        user=(
+                            IdNameRef(id=author)
+                            if isinstance(author, int) and author
+                            else None
+                        ),
+                    )
+                )
+            if len(payload) < _V1_TASK_PAGE_SIZE:
+                break
+            if oldest_seen is not None and oldest_seen[:10] < cutoff:
+                break
+            start += _V1_TASK_PAGE_SIZE
+        return _summarize_tasks(ticket_ids, tasks)
 
     def get_ticket_statistics(
         self,
@@ -492,7 +598,12 @@ class StatisticsMixin(TransportMixin):
                 ticket_ids.append(ticket.id)
                 ticket_entity_map[ticket.id] = _entity_key(ticket.entity)
 
-        result = self.get_task_statistics(ticket_ids)
+        # One bulk v1 sweep replaces the per-ticket fan-out once the ticket
+        # set is big enough to pay for it; the aggregate is identical.
+        if self._v1 is not None and len(ticket_ids) >= _V1_TASK_BULK_THRESHOLD:
+            result = self._v1_task_statistics(ticket_ids, since=start)
+        else:
+            result = self.get_task_statistics(ticket_ids)
         duration_by_ticket = result["duration_by_ticket"]
 
         duration_by_entity: defaultdict[str, int] = defaultdict(int)
