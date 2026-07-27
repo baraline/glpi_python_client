@@ -210,9 +210,19 @@ async def test_async_get_task_durations_entity_name_match(
             "duration_by_ticket": {1: 0},
         }
 
+    class _FakeV1:
+        """v1 stand-in: ``user_id`` is resolved through the v1 search."""
+
+        def request_json(self, method: str, path: str, **kwargs: Any) -> object:
+            return {"totalcount": 1, "data": [{"2": 1}]}
+
+        def close(self) -> None:
+            """No-op."""
+
     aclient.search_entities = fake_search_entities  # type: ignore[method-assign]
     aclient.iter_search_tickets = fake_iter  # type: ignore[method-assign]
     aclient.get_task_statistics = fake_stats  # type: ignore[method-assign]
+    aclient._v1 = _FakeV1()  # type: ignore[assignment]
 
     result = await aclient.get_task_durations(
         start_date="2026-01-01",
@@ -224,9 +234,16 @@ async def test_async_get_task_durations_entity_name_match(
         extra_filter="status==1",
     )
     assert result["task_count"] == 0
-    assert "entities_id==42" in captured["filter"]
-    assert "users_id_assign==7" in captured["filter"]
-    assert "users_id_lastupdater==8" in captured["filter"]
-    assert "users_id_requester==9" in captured["filter"]
+    assert "entity.id==42" in captured["filter"]
+    assert "user_editor.id==8" in captured["filter"]
+    assert "user_recipient.id==9" in captured["filter"]
     assert "status==1" in captured["filter"]
+    assert "is_deleted==false" in captured["filter"]
+    # ``user_id`` selects on actors, which v2 cannot express, so it is
+    # resolved through v1 and must not appear in the v2 filter at all.
+    assert "users_id_assign" not in captured["filter"]
+    assert "user_id" not in captured["filter"]
+    # None of the dropped v1 spellings may come back.
+    for dead in ("entities_id", "users_id_lastupdater", "users_id_requester"):
+        assert dead not in captured["filter"]
     await aclient.close()

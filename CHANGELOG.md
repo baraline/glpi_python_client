@@ -8,6 +8,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The statistics layer sent GLPI v1 field names to the v2 API, which
+  silently ignored them and returned unfiltered results.** v2 drops a
+  `filter=` conjunct whose field it does not recognise, honours the rest,
+  and answers 200/206 with no error — so the aggregations narrowed by date
+  and looked plausible while ignoring the user and entity selection
+  entirely. Measured against a live GLPI 11 instance,
+  `get_user_activity` reported `tickets_as_technician == tickets_as_recipient
+  == 963` — the window's *total* ticket count — for every user regardless of
+  who they were. Corrected:
+  - `entities_id==N` → `entity.id==N` (v2 types `entity` as an object).
+  - `users_id_lastupdater==N` → `user_editor.id==N`.
+  - `users_id_requester==N` (as `user_recipient_id`) → `user_recipient.id==N`,
+    which is what that parameter's *name* has always meant. Note the v2
+    `user_recipient` field is `users_id_recipient` — who *recorded* the
+    ticket — not the requester link; the two are different people.
+  - `users_id_assign` / `users_id_requester` (as `user_id`) have **no v2
+    equivalent at all**: the v2 `team` array cannot be joined by the RSQL
+    engine (the four contract-declared subfields answer HTTP 500 and every
+    other spelling is silently ignored — 19 spellings were tested). These
+    now resolve through the legacy v1 search engine, whose searchOption 5
+    (`Technicien`) and 4 (`Demandeur`) map exactly onto the
+    `glpi_tickets_users` link types, and which fails **loudly** (HTTP 400)
+    on an unknown field instead of silently returning everything.
+- **`rsql_any_filter` produced an unparenthesised OR group**, and RSQL binds
+  `;` (AND) tighter than `,` (OR). `get_ticket_statistics(entity_name=...)`
+  matching several entities emitted `date;e==1,e==2`, which the server reads
+  as `(date AND e==1) OR e==2` — the date window stopped applying to every
+  entity after the first. Measured live: 16,245 tickets returned where the
+  correct answer was 1,552. OR groups are now wrapped in parentheses.
+- **v2 ticket searches counted soft-deleted tickets.** The v2 search includes
+  trashed tickets by default while v1 excludes them (59,690 live + 258
+  trashed = 59,948), so every aggregation was inflated by the trash bin — for
+  one user 92% of matches were deleted tickets. All v2 ticket queries in the
+  statistics layer now pin `is_deleted==false`.
+- Actor identifiers are validated before reaching the v1 search, which fails
+  *open* rather than rejecting bad input: `equals 0` matched 20,905 tickets
+  (a LEFT-JOIN-NULL "has no actor" match), an empty value matched the entire
+  baseline, and a non-numeric value returned the same arbitrary 3 rows
+  whatever the string. A non-positive or non-`int` id now raises
+  `GlpiValidationError`.
+- `get_user_activity` walks the date window **once** for all users instead of
+  twice per user. Combined with the corrected filters this took one user over
+  90 days from **979 requests / 120 s to 9 requests / 5.1 s**, verified live.
+
+  Actor-based statistics now require the legacy v1 session (`v1_base_url` +
+  `v1_user_token`) and raise `RuntimeError` naming the missing options when
+  it is absent, rather than returning a wrong number.
+
 - `GLPITokenManager._refresh_access_token`'s retry decorator no longer
   retries a `GlpiServerError` from its fall-through to the nested
   `_acquire_token()` call. That nested call already carries its own

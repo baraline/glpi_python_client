@@ -11,6 +11,32 @@ from glpi_python_client import AsyncGlpiClient, GlpiValidationError
 from glpi_python_client.testing.utils import FakeResponse, make_async_client
 
 
+class _FakeV1Ids:
+    """Minimal v1 session returning a fixed ticket-id set for any actor query.
+
+    ``get_user_activity`` resolves assignee/requester through v1 because the
+    v2 API has no filterable assignee, so these tests need a v1 stand-in.
+    """
+
+    def __init__(self, ticket_ids: list[int]) -> None:
+        self.ticket_ids = ticket_ids
+
+    def request_json(self, method: str, path: str, **kwargs: Any) -> object:
+        rows = [{"2": ticket_id} for ticket_id in self.ticket_ids]
+        return {"totalcount": len(rows), "data": rows}
+
+    def close(self) -> None:
+        """No-op; the real session is closed with the client."""
+
+
+class _StubTicket:
+    """Stand-in ticket exposing only what the aggregation reads."""
+
+    def __init__(self, ticket_id: int) -> None:
+        self.id = ticket_id
+        self.entity = None
+
+
 async def test_async_bridge_uses_provided_executor() -> None:
     """A custom executor is used to dispatch the wrapped sync call."""
 
@@ -552,6 +578,7 @@ async def test_async_get_user_activity_by_user_id() -> None:
 
     client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
     client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+    client._v1 = _FakeV1Ids([])  # type: ignore[assignment]
 
     result = await client.get_user_activity(user_id=42)
     assert "users" in result
@@ -608,6 +635,7 @@ async def test_async_get_user_activity_by_username() -> None:
     client.search_users = fake_search_users  # type: ignore[method-assign]
     client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
     client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+    client._v1 = _FakeV1Ids([])  # type: ignore[assignment]
 
     result = await client.get_user_activity(username="alice")
     assert "users" in result
@@ -644,7 +672,7 @@ async def test_async_get_user_activity_counts_ticket_batches() -> None:
     client = make_async_client()
 
     async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
-        yield [{"id": 1}]
+        yield [_StubTicket(1)]
 
     async def fake_task_durations(**kwargs: Any) -> Any:
         return TaskDurationsResult(
@@ -659,11 +687,63 @@ async def test_async_get_user_activity_counts_ticket_batches() -> None:
 
     client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
     client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+    # Ticket 1 is in the window and is linked to the user under both roles.
+    client._v1 = _FakeV1Ids([1])  # type: ignore[assignment]
 
     result = await client.get_user_activity(user_id=99)
     entry = list(result["users"].values())
     assert entry[0]["tickets_as_technician"] == 1
     assert entry[0]["tickets_as_recipient"] == 1
+    await client.close()
+
+
+async def test_async_get_user_activity_counts_are_role_specific() -> None:
+    """Assignee and requester counts come from independent v1 id sets.
+
+    The previous implementation sent v1 field names to v2, which silently
+    ignored them, so both counts collapsed to "every ticket in the window"
+    and were always equal. Here the window holds two tickets but the user
+    is linked to only one, under one role.
+    """
+
+    from glpi_python_client.clients.custom._statistics import TaskDurationsResult
+
+    client = make_async_client()
+
+    async def fake_iter_tickets(rsql_filter: str = "", **kwargs: Any) -> Any:
+        yield [_StubTicket(1), _StubTicket(2)]
+
+    async def fake_task_durations(**kwargs: Any) -> Any:
+        return TaskDurationsResult(
+            start_date="2025-01-01",
+            end_date="2025-01-31",
+            total_duration=0,
+            task_count=0,
+            duration_by_user={},
+            duration_by_entity={},
+            tasks=None,
+        )
+
+    class _RoleAwareV1:
+        def request_json(self, method: str, path: str, **kwargs: Any) -> object:
+            params = kwargs.get("params") or {}
+            option = int(str(params.get("criteria[0][field]")))
+            # searchOption 5 == assignee, 4 == requester.
+            ids = [1] if option == 5 else []
+            rows = [{"2": ticket_id} for ticket_id in ids]
+            return {"totalcount": len(rows), "data": rows}
+
+        def close(self) -> None:
+            """No-op; the real session is closed with the client."""
+
+    client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
+    client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+    client._v1 = _RoleAwareV1()  # type: ignore[assignment]
+
+    result = await client.get_user_activity(user_id=99)
+    entry = next(iter(result["users"].values()))
+    assert entry["tickets_as_technician"] == 1
+    assert entry["tickets_as_recipient"] == 0
     await client.close()
 
 
@@ -702,6 +782,7 @@ async def test_async_get_user_activity_merges_duplicate_display_keys() -> None:
     client.search_users = fake_search_users  # type: ignore[method-assign]
     client.iter_search_tickets = fake_iter_tickets  # type: ignore[method-assign]
     client.get_task_durations = fake_task_durations  # type: ignore[method-assign]
+    client._v1 = _FakeV1Ids([])  # type: ignore[assignment]
 
     result = await client.get_user_activity(username="Smith")
     # Both users merge under "John Smith" key
