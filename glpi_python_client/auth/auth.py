@@ -10,14 +10,17 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-import requests
+import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._errors import (
     GlpiServerError,
+    GlpiTransportError,
     GlpiValidationError,
     status_error_class,
 )
+from glpi_python_client.clients.commons._config import build_http_session
+from glpi_python_client.clients.commons._http import transport_error_from
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +43,8 @@ class GLPITokenManager:
     password : str | None, optional
         Password for the password grant flow. Provide it together with
         ``username``.
-    session : requests.Session | None, optional
-        Existing session to reuse.
+    session : httpx.Client | None, optional
+        Existing HTTP client to reuse.
     auth_token_refresh : int | None, optional
         Maximum token age in seconds before a refresh is attempted. ``None``
         disables interval-based refreshes.
@@ -54,7 +57,7 @@ class GLPITokenManager:
         client_secret: str | None = None,
         username: str | None = None,
         password: str | None = None,
-        session: requests.Session | None = None,
+        session: httpx.Client | None = None,
         auth_token_refresh: int | None = None,
     ) -> None:
         self._token_url = token_url
@@ -63,7 +66,7 @@ class GLPITokenManager:
         self._username = username
         self._password = password
         self._owns_session = session is None
-        self._session = session or requests.Session()
+        self._session = session or build_http_session(verify_ssl=True)
         self._auth_token_refresh_interval = _refresh_interval(auth_token_refresh)
 
         self._validate_credentials()
@@ -72,6 +75,25 @@ class GLPITokenManager:
         self.refresh_token: str | None = None
         self.token_expires_at: datetime | None = None
         self.token_updated_at: datetime | None = None
+
+    def _post_token_request(self, data: dict[str, str]) -> httpx.Response:
+        """POST the OAuth token endpoint, translating transport faults.
+
+        Network failures surface as
+        :class:`~glpi_python_client.GlpiTransportError` so the retry
+        predicates below can name a library-owned type and callers never have
+        to import the HTTP library to catch a connection failure.
+
+        Raises
+        ------
+        GlpiTransportError
+            When the token request never produced a response.
+        """
+
+        try:
+            return self._session.post(self._token_url, data=data, timeout=30)
+        except httpx.HTTPError as exc:
+            raise transport_error_from(exc, method="post", url=self._token_url) from exc
 
     @property
     def auth_token_refresh(self) -> int | None:
@@ -230,7 +252,7 @@ class GLPITokenManager:
         return now >= self.token_updated_at + self._auth_token_refresh_interval
 
     @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+        retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
         reraise=True,
@@ -255,7 +277,7 @@ class GLPITokenManager:
         """
 
         data = self._build_token_request_data()
-        response = self._session.post(self._token_url, data=data, timeout=30)
+        response = self._post_token_request(data)
         if 200 <= response.status_code < 300:
             self._store_token_data(response.json())
             return
@@ -272,7 +294,7 @@ class GLPITokenManager:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type(GlpiTransportError),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
         reraise=True,
@@ -297,7 +319,7 @@ class GLPITokenManager:
         GlpiServerError
             If the token endpoint fails (5xx) while refreshing. This
             method's own retry decorator only matches
-            ``requests.RequestException`` (network-level faults), not
+            ``GlpiTransportError`` (network-level faults), not
             ``GlpiServerError``, so it does not retry the fall-through to
             :meth:`_acquire_token`. The nested call carries its own
             independent decorator, which does retry ``GlpiServerError`` up
@@ -324,7 +346,7 @@ class GLPITokenManager:
             assert self._client_secret is not None
             data["client_id"] = self._client_id
             data["client_secret"] = self._client_secret
-        response = self._session.post(self._token_url, data=data, timeout=30)
+        response = self._post_token_request(data)
         if 200 <= response.status_code < 300:
             self._store_token_data(response.json(), label="refreshed")
             return

@@ -48,14 +48,13 @@ classifiers = [
 ]
 dependencies = [
     "beautifulsoup4>=4.12",
+    "httpx>=0.28",
     "lxml>=4.9",
     "markdown>=3.6",
     "markdownify>=0.13",
     "pydantic>=2.8",
-    "requests>=2.31",
     "tenacity>=8.2",
     "typing-extensions>=4.7; python_version < '3.11'",
-    "urllib3>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -78,7 +77,7 @@ dev = [
     "sphinx-rtd-theme>=2.0",
     "tomli>=2.0; python_version < '3.11'",
     "twine>=5.1",
-    "types-requests>=2.32",
+    "unasync>=0.6",
     "vulture>=2.11",
 ]
 

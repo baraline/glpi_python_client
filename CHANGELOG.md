@@ -154,6 +154,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Breaking: the HTTP transport moved from `requests` to `httpx`.**
+  `requests` and `urllib3` are no longer dependencies. The v2 transport, the
+  legacy v1 session, and the OAuth token manager were swapped together in a
+  single change because they share `_http.py`; splitting them would have left
+  the shared code validated only by tests exercising the old transport.
+  Behaviour is preserved, which took three deliberate corrections where the
+  two libraries disagree and the difference is silent:
+  - **Query parameters with a `None` value are dropped**, as `requests` did.
+    `httpx` encodes them as a valueless `key=`, and GLPI treats an empty
+    filter or search value as *match everything* — so the swap would have
+    silently widened queries rather than leaving them unconstrained.
+  - **`bytes` and `bool` parameter values keep their previous rendering**
+    (`b"x"` → `x`, `True` → `True`). `httpx` would emit the Python repr
+    `b'x'` and a lowercase `true`.
+  - **Redirects are still followed.** `requests` follows them by default and
+    `httpx` does not, so a followed redirect would have started surfacing as
+    a bare 3xx response.
+- **Breaking: network-level faults now raise `GlpiTransportError`** (or its
+  `GlpiTimeoutError` subclass) instead of propagating the HTTP library's own
+  exception. This completes the promise the previous release documented:
+  catching `GlpiError` is now sufficient for the library's whole failure
+  surface, and you never need to import the HTTP library. The originating
+  exception is attached as `__cause__`. Code doing
+  `except requests.RequestException` should now catch `GlpiTransportError`.
+  Note it does *not* inherit `ValueError` — nothing was passed in wrongly and
+  no value came back.
+  - The retry predicates were retargeted onto this library-owned type in the
+    same change. This is the failure mode that made the swap risky: the
+    exception trees of the two libraries are completely disjoint, so a
+    predicate left naming the old one stops matching and **every retry
+    silently disappears** — no error, no warning, and a green test suite.
+    Naming a type the library itself raises makes that impossible to
+    reintroduce. A mutation test confirms the suite catches it: reverting the
+    predicate fails 7 tests across all three transports.
 - **Breaking:** a persistent 5xx now raises `GlpiServerError` instead of
   `tenacity.RetryError`. The retry decorators gained `reraise=True`. Code
   doing `except tenacity.RetryError` and digging out

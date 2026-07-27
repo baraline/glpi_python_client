@@ -12,14 +12,21 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-import requests
-import urllib3
+import httpx
 
 from glpi_python_client._errors import GlpiValidationError
 
 if TYPE_CHECKING:
     from glpi_python_client.auth._v1_session import GLPIV1Session
     from glpi_python_client.auth.auth import GLPITokenManager
+
+#: Request timeout applied to every call that does not override it.
+#:
+#: ``httpx`` defaults to 5 seconds where ``requests`` defaults to no timeout
+#: at all, so leaving this unset would silently start cutting off the slow
+#: GLPI searches that used to be allowed to finish. 30s matches the value the
+#: transport has always passed explicitly.
+DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class SessionFactory(Protocol):
@@ -31,7 +38,7 @@ class SessionFactory(Protocol):
     and a positional-argument factory would let that guarantee slip.
     """
 
-    def __call__(self, *, verify_ssl: bool) -> requests.Session:
+    def __call__(self, *, verify_ssl: bool) -> httpx.Client:
         """Return a session configured for ``verify_ssl``."""
 
 
@@ -44,40 +51,33 @@ class ClientResources:
     """
 
     glpi_api_url: str
-    session: requests.Session
+    session: httpx.Client
     auth: GLPITokenManager
     v1: GLPIV1Session | None
 
 
-def configure_ssl_warning_policy(*, verify_ssl: bool) -> None:
-    """Adjust insecure-request warning behaviour for the configured SSL policy.
-
-    When certificate verification is disabled, urllib3 warnings are muted so
-    callers do not get repeated noise from every request made by the
-    client.
-    """
-
-    if verify_ssl:
-        return
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-def build_http_session(*, verify_ssl: bool) -> requests.Session:
-    """Construct the HTTP session used for every GLPI call.
+def build_http_session(*, verify_ssl: bool) -> httpx.Client:
+    """Construct the HTTP client used for every GLPI call.
 
     This is the single place the library instantiates a transport session,
-    which makes it the seam the transport swap turns on. Two properties
-    matter and both are the reason this is a function rather than two inline
-    lines:
+    which is what makes the transport swappable at all. Three settings are
+    applied here deliberately, because each one differs between ``httpx``
+    and the ``requests`` transport this replaced:
 
-    * ``verify`` is applied **as part of construction**. ``requests``
-      tolerates assigning it afterwards; ``httpx`` does not — it reads
-      ``verify`` only in ``Client.__init__`` and a later assignment is
-      accepted and silently ignored, leaving certificate verification on
-      when the caller asked for it off.
-    * Callers that need to intercept traffic (tests, and anything wanting
-      ``httpx.MockTransport``) can substitute this factory instead of
-      monkey-patching a session after the fact.
+    * ``verify`` is applied **as part of construction**. ``httpx`` reads it
+      only in ``Client.__init__``; a later assignment is accepted and
+      silently ignored, which would leave certificate verification on when
+      the caller asked for it off.
+    * ``follow_redirects`` is enabled to preserve the previous behaviour.
+      ``requests`` follows redirects by default and ``httpx`` does not, so
+      omitting this would silently turn a followed redirect into a bare 3xx
+      response handed back to the caller.
+    * ``timeout`` is pinned to :data:`DEFAULT_TIMEOUT_SECONDS` rather than
+      left at the ``httpx`` default of 5 seconds.
+
+    Callers that need to intercept traffic (tests, and anything wanting
+    ``httpx.MockTransport``) can substitute this factory instead of
+    monkey-patching a session after the fact.
 
     Parameters
     ----------
@@ -86,13 +86,15 @@ def build_http_session(*, verify_ssl: bool) -> requests.Session:
 
     Returns
     -------
-    requests.Session
-        A session configured for the requested SSL policy.
+    httpx.Client
+        A client configured for the requested SSL policy.
     """
 
-    session = requests.Session()
-    session.verify = verify_ssl
-    return session
+    return httpx.Client(
+        verify=verify_ssl,
+        follow_redirects=True,
+        timeout=DEFAULT_TIMEOUT_SECONDS,
+    )
 
 
 def build_client_resources(
@@ -136,7 +138,6 @@ def build_client_resources(
         v1_base_url=v1_base_url,
         v1_user_token=v1_user_token,
     )
-    configure_ssl_warning_policy(verify_ssl=verify_ssl)
 
     factory = session_factory or build_http_session
     session = factory(verify_ssl=verify_ssl)
@@ -293,10 +294,11 @@ def validate_v1_document_config(
 
 
 __all__ = [
+    "DEFAULT_TIMEOUT_SECONDS",
     "ClientResources",
     "build_client_env_config",
     "build_client_resources",
-    "configure_ssl_warning_policy",
+    "build_http_session",
     "normalize_client_api_url",
     "parse_optional_env_bool",
     "parse_optional_env_int",

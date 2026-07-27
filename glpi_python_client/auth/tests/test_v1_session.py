@@ -5,10 +5,15 @@ from __future__ import annotations
 import json as jsonlib
 from typing import Any, cast
 
+import httpx
 import pytest
-import requests
 
-from glpi_python_client import GlpiProtocolError, GlpiServerError, GlpiValidationError
+from glpi_python_client import (
+    GlpiProtocolError,
+    GlpiServerError,
+    GlpiTransportError,
+    GlpiValidationError,
+)
 from glpi_python_client.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -21,7 +26,7 @@ def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _FakeV1Http:
-    """In-memory ``requests.Session`` stand-in capturing every call."""
+    """In-memory ``httpx.Client`` stand-in capturing every call."""
 
     def __init__(self, responses: dict[str, list[FakeResponse]]) -> None:
         self._responses = responses
@@ -44,7 +49,7 @@ class _FakeV1Http:
 
         ``GLPIV1Session`` routes authenticated calls through
         ``session.request(method, ...)`` rather than a per-verb attribute,
-        because that is the one call shape ``requests`` and ``httpx`` share.
+        because that is the one call shape every transport agrees on.
         This dispatches back to the per-verb handlers so their recorded
         call shapes stay identical.
         """
@@ -153,7 +158,7 @@ def _make(http: _FakeV1Http) -> GLPIV1Session:
         app_token="app-token",
         verify_ssl=True,
     )
-    session._http = cast(requests.Session, http)  # type: ignore[assignment]
+    session._http = cast(httpx.Client, http)  # type: ignore[assignment]
     return session
 
 
@@ -373,7 +378,7 @@ def test_v1_close_tolerates_kill_failure() -> None:
     class _BoomHttp(_FakeV1Http):
         def get(self, url: str, headers: dict[str, str], timeout: int) -> FakeResponse:
             if url.endswith("/killSession"):
-                raise requests.RequestException("boom")
+                raise httpx.RequestError("boom")
             return super().get(url, headers, timeout)
 
     http = _BoomHttp(
@@ -406,7 +411,7 @@ def test_request_json_sends_body_and_returns_parsed_payload() -> None:
     assert result == {"ok": True}
     post_call = next(call for call in http.calls if call["method"] == "POST")
     assert post_call["url"].endswith("/PluginFieldsContainer")
-    assert post_call["data"] == jsonlib.dumps({"input": {"name": "x"}})
+    assert post_call["content"] == jsonlib.dumps({"input": {"name": "x"}})
     assert post_call["headers"]["Content-Type"] == "application/json"
 
 
@@ -475,11 +480,11 @@ def test_request_json_retries_on_5xx() -> None:
 def test_request_json_retries_on_network_error() -> None:
     """Network faults during ``request_json`` are retried 3x, not swallowed.
 
-    Pins the ``requests.RequestException`` member of the v1 retry predicate
+    Pins the ``GlpiTransportError`` member of the v1 retry predicate
     (``_RETRY_ON_NETWORK_ERRORS`` in ``_v1_session.py``): the 5xx tests above
     only exercise the ``GlpiServerError`` member. Without this test a future
-    edit that narrows the predicate to drop ``requests.RequestException``
-    (for example when plan 3 swaps in ``GlpiTransportError``) would silently
+    edit that narrows the predicate to drop ``GlpiTransportError``
+    would silently
     drop v1 network retries from 3 attempts to 1 while every committed test
     stayed green.
     """
@@ -502,7 +507,7 @@ def test_request_json_retries_on_network_error() -> None:
                         **kwargs,
                     }
                 )
-                raise requests.ConnectionError("network down")
+                raise httpx.ConnectError("network down")
             return super().get(url, headers, timeout, **kwargs)
 
     http = _FlakyHttp(
@@ -511,7 +516,7 @@ def test_request_json_retries_on_network_error() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(requests.ConnectionError):
+    with pytest.raises(GlpiTransportError):
         session.request_json("GET", "PluginFieldsContainer")
     json_calls = [c for c in http.calls if c["url"].endswith("/PluginFieldsContainer")]
     assert len(json_calls) == 3

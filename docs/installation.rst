@@ -5,8 +5,8 @@ Requirements
 ------------
 
 ``glpi-python-client`` supports Python 3.10 and newer. Runtime dependencies are installed
-from the package metadata and include ``requests``, ``tenacity``,
-``beautifulsoup4``, ``lxml``, and ``urllib3``.
+from the package metadata and include ``httpx``, ``tenacity``,
+``beautifulsoup4``, ``lxml``, and ``pydantic``.
 
 Install from PyPI
 -----------------

@@ -274,15 +274,15 @@ def test_glpi_client_init_failure_closes_session(
 
     closed: dict[str, Any] = {}
 
-    import requests
+    import httpx
 
-    original_close = requests.Session.close
+    original_close = httpx.Client.close
 
-    def _track_close(self: requests.Session) -> None:
+    def _track_close(self: httpx.Client) -> None:
         closed["closed"] = True
         original_close(self)
 
-    monkeypatch.setattr(requests.Session, "close", _track_close)
+    monkeypatch.setattr(httpx.Client, "close", _track_close)
     with pytest.raises(ValueError):
         GlpiClient(
             glpi_api_url="https://glpi.example.test/api.php/v2",

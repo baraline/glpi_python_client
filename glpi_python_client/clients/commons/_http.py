@@ -10,27 +10,78 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-import requests
+import httpx
 
 from glpi_python_client._errors import (
     GlpiProtocolError,
     GlpiServerError,
+    GlpiTimeoutError,
+    GlpiTransportError,
     status_error_class,
 )
 from glpi_python_client.clients.commons._constants import RequestParamValue
 
 
-def response_reason(response: requests.Response) -> str:
-    """Return one response's HTTP reason phrase, whatever the transport.
+def transport_error_from(
+    exc: httpx.HTTPError,
+    *,
+    method: str,
+    url: str,
+) -> GlpiTransportError:
+    """Map one transport-level failure onto the library's public error type.
 
-    ``requests`` spells this ``Response.reason``; ``httpx`` spells it
-    ``Response.reason_phrase`` and has no ``reason`` attribute at all. Every
-    read of the phrase goes through this helper so swapping the transport
-    touches one function instead of every message that quotes it.
+    Network faults are the last part of the failure surface that still
+    escaped as third-party exceptions. Translating them here means callers
+    catch :class:`~glpi_python_client.GlpiError` and never have to import the
+    HTTP library, which is what :class:`~glpi_python_client.GlpiTransportError`
+    was reserved for.
+
+    It also removes a whole class of silent breakage. Retry predicates used
+    to name the HTTP library's own exception base; because those trees are
+    completely disjoint between libraries, swapping the transport without
+    editing every predicate made retries stop matching — silently, with no
+    error and a green test suite. Predicates now name this library-owned type
+    instead, so a future transport change cannot invalidate them.
 
     Parameters
     ----------
-    response : requests.Response
+    exc : httpx.HTTPError
+        The transport failure to translate.
+    method : str
+        HTTP verb, used only to build the message.
+    url : str
+        Absolute URL of the failed request, used only to build the message.
+
+    Returns
+    -------
+    GlpiTransportError
+        :class:`~glpi_python_client.GlpiTimeoutError` when the failure was a
+        timeout, otherwise :class:`~glpi_python_client.GlpiTransportError`.
+        The original exception should be attached with ``raise ... from exc``
+        by the caller.
+    """
+
+    error_class = (
+        GlpiTimeoutError
+        if isinstance(exc, httpx.TimeoutException)
+        else GlpiTransportError
+    )
+    return error_class(
+        f"GLPI {method.upper()} {url} failed: {type(exc).__name__}: {exc}"
+    )
+
+
+def response_reason(response: httpx.Response) -> str:
+    """Return one response's HTTP reason phrase, whatever the transport.
+
+    ``httpx`` spells this ``Response.reason_phrase``; ``requests`` spelled it
+    ``Response.reason``. Both spellings are probed so the helper keeps
+    working for the duck-typed response fakes in downstream test suites,
+    which were written against the older attribute name.
+
+    Parameters
+    ----------
+    response : httpx.Response
         Response to read the reason phrase from. Typed against the current
         transport; any object exposing either attribute works at runtime.
 
@@ -49,26 +100,52 @@ def response_reason(response: requests.Response) -> str:
 def request_params(
     params: dict[str, object] | None,
 ) -> dict[str, RequestParamValue] | None:
-    """Normalise query parameters into ``requests``-compatible values.
+    """Normalise query parameters into transport-compatible values.
 
     Each value is converted through :func:`request_param_value` so callers
     can pass richer Python objects without repeating serialisation logic.
+
+    Keys whose value is ``None`` are **dropped** rather than forwarded. This
+    is deliberate and load-bearing: ``requests`` omitted such keys from the
+    query string entirely, whereas ``httpx`` encodes them as a valueless
+    ``key=``. Sending an empty value to GLPI is not a no-op — an empty filter
+    or search value is interpreted as "match everything", so forwarding the
+    key would silently widen a query instead of leaving it unconstrained.
+    Normalising here keeps the emitted query string identical across
+    transports.
     """
 
     if params is None:
         return None
-    return {key: request_param_value(value) for key, value in params.items()}
+    return {
+        key: request_param_value(value)
+        for key, value in params.items()
+        if value is not None
+    }
 
 
 def request_param_value(value: object) -> RequestParamValue:
-    """Normalise one query parameter value for ``requests``.
+    """Normalise one query parameter value for the HTTP transport.
 
-    Native scalar values are preserved and any other object is stringified
-    so higher-level client code can pass enums and identifiers without
-    special handling.
+    Values are rendered exactly as the previous ``requests``-based transport
+    rendered them, so the wire format does not depend on which HTTP library
+    is installed. Two conversions exist only to preserve that:
+
+    * ``bytes`` are decoded to text. ``httpx`` would otherwise stringify the
+      object itself and emit the Python repr (``b'x'``) rather than its
+      contents.
+    * ``bool`` is rendered ``"True"``/``"False"``. ``httpx`` renders booleans
+      lowercase; ``requests`` did not. This is checked before ``int``
+      because ``bool`` is a subclass of ``int``.
     """
 
-    if value is None or isinstance(value, str | int | float | bytes):
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int | float):
         return value
     return str(value)
 
@@ -136,13 +213,13 @@ def build_request_url(glpi_api_url: str, endpoint: str) -> str:
 
 
 def finalize_request_response(
-    response: requests.Response,
+    response: httpx.Response,
     *,
     method: str,
     url: str,
     success_statuses: tuple[int, ...],
     logger: logging.Logger,
-) -> requests.Response:
+) -> httpx.Response:
     """Validate one GLPI transport response and preserve warning behaviour.
 
     Server errors are raised immediately while non-success statuses outside
@@ -180,7 +257,7 @@ def finalize_request_response(
 
 
 def ensure_response_status(
-    response: requests.Response,
+    response: httpx.Response,
     *,
     success_statuses: tuple[int, ...],
     failure_message: str,
@@ -208,7 +285,7 @@ def ensure_response_status(
         )
 
 
-def response_json_or_empty(response: requests.Response) -> object:
+def response_json_or_empty(response: httpx.Response) -> object:
     """Return the parsed JSON body or an empty mapping for empty responses.
 
     Unlike :func:`response_json_mapping` this helper preserves list and
@@ -221,7 +298,7 @@ def response_json_or_empty(response: requests.Response) -> object:
     return response.json()
 
 
-def response_json_mapping(response: requests.Response) -> Mapping[str, object]:
+def response_json_mapping(response: httpx.Response) -> Mapping[str, object]:
     """Return the JSON response payload as a mapping when possible.
 
     Empty response bodies become an empty mapping and non-mapping JSON
@@ -234,7 +311,7 @@ def response_json_mapping(response: requests.Response) -> Mapping[str, object]:
 
 
 def require_response_int(
-    response: requests.Response,
+    response: httpx.Response,
     *,
     keys: tuple[str, ...],
     missing_message: str,
@@ -312,5 +389,6 @@ __all__ = [
     "require_response_int",
     "response_json_mapping",
     "response_json_or_empty",
+    "transport_error_from",
     "unwrap_timeline_items",
 ]

@@ -18,7 +18,8 @@ Retry policy
 Every public dispatch helper (``_init_session``, ``request_json``,
 ``upload_document``) carries the same :mod:`tenacity` retry decorator
 used by the v2 transport: three attempts spaced by three seconds,
-triggered by :class:`requests.RequestException` (network faults) and
+triggered by :class:`~glpi_python_client.GlpiTransportError` (network
+faults) and
 :class:`~glpi_python_client.GlpiServerError` (which
 :func:`finalize_request_response` raises for 5xx server errors), with
 ``reraise=True`` so the real error surfaces once retries are exhausted.
@@ -39,12 +40,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
-import requests
+import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._errors import (
     GlpiProtocolError,
     GlpiServerError,
+    GlpiTransportError,
     GlpiValidationError,
 )
 from glpi_python_client.clients.commons._config import build_http_session
@@ -52,14 +54,20 @@ from glpi_python_client.clients.commons._http import (
     ensure_response_status,
     finalize_request_response,
     response_json_or_empty,
+    transport_error_from,
 )
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SESSION_REFRESH_INTERVAL_SECONDS = 15 * 60
 _AUTH_FAILURE_STATUS_CODES = frozenset({401, 403})
+#: Retry policy for the v1 session, expressed in library-owned types.
+#:
+#: Mirrors the v2 transport policy deliberately: naming the HTTP library's
+#: own exception base here would make the retries stop matching — silently —
+#: the next time the transport changes.
 _RETRY_ON_NETWORK_ERRORS = retry(
-    retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+    retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
     stop=stop_after_attempt(3),
     wait=wait_fixed(3),
     reraise=True,
@@ -104,6 +112,26 @@ class GLPIV1Session:
         self._session_token: str | None = None
         self._session_started_at: datetime | None = None
 
+    def _dispatch(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        """Send one raw v1 HTTP call, translating transport faults.
+
+        Every call this session makes goes through here so network failures
+        surface as :class:`~glpi_python_client.GlpiTransportError` rather than
+        as the HTTP library's own exception type. That is what lets the retry
+        predicate above name a library-owned type, and it keeps callers from
+        having to import the HTTP library to catch a connection failure.
+
+        Raises
+        ------
+        GlpiTransportError
+            When the request never produced a response.
+        """
+
+        try:
+            return self._http.request(method.upper(), url, **kwargs)
+        except httpx.HTTPError as exc:
+            raise transport_error_from(exc, method=method, url=url) from exc
+
     @_RETRY_ON_NETWORK_ERRORS
     def _init_session(self) -> None:
         """Acquire one fresh GLPI v1 session token via ``GET /initSession``.
@@ -123,7 +151,7 @@ class GLPIV1Session:
             headers["App-Token"] = self._app_token
 
         url = f"{self._base_url}/initSession"
-        response = self._http.get(url, headers=headers, timeout=30)
+        response = self._dispatch("GET", url, headers=headers, timeout=30)
         finalize_request_response(
             response,
             method="get",
@@ -198,7 +226,8 @@ class GLPIV1Session:
 
         if self._session_token is not None:
             try:
-                self._http.get(
+                self._dispatch(
+                    "GET",
                     f"{self._base_url}/killSession",
                     headers=self._session_headers(),
                     timeout=10,
@@ -225,7 +254,7 @@ class GLPIV1Session:
         success_statuses: tuple[int, ...],
         headers: dict[str, str] | None = None,
         **kwargs: Any,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Send one authenticated GLPI v1 request and finalize the response.
 
         When the GLPI server rejects the current token the helper renews
@@ -243,7 +272,7 @@ class GLPIV1Session:
         # per-verb attribute: it is the one call shape both transports share,
         # and it keeps the verb a value instead of an attribute name.
         verb = method.upper()
-        response = self._http.request(verb, url, headers=request_headers, **kwargs)
+        response = self._dispatch(verb, url, headers=request_headers, **kwargs)
         if _is_auth_failure_response(response):
             logger.warning(
                 "GLPI v1 session token was rejected; refreshing session and "
@@ -251,7 +280,7 @@ class GLPIV1Session:
             )
             self._renew_session()
             request_headers = {**self._headers(), **(headers or {})}
-            response = self._http.request(verb, url, headers=request_headers, **kwargs)
+            response = self._dispatch(verb, url, headers=request_headers, **kwargs)
         return finalize_request_response(
             response,
             method=method,
@@ -269,7 +298,8 @@ class GLPIV1Session:
 
         try:
             if self._session_token is not None:
-                self._http.get(
+                self._dispatch(
+                    "GET",
                     f"{self._base_url}/killSession",
                     headers=self._session_headers(),
                     timeout=10,
@@ -309,7 +339,7 @@ class GLPIV1Session:
             Resource path appended to the v1 base URL (without leading
             slash, e.g. ``"PluginFieldsContainer"``).
         params : dict[str, object] | None, optional
-            Query-string parameters forwarded to ``requests``.
+            Query-string parameters forwarded to the HTTP transport.
         json_body : dict[str, object] | None, optional
             JSON body serialised into the request when set. The
             ``Content-Type: application/json`` header is added
@@ -346,7 +376,7 @@ class GLPIV1Session:
             kwargs["params"] = params
         headers: dict[str, str] = {}
         if json_body is not None:
-            kwargs["data"] = json.dumps(json_body)
+            kwargs["content"] = json.dumps(json_body)
             headers["Content-Type"] = "application/json"
         response = self._authenticated_request(
             method,
@@ -419,7 +449,7 @@ class GLPIV1Session:
         return cast(dict[str, object], payload)
 
 
-def _is_auth_failure_response(response: requests.Response) -> bool:
+def _is_auth_failure_response(response: httpx.Response) -> bool:
     """Return whether one GLPI v1 response means the session token is invalid.
 
     Both HTTP-level rejection and the ``ERROR_SESSION_TOKEN_INVALID`` payload

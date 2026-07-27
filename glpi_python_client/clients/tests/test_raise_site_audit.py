@@ -28,6 +28,9 @@ _ALLOWED = {
     "GlpiServerError",
     "GlpiStatusError",
     "error_class",  # status_error_class(...) dispatch result
+    # transport_error_from(...) returns GlpiTransportError or its
+    # GlpiTimeoutError subclass; the AST sees the factory, not the class.
+    "transport_error_from",
     "RuntimeError",  # exempt by design -- see module docstring
     "TypeError",  # exempt by design -- see module docstring
 }
@@ -98,11 +101,19 @@ def test_no_bare_value_error_is_raised_by_library_code() -> None:
     assert offenders == [], f"bare ValueError raise sites remain: {offenders}"
 
 
-def test_no_requests_exception_is_raised_by_library_code() -> None:
-    """The library never raises a third-party HTTP exception directly."""
+def test_no_third_party_http_exception_is_raised_by_library_code() -> None:
+    """The library never raises a third-party HTTP exception directly.
 
-    offenders = [site for site in _raise_sites() if site[2].startswith("requests.")]
-    assert offenders == [], f"requests exception raise sites remain: {offenders}"
+    Both spellings are checked, not just the transport currently in use: the
+    point of the audit is that a raise site cannot drift back to a
+    third-party type, and naming only the current library would let the
+    previous one silently reappear.
+    """
+
+    offenders = [
+        site for site in _raise_sites() if site[2].startswith(("requests.", "httpx."))
+    ]
+    assert offenders == [], f"third-party exception raise sites remain: {offenders}"
 
 
 def test_every_raise_site_uses_an_allowed_exception() -> None:

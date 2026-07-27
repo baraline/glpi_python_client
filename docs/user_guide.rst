@@ -179,12 +179,12 @@ coroutine wrapper that schedules the call on a worker thread:
   passed to the constructor or to ``from_env``.
 
 Because the underlying HTTP layer is still backed by the blocking
-``requests`` library, every concurrent worker runs on a distinct
+:class:`httpx.Client`, every concurrent worker runs on a distinct
 thread. A shared :class:`threading.Lock` (not :class:`asyncio.Lock`)
 serialises OAuth token acquisition so concurrent ``asyncio.gather``
 fan-outs cannot race the auth manager, while the HTTP requests
 themselves execute outside the lock through the thread-safe
-:class:`requests.Session`.
+:class:`httpx.Client`.
 
 A number of helpers ship with hand-written async overrides rather than
 relying solely on the bridge. There are two reasons a method needs its
@@ -1420,23 +1420,25 @@ of the library surface:
    except GlpiError as exc:
        print(f"GLPI call failed: {exc}")
 
-This is not yet the client's entire failure surface. The client is still
-built on ``requests``, and network-level faults -- connection failures,
-DNS errors, timeouts -- still propagate as ``requests`` exceptions today
-rather than a :class:`~glpi_python_client.GlpiError` subclass. Catch
-``requests.RequestException`` alongside :class:`~glpi_python_client.GlpiError`
-if you need to handle those too:
+That single ``except`` clause covers network-level faults too.
+Connection failures, DNS errors and timeouts are translated into
+:class:`~glpi_python_client.GlpiTransportError` -- or its
+:class:`~glpi_python_client.GlpiTimeoutError` subclass for a timeout --
+so you never need to import the HTTP library to catch them. The original
+transport exception stays attached as ``__cause__`` for debugging, and
+these faults are retried three times before they surface:
 
 .. code-block:: python
 
-   import requests
-   from glpi_python_client import GlpiClient, GlpiError
+   from glpi_python_client import GlpiClient, GlpiTimeoutError, GlpiTransportError
 
    client = GlpiClient.from_env()
    try:
        ticket = client.get_ticket(42)
-   except (GlpiError, requests.RequestException) as exc:
-       print(f"GLPI call failed: {exc}")
+   except GlpiTimeoutError as exc:
+       print(f"GLPI was too slow: {exc} (cause: {exc.__cause__!r})")
+   except GlpiTransportError as exc:
+       print(f"GLPI was unreachable: {exc}")
 
 A handful of sites also deliberately still raise bare ``RuntimeError``
 (using a closed client, a missing v1 document session, a partially
@@ -1495,7 +1497,8 @@ a failed response. It logs a warning and falls through to a fresh token
 acquisition, which carries its own independent 3-attempt retry
 decorator. The refresh method's own retry decorator only retries a
 network-level fault on the refresh request itself (a
-``requests.RequestException`` raised before any response is received) —
+:class:`~glpi_python_client.GlpiTransportError` raised before any
+response is received) —
 it does **not** retry a :class:`~glpi_python_client.GlpiServerError`
 from the fall-through, since that failure is already being retried by
 the nested acquisition call. A persistent 5xx encountered while

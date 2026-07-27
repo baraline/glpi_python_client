@@ -8,7 +8,7 @@ behaviour.
 Concurrency model
 -----------------
 The transport is intentionally synchronous and backed by the blocking
-``requests`` library. Access to the auth token manager is serialised with
+``httpx.Client``. Access to the auth token manager is serialised with
 a :class:`threading.Lock` rather than an :class:`asyncio.Lock` because:
 
 * the sync :class:`~glpi_python_client.clients.GlpiClient` can be shared
@@ -23,8 +23,8 @@ A single :class:`threading.Lock` covers both clients with one primitive.
 The lock is held only for the short critical section that refreshes the
 token; HTTP calls themselves run without the lock so concurrent requests
 can proceed in parallel while sharing the same access token. The
-underlying :class:`requests.Session` connection pool is thread-safe for
-concurrent HTTP calls; the session is built once at construction time
+underlying :class:`httpx.Client` connection pool is thread-safe for
+concurrent HTTP calls; the client is built once at construction time
 and is never mutated afterwards.
 """
 
@@ -35,10 +35,10 @@ import threading
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-import requests
+import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from glpi_python_client._errors import GlpiServerError
+from glpi_python_client._errors import GlpiServerError, GlpiTransportError
 from glpi_python_client.clients.commons._http import (
     build_request_headers,
     build_request_url,
@@ -48,6 +48,7 @@ from glpi_python_client.clients.commons._http import (
     request_params,
     require_access_token,
     require_response_int,
+    transport_error_from,
     unwrap_timeline_items,
 )
 from glpi_python_client.clients.commons._payloads import (
@@ -63,6 +64,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ModelT = TypeVar("ModelT", bound=GlpiModel)
+
+#: Shared retry policy for every v2 transport verb.
+#:
+#: Declared once rather than repeated on each of the four verb helpers, and
+#: expressed entirely in library-owned exception types. Both parts are
+#: deliberate. A predicate that names the HTTP library's own exception base
+#: stops matching the moment the transport is swapped — the exception trees of
+#: the different libraries are completely disjoint — and retries then vanish
+#: with no error, no warning and a green test suite. Naming
+#: :class:`~glpi_python_client.GlpiTransportError`, which
+#: :func:`~glpi_python_client.clients.commons._http.transport_error_from`
+#: guarantees every network fault is translated into, makes that failure
+#: impossible to reintroduce.
+_RETRY_ON_NETWORK_ERRORS = retry(
+    retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(3),
+    reraise=True,
+)
 
 
 class TransportMixin:
@@ -80,14 +100,14 @@ class TransportMixin:
     the sync client directly or by the async client through
     :func:`asyncio.to_thread` — never race while updating shared
     authentication state. HTTP dispatch runs outside the lock and relies
-    on the thread-safety of :class:`requests.Session` for concurrent
+    on the thread-safety of :class:`httpx.Client` for concurrent
     calls.
     """
 
     _auth: GLPITokenManager
     _auth_lock: threading.Lock
     _closed: bool = False
-    _session: requests.Session
+    _session: httpx.Client
     _v1: GLPIV1Session | None
     entity_recursive: bool
     glpi_api_url: str
@@ -151,20 +171,32 @@ class TransportMixin:
         method: str,
         url: str,
         **kwargs: Any,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Dispatch one blocking HTTP call.
 
         The helper exists as an indirection seam so tests can stub HTTP
         dispatch without monkey-patching the session attribute directly.
 
         Dispatch goes through ``session.request(method, url, ...)`` rather
-        than looking up a per-verb attribute. ``request`` is the one call
-        shape ``requests`` and ``httpx`` agree on, and keeping the verb a
-        value rather than an attribute name means the transport swap does
-        not have to reason about dynamic attribute lookup.
+        than looking up a per-verb attribute, keeping the verb a value
+        instead of an attribute name.
+
+        Transport-level failures are translated into
+        :class:`~glpi_python_client.GlpiTransportError` (or
+        :class:`~glpi_python_client.GlpiTimeoutError`) here, at the single
+        point where the HTTP library is actually called, so no third-party
+        exception escapes into the caller's ``except`` clauses.
+
+        Raises
+        ------
+        GlpiTransportError
+            When the request never produced a response.
         """
 
-        return self._session.request(method.upper(), url, **kwargs)
+        try:
+            return self._session.request(method.upper(), url, **kwargs)
+        except httpx.HTTPError as exc:
+            raise transport_error_from(exc, method=method, url=url) from exc
 
     def _execute_request(
         self,
@@ -176,7 +208,7 @@ class TransportMixin:
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
         include_content_type: bool = False,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Execute one authenticated GLPI request.
 
         The helper normalises the endpoint URL, headers, timeout, and
@@ -215,21 +247,16 @@ class TransportMixin:
             logger=logger,
         )
 
-    @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @_RETRY_ON_NETWORK_ERRORS
     def _get_request(
         self,
         endpoint: str,
         params: dict[str, object] | None = None,
         skip_entity: bool = False,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Execute one authenticated GLPI ``GET`` request.
 
-        Network errors (:class:`requests.RequestException`) and 5xx
+        Network errors (:class:`~glpi_python_client.GlpiTransportError`) and 5xx
         responses (:class:`~glpi_python_client.GlpiServerError`) are
         retried up to 3 times, with ``reraise=True`` so the real error
         propagates once retries are exhausted; 4xx responses are
@@ -244,18 +271,13 @@ class TransportMixin:
             skip_entity=skip_entity,
         )
 
-    @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @_RETRY_ON_NETWORK_ERRORS
     def _post_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Execute one authenticated GLPI ``POST`` request.
 
         JSON request bodies automatically include the content-type header
@@ -271,17 +293,12 @@ class TransportMixin:
             include_content_type=True,
         )
 
-    @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @_RETRY_ON_NETWORK_ERRORS
     def _update_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Execute one authenticated GLPI ``PATCH`` request.
 
         The helper uses the same authenticated execution path as the
@@ -297,18 +314,13 @@ class TransportMixin:
             include_content_type=True,
         )
 
-    @retry(
-        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @_RETRY_ON_NETWORK_ERRORS
     def _delete_request(
         self,
         endpoint: str,
         json_body: dict[str, object] | None = None,
         skip_entity: bool = False,
-    ) -> requests.Response:
+    ) -> httpx.Response:
         """Execute one authenticated GLPI ``DELETE`` request.
 
         Some delete endpoints accept a JSON body, so the content-type

@@ -10,11 +10,18 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
+import httpx
 import pytest
-import requests
 from tenacity import wait_fixed
 
-from glpi_python_client import GlpiClient, GlpiNotFoundError, GlpiServerError
+from glpi_python_client import (
+    GlpiClient,
+    GlpiError,
+    GlpiNotFoundError,
+    GlpiServerError,
+    GlpiTimeoutError,
+    GlpiTransportError,
+)
 from glpi_python_client.clients.commons._http import ensure_response_status
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
@@ -144,7 +151,16 @@ def test_tolerant_search_still_returns_empty_on_4xx(client: Any) -> None:
 
 @pytest.mark.parametrize("method_name", _RETRIED_METHODS)
 def test_network_errors_are_still_retried(client: Any, method_name: str) -> None:
-    """Real ``requests`` transport faults keep their retry behaviour.
+    """Real transport faults are translated and still retried three times.
+
+    The fault is injected at ``session.request`` — *below* the translation
+    boundary — rather than by stubbing ``_send_request``. That matters: a stub
+    above the boundary would raise the HTTP library's own exception, which the
+    retry predicate no longer names, so the test would pass or fail for
+    reasons unrelated to the behaviour it is meant to pin. Injecting here
+    exercises the real path end to end: a genuine ``httpx`` fault, translated
+    into ``GlpiTransportError``, matched by the predicate, retried three
+    times, and surfaced to the caller as a library error.
 
     Parametrized across all four retried verbs so the network-fault attempt
     count is pinned for each, not just ``_get_request``.
@@ -152,12 +168,54 @@ def test_network_errors_are_still_retried(client: Any, method_name: str) -> None
 
     attempts: list[int] = []
 
-    def _send(method: str, url: str, **kw: Any) -> FakeResponse:
+    def _request(method: str, url: str, **kw: Any) -> FakeResponse:
         attempts.append(1)
-        raise requests.ConnectionError("network down")
+        raise httpx.ConnectError("network down")
 
-    client._send_request = _send
-    with pytest.raises(requests.ConnectionError):
+    client._session.request = _request
+    with pytest.raises(GlpiTransportError):
         getattr(client, method_name)("Assistance/Ticket")
 
     assert len(attempts) == 3
+
+
+@pytest.mark.parametrize("method_name", _RETRIED_METHODS)
+def test_no_third_party_exception_reaches_the_caller(
+    client: Any, method_name: str
+) -> None:
+    """A network fault never surfaces as the HTTP library's own exception.
+
+    The public contract is that ``GlpiError`` is sufficient to catch the
+    library's failures. This pins the half of that promise which used to be
+    false: transport faults escaped as third-party exceptions, forcing callers
+    to import the HTTP library. If the translation is ever removed, the raw
+    exception reaches the caller and this fails.
+    """
+
+    def _request(method: str, url: str, **kw: Any) -> FakeResponse:
+        raise httpx.ConnectError("network down")
+
+    client._session.request = _request
+    with pytest.raises(GlpiError) as excinfo:
+        getattr(client, method_name)("Assistance/Ticket")
+
+    assert not isinstance(excinfo.value, httpx.HTTPError)
+    # The original fault stays reachable for debugging.
+    assert isinstance(excinfo.value.__cause__, httpx.ConnectError)
+
+
+def test_timeouts_narrow_to_the_timeout_subclass(client: Any) -> None:
+    """A timeout surfaces as ``GlpiTimeoutError``, not just the base class.
+
+    ``GlpiTimeoutError`` exists so callers can single out the "GLPI was too
+    slow" case from "GLPI was unreachable". That only works if the translation
+    actually inspects the fault type rather than flattening everything to the
+    base class.
+    """
+
+    def _request(method: str, url: str, **kw: Any) -> FakeResponse:
+        raise httpx.ConnectTimeout("too slow")
+
+    client._session.request = _request
+    with pytest.raises(GlpiTimeoutError):
+        client._get_request("Assistance/Ticket")

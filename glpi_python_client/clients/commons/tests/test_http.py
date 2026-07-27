@@ -26,19 +26,39 @@ from glpi_python_client.testing.utils import FakeResponse
 
 
 def test_request_param_value_normalises_supported_types() -> None:
-    """The helper returns native scalar values unchanged and stringifies others."""
+    """The helper renders every value the way the wire format expects.
 
-    assert request_param_value(True) is True
+    Numbers and strings pass through untouched. ``bool`` and ``bytes`` are
+    converted deliberately, because the underlying HTTP libraries disagree
+    about them: ``httpx`` renders booleans lowercase and stringifies a
+    ``bytes`` object into its Python repr (``b'x'``), where the previous
+    ``requests``-based transport emitted ``True`` and the decoded text.
+    Normalising here keeps the emitted query string identical regardless of
+    which library is installed.
+    """
+
     assert request_param_value(7) == 7
+    assert request_param_value(1.5) == 1.5
     assert request_param_value("hello") == "hello"
+    assert request_param_value(True) == "True"
+    assert request_param_value(False) == "False"
+    assert request_param_value(b"raw") == "raw"
     assert request_param_value(object()) != ""
 
 
 def test_request_params_drops_none_values() -> None:
-    """``None`` parameter values are excluded from the produced query mapping."""
+    """``None`` parameter values are excluded from the produced query mapping.
+
+    This is a correctness guarantee, not a tidiness one. ``requests`` omitted
+    a ``None``-valued key from the query string entirely; ``httpx`` encodes it
+    as a valueless ``key=``. GLPI does not treat those the same — an empty
+    filter or search value matches *everything* — so forwarding the key would
+    silently widen a query rather than leave it unconstrained.
+    """
 
     cleaned = request_params({"limit": 10, "filter": None, "force": True})
-    assert cleaned == {"limit": 10, "filter": None, "force": True}
+    assert cleaned == {"limit": 10, "force": "True"}
+    assert "filter" not in cleaned
 
 
 def test_build_request_url_concatenates_base_and_endpoint() -> None:

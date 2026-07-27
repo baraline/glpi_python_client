@@ -20,10 +20,15 @@ _DEFAULT_CLIENT_CONFIG: dict[str, object] = {
 
 
 class FakeResponse:
-    """Small ``requests.Response`` stand-in for unit tests.
+    """Small HTTP-response stand-in for unit tests.
 
     The fake object implements only the attributes and ``json()`` behavior used
-    by the package's tests.
+    by the package's tests. It is duck-typed rather than a subclass of the
+    transport's response class, so it survived the move from ``requests`` to
+    ``httpx`` unchanged: the library reads the reason phrase through
+    :func:`~glpi_python_client.clients.commons._http.response_reason`, which
+    accepts either the ``reason`` spelling used here or the ``reason_phrase``
+    spelling ``httpx`` uses.
     """
 
     def __init__(

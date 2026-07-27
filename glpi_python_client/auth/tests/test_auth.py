@@ -3,11 +3,16 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import cast
 
+import httpx
 import pytest
-import requests
 from tenacity import wait_fixed
 
-from glpi_python_client import GlpiAuthError, GlpiServerError, GlpiValidationError
+from glpi_python_client import (
+    GlpiAuthError,
+    GlpiServerError,
+    GlpiTransportError,
+    GlpiValidationError,
+)
 from glpi_python_client.auth.auth import GLPITokenManager
 from glpi_python_client.testing.utils import FakeResponse, TokenResponse
 
@@ -33,7 +38,7 @@ def test_token_manager_uses_password_grant_with_user_credentials_only() -> None:
         token_url="https://glpi.example.test/api.php/token",
         username="api-user",
         password="api-password",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
 
     auth._acquire_token()
@@ -53,7 +58,7 @@ def test_token_manager_uses_client_credentials_grant() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
 
     auth._acquire_token()
@@ -73,7 +78,7 @@ def test_token_manager_preserves_raw_credential_text() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="  client-id  ",
         client_secret="  client-secret  ",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
 
     auth._acquire_token()
@@ -94,7 +99,7 @@ def test_token_manager_uses_password_grant_with_both_credential_sets() -> None:
         client_secret="client-secret",
         username="api-user",
         password="api-password",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
 
     auth._acquire_token()
@@ -115,7 +120,7 @@ def test_token_manager_refreshes_when_configured_interval_elapses() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
         auth_token_refresh=60,
     )
     auth.access_token = "old-token"
@@ -211,7 +216,7 @@ def test_oauth_401_raises_glpi_auth_error() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="wrong",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
     with pytest.raises(GlpiAuthError) as excinfo:
         manager.ensure_token()
@@ -230,7 +235,7 @@ def test_oauth_401_is_not_retried() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="wrong",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
     with pytest.raises(GlpiAuthError):
         manager.ensure_token()
@@ -249,7 +254,7 @@ def test_oauth_5xx_raises_glpi_server_error_after_retries(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
     with pytest.raises(GlpiServerError) as excinfo:
         manager.ensure_token()
@@ -273,7 +278,7 @@ def _make_refresh_ready_manager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
     manager.access_token = "stale-token"
     manager.refresh_token = "refresh-token"
@@ -324,7 +329,7 @@ def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
     call on any non-2xx response instead of raising directly
     (auth.py:327-332). That nested call is independently decorated with
     ``stop_after_attempt(3)`` and retries ``GlpiServerError``. This method's
-    own decorator only matches ``requests.RequestException`` (a genuine
+    own decorator only matches ``httpx.HTTPError`` (a genuine
     network fault on the refresh POST itself), not ``GlpiServerError``, so it
     does not retry the fall-through a second time on top of the nested
     call's own retries.
@@ -369,17 +374,17 @@ def test_acquire_token_network_error_is_retried_three_times(
 
         def post(self, url: str, data: dict[str, str], timeout: int) -> FakeResponse:
             self.calls.append({"url": url, "data": data, "timeout": timeout})
-            raise requests.ConnectionError("network down")
+            raise httpx.ConnectError("network down")
 
     session = _FailingSession()
     manager = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(requests.Session, session),
+        session=cast(httpx.Client, session),
     )
 
-    with pytest.raises(requests.ConnectionError):
+    with pytest.raises(GlpiTransportError):
         manager.ensure_token()
 
     assert len(session.calls) == 3
@@ -396,7 +401,8 @@ def test_refresh_network_error_is_retried_three_times(
     ``test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts``
     above, and ``_acquire_token``'s network retry is pinned by
     ``test_acquire_token_network_error_is_retried_three_times``. A
-    ``requests.ConnectionError`` raised by ``session.post`` propagates
+    ``httpx.ConnectError`` raised by ``session.post`` is translated to
+    ``GlpiTransportError`` and propagates
     *before* ``_refresh_access_token`` reaches its non-2xx fallthrough
     branch (auth.py:327-332), so the nested ``_acquire_token`` call is
     never reached here -- unlike the persistent-5xx case, this pins
@@ -416,12 +422,12 @@ def test_refresh_network_error_is_retried_three_times(
 
         def post(self, url: str, data: dict[str, str], timeout: int) -> FakeResponse:
             self.calls.append({"url": url, "data": data, "timeout": timeout})
-            raise requests.ConnectionError("network down")
+            raise httpx.ConnectError("network down")
 
     session = _FailingSession()
     manager = _make_refresh_ready_manager(cast(_FakeSession, session))
 
-    with pytest.raises(requests.ConnectionError):
+    with pytest.raises(GlpiTransportError):
         manager.ensure_token()
 
     assert len(session.calls) == 3
