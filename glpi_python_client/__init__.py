@@ -14,6 +14,7 @@ package root.
 
 from __future__ import annotations
 
+from glpi_python_client._async.clients import AsyncGlpiClient
 from glpi_python_client._errors import (
     GlpiAuthError,
     GlpiError,
@@ -25,7 +26,7 @@ from glpi_python_client._errors import (
     GlpiTransportError,
     GlpiValidationError,
 )
-from glpi_python_client.clients import AsyncGlpiClient, GlpiClient
+from glpi_python_client._sync.clients import GlpiClient
 from glpi_python_client.models import (
     DeleteDocument,
     DeleteEntity,

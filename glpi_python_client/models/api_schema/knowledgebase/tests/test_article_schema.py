@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from glpi_python_client.clients.commons._payloads import model_to_payload
+from glpi_python_client._sync.clients.commons._payloads import model_to_payload
 from glpi_python_client.models.api_schema._common import IdNameRef
 from glpi_python_client.models.api_schema.knowledgebase import (
     DeleteKBArticle,

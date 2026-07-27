@@ -164,62 +164,41 @@ When to pick which
   event loop (for example a FastAPI or aiohttp service, an async CLI,
   or a Jupyter notebook cell), or when you want concurrent fan-out.
 
-How the async client is implemented
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+How the two clients stay in step
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The asynchronous surface is a thin facade over the synchronous
-endpoint mixins. The
-:class:`~glpi_python_client.clients.commons._async_bridge.AsyncBridge`
-base class walks the MRO of :class:`AsyncGlpiClient` at class-creation
-time and wraps every inherited public synchronous method into a
-coroutine wrapper that schedules the call on a worker thread:
+Both clients are the same code. The asynchronous tree is written by hand
+and the synchronous one is *generated* from it: a build step strips
+``async``/``await`` and renames the handful of tokens that differ between
+the two surfaces. The generated tree is committed, and CI regenerates it
+and fails on any difference, so the two cannot drift apart.
 
-* by default through :func:`asyncio.to_thread`;
-* on a caller-supplied :class:`concurrent.futures.Executor` when one is
-  passed to the constructor or to ``from_env``.
+This is why the endpoint surfaces are identical and why a fix never has
+to be applied twice. It also means neither client is a wrapper around the
+other: :class:`AsyncGlpiClient` performs real non-blocking I/O on the
+event loop, and :class:`GlpiClient` performs real blocking I/O with no
+thread pool, no executor, and no coroutine scheduling.
 
-Because the underlying HTTP layer is still backed by the blocking
-:class:`httpx.Client`, every concurrent worker runs on a distinct
-thread. A shared :class:`threading.Lock` (not :class:`asyncio.Lock`)
-serialises OAuth token acquisition so concurrent ``asyncio.gather``
-fan-outs cannot race the auth manager, while the HTTP requests
-themselves execute outside the lock through the thread-safe
-:class:`httpx.Client`.
+Exactly one module is maintained separately for each surface, because the
+two need genuinely different primitives rather than differently-spelled
+ones:
 
-A number of helpers ship with hand-written async overrides rather than
-relying solely on the bridge. There are two reasons a method needs its
-own async variant:
-
-1. **Concurrency** — the method benefits from fanning multiple GLPI
-   calls out concurrently with :func:`asyncio.gather`.
-2. **Internal self-calls** — the method calls another public method
-   through ``self`` (e.g. ``self.search_tickets(...)`` inside a
-   pagination loop). When the bridge runs the synchronous body in a
-   worker thread, ``self.method`` resolves to the bridge-wrapped
-   *coroutine*, which returns a coroutine object instead of data when
-   called without ``await``. The async override replaces the body so
-   every internal call is properly awaited on the event loop.
-
-Helpers with async overrides:
-
-* :meth:`AsyncGlpiClient.get_ticket_context` — fans the five underlying
-  GLPI calls out concurrently (reason: concurrency).
-* :meth:`AsyncGlpiClient.get_task_statistics` — fans the per-ticket
-  task-list calls out concurrently (reason: concurrency).
-* :meth:`AsyncGlpiClient.get_task_durations` — fans the per-ticket task
-  fetches out concurrently when ``return_task_details=True``, and
-  properly awaits ``iter_search_tickets`` and ``search_entities``
-  internally (reasons: concurrency + internal self-calls).
-* :meth:`AsyncGlpiClient.get_ticket_statistics` — properly awaits
-  ``search_tickets`` and ``search_entities`` internally (reason:
-  internal self-calls).
-* :meth:`AsyncGlpiClient.get_user_activity` — properly awaits
-  ``search_users``, ``iter_search_tickets``, and ``get_task_durations``
-  internally (reason: internal self-calls).
-* ``iter_search_tickets``, ``iter_search_users``,
-  ``iter_search_entities`` — each pagination loop body calls
-  ``self.search_*(...)``; the async variants are native async generators
-  that ``await`` those calls directly (reason: internal self-calls).
+* **Fan-out.** Aggregating helpers such as
+  :meth:`AsyncGlpiClient.get_ticket_context` issue several GLPI calls
+  through a shared ``gather`` helper. On the async surface that is
+  :func:`asyncio.gather` and the calls overlap; on the sync surface the
+  arguments have already been evaluated by the time ``gather`` is
+  entered, so the same expression means "one after the other". The
+  calling code is identical.
+* **The auth lock.** :class:`AsyncGlpiClient` uses an
+  :class:`asyncio.Lock` and :class:`GlpiClient` a
+  :class:`threading.Lock`. Neither substitutes for the other. A
+  :class:`threading.Lock` on the event loop would be held across an
+  ``await``, so a second task waiting on it would block the loop and the
+  task holding it could never resume to release it. An
+  :class:`asyncio.Lock` in the sync client would bind itself to whichever
+  event loop first contended it, breaking the guarantee that one
+  :class:`GlpiClient` may be shared across threads.
 
 Pagination helpers (``iter_search_tickets``, ``iter_search_users``,
 ``iter_search_entities``) are exposed as **async generators** on the

@@ -42,34 +42,33 @@ python -m pytest
 
 - `glpi_python_client.__init__` exposes the public import surface,
   including both client classes and the Pydantic models.
-- `glpi_python_client.clients.sync_client.GlpiClient` is the
+- `glpi_python_client._sync.clients.client.GlpiClient` is the
   synchronous, blocking client. It is the single source of truth for
   endpoint behaviour: each public method lives on one of the sync
-  endpoint mixins under `glpi_python_client.clients.api.*` and
-  `glpi_python_client.clients.custom.*`.
-- `glpi_python_client.clients.async_client.AsyncGlpiClient` is the
+  endpoint mixins under `glpi_python_client._async.clients.api.*` and
+  `glpi_python_client._async.clients.custom.*`.
+- `glpi_python_client._async.clients.client.AsyncGlpiClient` is the
   asynchronous facade. It inherits the same endpoint mixins and uses
-  `glpi_python_client.clients.commons._async_bridge.AsyncBridge` to wrap
+  `glpi_python_client._async._concurrency` to wrap
   every inherited public sync method into a coroutine dispatched on a
   worker thread (`asyncio.to_thread` by default, or a caller-supplied
   `concurrent.futures.Executor`).
-- `glpi_python_client.clients.commons` holds the reusable building
+- `glpi_python_client._async.clients.commons` holds the reusable building
   blocks shared by every endpoint mixin: configuration helpers
   (`_config`), constants (`_constants`), errors (`_errors`), filters
   (`_filters`), HTTP helpers (`_http`), payload builders (`_payloads`),
-  the synchronous `TransportMixin` (`_transport`), and the
-  `AsyncBridge` (`_async_bridge`). A shared `threading.Lock` in the
-  transport serialises OAuth token acquisition so concurrent
-  `asyncio.gather` fan-outs on the async client cannot race.
-- `glpi_python_client.clients.api.*` contains the contract-aligned
+  and the `TransportMixin` (`_transport`). The transport serialises OAuth
+  token acquisition with the lock from `_async/_concurrency.py`, so
+  concurrent callers cannot race the token manager.
+- `glpi_python_client._async.clients.api.*` contains the contract-aligned
   endpoint mixins, grouped by GLPI subtree (administration, assistance,
   assistance/timeline, dropdowns, management, knowledgebase, plugins).
-  Most are synchronous; `knowledgebase/_article_async.py` and
-  `plugins/_fields_async.py` are hand-written async overrides needed
+  Each mixin is written once, in the async tree. (Historically some had
+  hand-written async overrides needed
   because their synchronous bodies call a sibling public method through
   `self` (see the `clients.custom` entry below for the other reason a
   method needs one).
-- `glpi_python_client.clients.custom` contains custom helpers built on
+- `glpi_python_client._async.clients.custom` contains custom helpers built on
   top of the API mixins. Each helper has a synchronous implementation
   (`_ticket_context.py`, `_statistics.py`) plus an async override
   (`_ticket_context_async.py`, `_statistics_async.py`) that fans the
@@ -78,7 +77,7 @@ python -m pytest
   other — a synchronous body calling a sibling public method through
   `self` — is why `clients.api.knowledgebase` and `clients.api.plugins`
   also ship one (see above).
-- `glpi_python_client.auth._v1_session` contains the legacy v1
+- `glpi_python_client._async.auth._v1_session` contains the legacy v1
   session used for binary document uploads.
 - `glpi_python_client.models` contains typed request and response
   models.
@@ -96,20 +95,21 @@ python -m pytest
 ## Adding Endpoints
 
 1. Add or extend a model in `glpi_python_client.models`.
-2. Add the client method on the matching **synchronous** endpoint mixin
-   under `glpi_python_client.clients.api.*` (or
-   `glpi_python_client.clients.custom.*` for derived helpers). The
-   async client picks the new method up automatically through the
-   `AsyncBridge` — do not duplicate the method on a parallel async
-   mixin unless you genuinely need concurrent fan-out (`asyncio.gather`)
-   inside the method body, **or** the method calls a sibling public
-   method through `self` (directly, or transitively via a private
-   helper): the bridge wraps that sibling into a coroutine, so the
-   un-awaited call silently drops instead of running. The guard in step
-   4 fails the suite if you miss this.
+2. Add the client method on the matching endpoint mixin under
+   `glpi_python_client/_async/clients/api/**` (or `.../custom/**` for
+   derived helpers), as an `async def`. Then run `python
+   unasync_build.py` to regenerate `glpi_python_client/_sync/`, and
+   commit both. **Never edit `_sync/` by hand** — CI regenerates it and
+   fails on any difference.
+
+   Write the method once. There is no parallel async mixin to keep in
+   step: if it needs concurrent fan-out, call `gather` from
+   `glpi_python_client/_async/_concurrency.py`, which runs the calls
+   concurrently on the async surface and sequentially on the generated
+   one, from the same source line.
 3. Put reusable endpoint names, payload builders, response handling, or
    pagination logic in the focused
-   `glpi_python_client.clients.commons` helper module named for that
+   `glpi_python_client._async.clients.commons` helper module named for that
    responsibility.
 4. Add unit tests for payload serialization, response parsing, and
    client behavior. The parity test in

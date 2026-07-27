@@ -41,6 +41,10 @@ _SYNC_DIR = _REPO_ROOT / "glpi_python_client" / "_sync"
 #: third-party name; if one of those shows up as an identifier this package
 #: defines, it is a collision and the scan below fails.
 _INTENTIONAL_RENAMES = {
+    # unasync's built-in map turns the async context-manager protocol into
+    # the sync one; defining these is the whole point.
+    "__aenter__",
+    "__aexit__",
     "AsyncGlpiClient",
     "AsyncClient",
     "AsyncBaseTransport",

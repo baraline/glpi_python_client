@@ -166,6 +166,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **`AsyncGlpiClient` now performs real non-blocking I/O.** It was a facade
+  that wrapped each synchronous method in `asyncio.to_thread`, so "async"
+  meant "blocking call on a worker thread". It is now genuinely
+  asynchronous, built on `httpx.AsyncClient`, with no thread pool and no
+  executor. The `executor` constructor keyword is gone, as is
+  `AsyncBridge`.
+  - The two clients are now one codebase. `glpi_python_client/_async/` is
+    hand-written and `glpi_python_client/_sync/` is generated from it by
+    `unasync_build.py`, committed, and diffed in CI. Endpoint logic exists
+    exactly once, so the two surfaces cannot drift.
+  - This deletes the six hand-written async override modules the bridge
+    forced into existence — including the 500-line `_statistics_async.py`,
+    which duplicated the most intricate logic in the package with no test
+    asserting the two copies agreed.
+  - Aggregating helpers keep their concurrency through a shared `gather`
+    helper that is `asyncio.gather` on the async surface and sequential
+    evaluation on the generated one, written once at the call site.
+  - **Public imports are unchanged**: `from glpi_python_client import
+    GlpiClient, AsyncGlpiClient` still works. Code importing private
+    module paths (`glpi_python_client.clients.*`, `glpi_python_client.auth.*`)
+    must add the tree segment, e.g.
+    `glpi_python_client._sync.clients.commons._transport`.
 - **Breaking: the HTTP transport moved from `requests` to `httpx`.**
   `requests` and `urllib3` are no longer dependencies. The v2 transport, the
   legacy v1 session, and the OAuth token manager were swapped together in a

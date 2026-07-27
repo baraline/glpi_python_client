@@ -12,7 +12,7 @@ Pydantic so the conversion happens transparently on every model boundary:
   to canonical Markdown before being assigned to the field, so attribute
   access always returns Markdown.
 * On serialisation (outgoing request bodies built via
-  :func:`glpi_python_client.clients.commons._payloads.model_to_payload`)
+  :func:`glpi_python_client._sync.clients.commons._payloads.model_to_payload`)
   the Markdown value is rendered back to HTML so GLPI receives the format
   it expects.
 

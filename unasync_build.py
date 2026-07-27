@@ -72,6 +72,10 @@ HAND_WRITTEN = {"_concurrency.py"}
 #: deliberate: every entry is a chance for a silent collision, and the
 #: shorter the list, the smaller that surface.
 TOKEN_REPLACEMENTS = {
+    # Intra-tree imports are absolute, so the package segment itself is a
+    # NAME token and rewriting it repoints every one of them at the
+    # generated tree. This is why no module needs relative imports.
+    "_async": "_sync",
     "AsyncGlpiClient": "GlpiClient",
     "AsyncClient": "Client",
     "AsyncBaseTransport": "BaseTransport",

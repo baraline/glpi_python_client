@@ -24,10 +24,6 @@ the asynchronous one wraps each synchronous method into a coroutine.
    :inherited-members:
    :show-inheritance:
 
-.. autoclass:: glpi_python_client.clients.commons._async_bridge.AsyncBridge
-   :members:
-   :show-inheritance:
-
 Exceptions
 ----------
 
