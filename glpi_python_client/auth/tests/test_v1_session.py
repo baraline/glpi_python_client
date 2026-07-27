@@ -32,6 +32,34 @@ class _FakeV1Http:
     def _next(self, key: str) -> FakeResponse:
         return self._responses[key].pop(0)
 
+    def request(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        timeout: int = 30,
+        **kwargs: Any,
+    ) -> FakeResponse:
+        """Verb-agnostic entry point mirroring the real dispatch.
+
+        ``GLPIV1Session`` routes authenticated calls through
+        ``session.request(method, ...)`` rather than a per-verb attribute,
+        because that is the one call shape ``requests`` and ``httpx`` share.
+        This dispatches back to the per-verb handlers so their recorded
+        call shapes stay identical.
+        """
+
+        verb = method.upper()
+        handler = {
+            "GET": self.get,
+            "POST": self.post,
+            "PUT": self.put,
+            "DELETE": self.delete,
+        }.get(verb)
+        if handler is None:
+            raise AssertionError(f"unexpected verb {verb!r} in fake v1 session")
+        return handler(url, headers=headers, timeout=timeout, **kwargs)
+
     def get(
         self,
         url: str,

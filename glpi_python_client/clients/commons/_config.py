@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import requests
 import urllib3
@@ -20,6 +20,19 @@ from glpi_python_client._errors import GlpiValidationError
 if TYPE_CHECKING:
     from glpi_python_client.auth._v1_session import GLPIV1Session
     from glpi_python_client.auth.auth import GLPITokenManager
+
+
+class SessionFactory(Protocol):
+    """Callable that builds the transport session for a client.
+
+    Declared as a ``Protocol`` rather than a bare ``Callable`` alias so the
+    keyword-only ``verify_ssl`` argument is part of the contract: the whole
+    point of this seam is that the SSL policy is supplied *at construction*,
+    and a positional-argument factory would let that guarantee slip.
+    """
+
+    def __call__(self, *, verify_ssl: bool) -> requests.Session:
+        """Return a session configured for ``verify_ssl``."""
 
 
 @dataclass(frozen=True)
@@ -49,6 +62,39 @@ def configure_ssl_warning_policy(*, verify_ssl: bool) -> None:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+def build_http_session(*, verify_ssl: bool) -> requests.Session:
+    """Construct the HTTP session used for every GLPI call.
+
+    This is the single place the library instantiates a transport session,
+    which makes it the seam the transport swap turns on. Two properties
+    matter and both are the reason this is a function rather than two inline
+    lines:
+
+    * ``verify`` is applied **as part of construction**. ``requests``
+      tolerates assigning it afterwards; ``httpx`` does not — it reads
+      ``verify`` only in ``Client.__init__`` and a later assignment is
+      accepted and silently ignored, leaving certificate verification on
+      when the caller asked for it off.
+    * Callers that need to intercept traffic (tests, and anything wanting
+      ``httpx.MockTransport``) can substitute this factory instead of
+      monkey-patching a session after the fact.
+
+    Parameters
+    ----------
+    verify_ssl : bool
+        Whether TLS certificates are verified.
+
+    Returns
+    -------
+    requests.Session
+        A session configured for the requested SSL policy.
+    """
+
+    session = requests.Session()
+    session.verify = verify_ssl
+    return session
+
+
 def build_client_resources(
     *,
     glpi_api_url: object,
@@ -62,12 +108,21 @@ def build_client_resources(
     v1_base_url: str | None,
     v1_user_token: str | None,
     v1_app_token: str | None,
+    session_factory: SessionFactory | None = None,
 ) -> ClientResources:
     """Build the shared resources required by one async client instance.
 
     The helper validates the API URL, configures SSL behaviour, builds the
     OAuth token manager, and optionally instantiates the legacy v1 session
     used solely by the document upload mixin.
+
+    Parameters
+    ----------
+    session_factory : SessionFactory | None, optional
+        Override for :func:`build_http_session`, called with the resolved
+        ``verify_ssl`` policy. This is the transport-injection seam: it lets
+        a caller supply a session wired to a stub transport without patching
+        module globals. ``None`` uses the default factory.
     """
 
     from glpi_python_client.auth._v1_session import GLPIV1Session
@@ -83,8 +138,8 @@ def build_client_resources(
     )
     configure_ssl_warning_policy(verify_ssl=verify_ssl)
 
-    session = requests.Session()
-    session.verify = verify_ssl
+    factory = session_factory or build_http_session
+    session = factory(verify_ssl=verify_ssl)
     try:
         auth = GLPITokenManager(
             token_url=f"{normalized_api_url}/token",

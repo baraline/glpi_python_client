@@ -44,16 +44,59 @@ def test_ensure_token_calls_auth_manager(monkeypatch: pytest.MonkeyPatch) -> Non
     c.close()
 
 
-def test_send_request_dispatches_to_matching_session_method(
+def test_send_request_dispatches_through_session_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_send_request`` calls the method matching the verb on the session."""
+    """``_send_request`` routes through ``session.request`` with an upper verb.
+
+    The verb is passed as a *value* to ``request`` rather than being looked
+    up as a per-verb attribute: that is the one call shape ``requests`` and
+    ``httpx`` share, so the transport swap does not have to reason about
+    dynamic attribute lookup.
+    """
 
     c = make_client()
     fake = FakeResponse(status_code=200, payload={})
-    monkeypatch.setattr(c._session, "get", lambda url, **kw: fake)
-    result = c._send_request("get", "https://glpi.example.test/api.php/v2/test")
+    seen: dict[str, object] = {}
+
+    def _request(method: str, url: str, **kw: object) -> FakeResponse:
+        seen.update({"method": method, "url": url, "kw": kw})
+        return fake
+
+    monkeypatch.setattr(c._session, "request", _request)
+    result = c._send_request(
+        "get", "https://glpi.example.test/api.php/v2/test", timeout=30
+    )
     assert result is fake
+    assert seen["method"] == "GET"
+    assert seen["url"] == "https://glpi.example.test/api.php/v2/test"
+    assert seen["kw"] == {"timeout": 30}
+    c.close()
+
+
+def test_send_request_does_not_use_per_verb_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stubbing only ``session.get`` must no longer intercept a GET.
+
+    This pins the seam: if dispatch ever regresses to
+    ``getattr(session, verb)`` this test fails, because the per-verb
+    attribute would be used again.
+    """
+
+    c = make_client()
+    sentinel = FakeResponse(status_code=418, payload={})
+    monkeypatch.setattr(c._session, "get", lambda url, **kw: sentinel)
+    captured: dict[str, object] = {}
+
+    def _request(method: str, url: str, **kw: object) -> FakeResponse:
+        captured["used"] = True
+        return FakeResponse(status_code=200, payload={})
+
+    monkeypatch.setattr(c._session, "request", _request)
+    result = c._send_request("get", "https://glpi.example.test/api.php/v2/test")
+    assert captured.get("used") is True
+    assert result is not sentinel
     c.close()
 
 
