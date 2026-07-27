@@ -33,7 +33,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -150,16 +150,21 @@ class TransportMixin:
         self,
         method: str,
         url: str,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> requests.Response:
-        """Dispatch one blocking ``requests`` call.
+        """Dispatch one blocking HTTP call.
 
         The helper exists as an indirection seam so tests can stub HTTP
         dispatch without monkey-patching the session attribute directly.
+
+        Dispatch goes through ``session.request(method, url, ...)`` rather
+        than looking up a per-verb attribute. ``request`` is the one call
+        shape ``requests`` and ``httpx`` agree on, and keeping the verb a
+        value rather than an attribute name means the transport swap does
+        not have to reason about dynamic attribute lookup.
         """
 
-        request_method = getattr(self._session, method)
-        return cast(requests.Response, request_method(url, **kwargs))
+        return self._session.request(method.upper(), url, **kwargs)
 
     def _execute_request(
         self,

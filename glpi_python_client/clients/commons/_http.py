@@ -20,6 +20,32 @@ from glpi_python_client._errors import (
 from glpi_python_client.clients.commons._constants import RequestParamValue
 
 
+def response_reason(response: requests.Response) -> str:
+    """Return one response's HTTP reason phrase, whatever the transport.
+
+    ``requests`` spells this ``Response.reason``; ``httpx`` spells it
+    ``Response.reason_phrase`` and has no ``reason`` attribute at all. Every
+    read of the phrase goes through this helper so swapping the transport
+    touches one function instead of every message that quotes it.
+
+    Parameters
+    ----------
+    response : requests.Response
+        Response to read the reason phrase from. Typed against the current
+        transport; any object exposing either attribute works at runtime.
+
+    Returns
+    -------
+    str
+        The reason phrase, or ``""`` when the transport supplies none.
+    """
+
+    reason = getattr(response, "reason", None)
+    if reason is None:
+        reason = getattr(response, "reason_phrase", None)
+    return str(reason) if reason else ""
+
+
 def request_params(
     params: dict[str, object] | None,
 ) -> dict[str, RequestParamValue] | None:
@@ -133,7 +159,7 @@ def finalize_request_response(
     if 500 <= response.status_code < 600:
         message = (
             f"GLPI {method_name} {url} failed with "
-            f"{response.status_code} {response.reason}"
+            f"{response.status_code} {response_reason(response)}"
         )
         logger.warning(message)
         raise GlpiServerError(

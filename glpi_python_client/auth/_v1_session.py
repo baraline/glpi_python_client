@@ -47,6 +47,7 @@ from glpi_python_client._errors import (
     GlpiServerError,
     GlpiValidationError,
 )
+from glpi_python_client.clients.commons._config import build_http_session
 from glpi_python_client.clients.commons._http import (
     ensure_response_status,
     finalize_request_response,
@@ -95,8 +96,10 @@ class GLPIV1Session:
             seconds=session_refresh_interval_seconds
         )
 
-        self._http = requests.Session()
-        self._http.verify = verify_ssl
+        # Built through the shared factory so the SSL policy is applied at
+        # construction: httpx reads ``verify`` only in ``Client.__init__``
+        # and silently ignores a later assignment.
+        self._http = build_http_session(verify_ssl=verify_ssl)
 
         self._session_token: str | None = None
         self._session_started_at: datetime | None = None
@@ -236,11 +239,11 @@ class GLPIV1Session:
         """
 
         request_headers = {**self._headers(), **(headers or {})}
-        request_method = getattr(self._http, method.lower())
-        response = cast(
-            requests.Response,
-            request_method(url, headers=request_headers, **kwargs),
-        )
+        # Dispatch through ``request(method, ...)`` rather than looking up a
+        # per-verb attribute: it is the one call shape both transports share,
+        # and it keeps the verb a value instead of an attribute name.
+        verb = method.upper()
+        response = self._http.request(verb, url, headers=request_headers, **kwargs)
         if _is_auth_failure_response(response):
             logger.warning(
                 "GLPI v1 session token was rejected; refreshing session and "
@@ -248,10 +251,7 @@ class GLPIV1Session:
             )
             self._renew_session()
             request_headers = {**self._headers(), **(headers or {})}
-            response = cast(
-                requests.Response,
-                request_method(url, headers=request_headers, **kwargs),
-            )
+            response = self._http.request(verb, url, headers=request_headers, **kwargs)
         return finalize_request_response(
             response,
             method=method,
