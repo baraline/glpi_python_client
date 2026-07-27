@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import GlpiClient
+from glpi_python_client import GlpiClient, GlpiValidationError
 from glpi_python_client.clients.commons._config import (
     build_client_env_config,
     normalize_client_api_url,
@@ -27,23 +27,40 @@ def test_normalize_client_api_url_strips_trailing_slash() -> None:
 
 
 def test_normalize_client_api_url_rejects_missing_value() -> None:
-    """Missing or empty URL raises ``ValueError`` with the client name."""
+    """Missing or empty URL raises ``GlpiValidationError`` with the client name.
 
-    with pytest.raises(ValueError, match="X requires glpi_api_url"):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match="X requires glpi_api_url") as exc1:
         normalize_client_api_url(None, client_name="X")
-    with pytest.raises(ValueError, match="X requires glpi_api_url"):
+    assert isinstance(exc1.value, ValueError)
+    with pytest.raises(GlpiValidationError, match="X requires glpi_api_url") as exc2:
         normalize_client_api_url("", client_name="X")
-    with pytest.raises(ValueError, match="X requires glpi_api_url"):
+    assert isinstance(exc2.value, ValueError)
+    with pytest.raises(GlpiValidationError, match="X requires glpi_api_url") as exc3:
         normalize_client_api_url(123, client_name="X")  # type: ignore[arg-type]
+    assert isinstance(exc3.value, ValueError)
 
 
 def test_validate_v1_document_config_rejects_partial_pair() -> None:
-    """Either both v1 values are present or both are absent."""
+    """Either both v1 values are present or both are absent.
 
-    with pytest.raises(ValueError, match="v1_base_url and v1_user_token"):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(
+        GlpiValidationError, match="v1_base_url and v1_user_token"
+    ) as exc1:
         validate_v1_document_config(v1_base_url="https://x", v1_user_token=None)
-    with pytest.raises(ValueError, match="v1_base_url and v1_user_token"):
+    assert isinstance(exc1.value, ValueError)
+    with pytest.raises(
+        GlpiValidationError, match="v1_base_url and v1_user_token"
+    ) as exc2:
         validate_v1_document_config(v1_base_url=None, v1_user_token="t")
+    assert isinstance(exc2.value, ValueError)
 
 
 def test_validate_v1_document_config_allows_complete_pair() -> None:
@@ -74,6 +91,20 @@ def test_parse_optional_env_int_rejects_other_types() -> None:
         parse_optional_env_int(1.5)
 
 
+def test_parse_optional_env_int_rejects_unparseable_string() -> None:
+    """A non-numeric string (e.g. ``GLPI_TIMEOUT=abc``) raises ``GlpiValidationError``.
+
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working, and the original ``int()``
+    ``ValueError`` is chained via ``from`` rather than swallowed.
+    """
+
+    with pytest.raises(GlpiValidationError, match="abc") as excinfo:
+        parse_optional_env_int("abc")
+    assert isinstance(excinfo.value, ValueError)
+    assert isinstance(excinfo.value.__cause__, ValueError)
+
+
 @pytest.mark.parametrize(
     ("value", "default", "expected"),
     [
@@ -97,10 +128,15 @@ def test_parse_optional_env_bool_truthy_and_falsy(
 
 
 def test_parse_optional_env_bool_rejects_unknown_string() -> None:
-    """Unknown strings raise ``ValueError``."""
+    """Unknown strings raise ``GlpiValidationError``.
 
-    with pytest.raises(ValueError):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError) as excinfo:
         parse_optional_env_bool("maybe", default=False)
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_parse_optional_env_bool_rejects_other_types() -> None:

@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 import pytest_asyncio
-import requests
 from test_integration import (  # noqa: F401
     _LiveGlpiConfig,
     _suffix,
@@ -34,6 +33,7 @@ from test_integration import (  # noqa: F401
 
 from glpi_python_client import (
     AsyncGlpiClient,
+    GlpiNotFoundError,
     GlpiTicketContext,
     PostFollowup,
     PostLocation,
@@ -267,16 +267,15 @@ async def test_cancellation_releases_awaiter(
 async def test_exception_propagates_from_worker_thread(
     async_client: AsyncGlpiClient,
 ) -> None:
-    """Errors raised on the worker thread propagate to the awaiter unchanged.
+    """A missing ticket surfaces as a typed GLPI error.
 
     We trigger one by reading a ticket id that almost certainly does
     not exist. The async client must surface the same
-    :class:`requests.HTTPError` (or any
-    :class:`requests.RequestException` subclass after retry) that the
-    sync client would raise.
+    :class:`~glpi_python_client.GlpiNotFoundError` the sync client
+    would raise — users never import the HTTP library to catch it.
     """
 
-    with pytest.raises((requests.RequestException, ValueError)):
+    with pytest.raises(GlpiNotFoundError):
         await async_client.get_ticket(2**31 - 1)
 
 

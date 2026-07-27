@@ -43,7 +43,7 @@ class TicketContextMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If any of the underlying GLPI calls returns a non-success
             HTTP status.
         """

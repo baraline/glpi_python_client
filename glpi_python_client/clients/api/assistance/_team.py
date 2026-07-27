@@ -43,7 +43,7 @@ class TeamMemberMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -72,7 +72,7 @@ class TeamMemberMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 
@@ -104,7 +104,7 @@ class TeamMemberMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the GLPI server returns a non-success HTTP status.
         """
 

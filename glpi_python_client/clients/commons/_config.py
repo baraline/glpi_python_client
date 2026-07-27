@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING
 import requests
 import urllib3
 
+from glpi_python_client._errors import GlpiValidationError
+
 if TYPE_CHECKING:
     from glpi_python_client.auth._v1_session import GLPIV1Session
     from glpi_python_client.auth.auth import GLPITokenManager
@@ -120,6 +122,14 @@ def parse_optional_env_int(value: object) -> int | None:
     ``None`` is preserved, native integers are accepted as-is, and strings
     are converted through ``int()`` so explicit overrides and environment
     values follow the same normalisation path.
+
+    Raises
+    ------
+    GlpiValidationError
+        If a string value cannot be parsed as an integer (e.g.
+        ``GLPI_TIMEOUT=abc``).
+    TypeError
+        If ``value`` is neither ``None``, ``int``, nor ``str``.
     """
 
     if value is None:
@@ -127,7 +137,12 @@ def parse_optional_env_int(value: object) -> int | None:
     if isinstance(value, int):
         return value
     if isinstance(value, str):
-        return int(value)
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise GlpiValidationError(
+                f"Invalid integer environment value: {value!r}"
+            ) from exc
     raise TypeError("Integer environment values must be strings or integers")
 
 
@@ -149,7 +164,7 @@ def parse_optional_env_bool(value: object, *, default: bool) -> bool:
         return True
     if value.casefold() in {"0", "false", "no", "off"}:
         return False
-    raise ValueError(f"Invalid boolean environment value: {value!r}")
+    raise GlpiValidationError(f"Invalid boolean environment value: {value!r}")
 
 
 def build_client_env_config(
@@ -201,7 +216,7 @@ def normalize_client_api_url(glpi_api_url: object, *, client_name: str) -> str:
     """
 
     if not isinstance(glpi_api_url, str) or not glpi_api_url:
-        raise ValueError(f"{client_name} requires glpi_api_url")
+        raise GlpiValidationError(f"{client_name} requires glpi_api_url")
     return glpi_api_url.rstrip("/")
 
 
@@ -217,7 +232,7 @@ def validate_v1_document_config(
     """
 
     if bool(v1_base_url) != bool(v1_user_token):
-        raise ValueError(
+        raise GlpiValidationError(
             "GLPI v1 document support requires both v1_base_url and v1_user_token."
         )
 

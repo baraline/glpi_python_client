@@ -6,7 +6,13 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import GlpiClient, IdNameRef, PatchKBArticle, PostKBArticle
+from glpi_python_client import (
+    GlpiClient,
+    GlpiValidationError,
+    IdNameRef,
+    PatchKBArticle,
+    PostKBArticle,
+)
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
 
@@ -223,14 +229,20 @@ def test_create_kb_article_category_failure_raises_without_rollback(
 
 
 def test_create_kb_article_ref_without_id_raises(client: GlpiClient) -> None:
+    """``create_kb_article`` wraps the failure in ``RuntimeError`` (kept bare
+    by design), chaining the underlying ``GlpiValidationError`` as its cause.
+    """
+
     rec = _Recorder()
     rec.install(client)
     client._v1 = _FakeV1()  # type: ignore[assignment]
-    with pytest.raises(RuntimeError, match="require an 'id'"):
+    with pytest.raises(RuntimeError, match="require an 'id'") as excinfo:
         client.create_kb_article(
             PostKBArticle(name="P", content="c", categories=[IdNameRef(name="Parrots")])
         )
     assert not any(c["method"] == "DELETE" for c in rec.calls)
+    assert isinstance(excinfo.value.__cause__, GlpiValidationError)
+    assert isinstance(excinfo.value.__cause__, ValueError)
 
 
 def test_create_kb_article_empty_categories_skips_v1(client: GlpiClient) -> None:

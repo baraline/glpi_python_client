@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, TypeVar, cast
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from glpi_python_client._errors import GlpiServerError
 from glpi_python_client.clients.commons._http import (
     build_request_headers,
     build_request_url,
@@ -210,9 +211,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _get_request(
         self,
@@ -222,9 +224,11 @@ class TransportMixin:
     ) -> requests.Response:
         """Execute one authenticated GLPI ``GET`` request.
 
-        Network-level request exceptions are retried according to the
-        transport retry policy before the response is returned to the
-        caller.
+        Network errors (:class:`requests.RequestException`) and 5xx
+        responses (:class:`~glpi_python_client.GlpiServerError`) are
+        retried up to 3 times, with ``reraise=True`` so the real error
+        propagates once retries are exhausted; 4xx responses are
+        returned as-is without a retry.
         """
 
         return self._execute_request(
@@ -236,9 +240,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _post_request(
         self,
@@ -262,9 +267,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _update_request(
         self,
@@ -287,9 +293,10 @@ class TransportMixin:
         )
 
     @retry(
-        retry=retry_if_exception_type(requests.RequestException),
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
         stop=stop_after_attempt(3),
         wait=wait_fixed(3),
+        reraise=True,
     )
     def _delete_request(
         self,
@@ -384,8 +391,8 @@ class TransportMixin:
         model : type[ModelT]
             Pydantic class used to validate the response payload.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         skip_entity : bool, optional
             When ``True`` the ``GLPI-Entity`` header is omitted.
 
@@ -423,10 +430,10 @@ class TransportMixin:
         body_model : GlpiModel
             Pydantic body serialised through :func:`model_to_payload`.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         missing_message : str
-            Message embedded in the ``ValueError`` raised when the
+            Message embedded in the ``GlpiProtocolError`` raised when the
             response payload does not contain any of the expected
             identifier keys.
         log_message_factory : Callable[[int], str]
@@ -477,8 +484,8 @@ class TransportMixin:
             Partial Pydantic body serialised through
             :func:`model_to_payload`.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         log_message : str
             Pre-formatted message logged at ``INFO`` level on success.
 
@@ -513,8 +520,8 @@ class TransportMixin:
         endpoint : str
             Resource path forwarded to the transport ``DELETE`` helper.
         failure_message : str
-            Message embedded in the ``ValueError`` raised on a non-success
-            HTTP status.
+            Message embedded in the ``GlpiStatusError`` raised on a
+            non-success HTTP status.
         log_message : str
             Pre-formatted message logged at ``INFO`` level on success.
         force : bool | None, optional

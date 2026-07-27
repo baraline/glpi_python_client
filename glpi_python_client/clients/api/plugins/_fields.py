@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from glpi_python_client._errors import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.plugins import (
     GetPluginFieldsContainer,
@@ -81,15 +82,25 @@ def _extract_row_id(payload: object) -> int:
     """Return the row id reported by the v1 API for a CRUD response.
 
     The v1 plugin endpoints return ``[{"<id>": true, "message": ""}]``
-    where ``<id>`` is the affected row identifier. ``ValueError`` is
-    raised when the payload does not match this shape.
+    where ``<id>`` is the affected row identifier. ``GlpiProtocolError``
+    is raised when the payload does not match this shape.
+
+    Raises
+    ------
+    GlpiProtocolError
+        When ``payload`` is not a non-empty list of mappings, or no
+        mapping key parses as a numeric row id.
     """
 
     if not isinstance(payload, list) or not payload:
-        raise ValueError(f"GLPI Fields plugin response missing row id: {payload!r}")
+        raise GlpiProtocolError(
+            f"GLPI Fields plugin response missing row id: {payload!r}"
+        )
     first = payload[0]
     if not isinstance(first, dict):
-        raise ValueError(f"GLPI Fields plugin response not a mapping: {payload!r}")
+        raise GlpiProtocolError(
+            f"GLPI Fields plugin response not a mapping: {payload!r}"
+        )
     for key in first:
         if key == "message":
             continue
@@ -97,7 +108,7 @@ def _extract_row_id(payload: object) -> int:
             return int(key)
         except (TypeError, ValueError):
             continue
-    raise ValueError(
+    raise GlpiProtocolError(
         f"GLPI Fields plugin response did not include a numeric id: {payload!r}"
     )
 
@@ -342,8 +353,8 @@ class PluginFieldsMixin(TransportMixin):
 
         Existing value rows are updated in place; missing rows are
         created with the supplied payload. Containers/fields that the
-        server does not know about raise ``ValueError`` *before* any
-        write to keep the call atomic from the caller's perspective.
+        server does not know about raise ``GlpiValidationError`` *before*
+        any write to keep the call atomic from the caller's perspective.
 
         Parameters
         ----------
@@ -365,14 +376,14 @@ class PluginFieldsMixin(TransportMixin):
         }
         unknown = sorted(set(values) - set(by_name))
         if unknown:
-            raise ValueError(
+            raise GlpiValidationError(
                 "Unknown plugin-fields container(s) for Ticket: " + ", ".join(unknown)
             )
 
         for container_name, column_values in values.items():
             container = by_name[container_name]
             if container.id is None:
-                raise ValueError(
+                raise GlpiProtocolError(
                     f"Container {container_name!r} has no id; cannot write values"
                 )
 
@@ -383,7 +394,7 @@ class PluginFieldsMixin(TransportMixin):
             }
             unknown_fields = sorted(set(column_values) - declared)
             if unknown_fields:
-                raise ValueError(
+                raise GlpiValidationError(
                     f"Unknown field(s) for container {container_name!r}: "
                     + ", ".join(unknown_fields)
                 )

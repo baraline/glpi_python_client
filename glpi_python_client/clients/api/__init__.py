@@ -25,15 +25,21 @@ from glpi_python_client.clients.api.assistance.timeline import (
 )
 from glpi_python_client.clients.api.dropdowns import LocationMixin
 from glpi_python_client.clients.api.knowledgebase import (
+    AsyncKBArticleMixin,
     KBArticleCommentMixin,
     KBArticleMixin,
     KBArticleRevisionMixin,
     KBCategoryMixin,
 )
 from glpi_python_client.clients.api.management import DocumentMixin
-from glpi_python_client.clients.api.plugins import PluginFieldsMixin
+from glpi_python_client.clients.api.plugins import (
+    AsyncPluginFieldsMixin,
+    PluginFieldsMixin,
+)
 
 __all__ = [
+    "AsyncKBArticleMixin",
+    "AsyncPluginFieldsMixin",
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",

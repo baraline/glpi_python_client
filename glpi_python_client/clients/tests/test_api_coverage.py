@@ -15,6 +15,7 @@ import pytest
 
 from glpi_python_client import (
     GlpiClient,
+    GlpiValidationError,
     PatchDocument,
     PatchEntity,
     PatchFollowup,
@@ -411,10 +412,15 @@ def test_download_document_raises_on_failure(client: GlpiClient) -> None:
 
 
 def test_upload_document_requires_filename(client: GlpiClient) -> None:
-    """``upload_document`` rejects an empty filename before any HTTP call."""
+    """``upload_document`` rejects an empty filename before any HTTP call.
 
-    with pytest.raises(ValueError, match="filename"):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError, match="filename") as excinfo:
         client.upload_document(filename="", content=b"x")
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:

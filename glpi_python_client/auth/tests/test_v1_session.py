@@ -7,8 +7,8 @@ from typing import Any, cast
 
 import pytest
 import requests
-import tenacity
 
+from glpi_python_client import GlpiProtocolError, GlpiServerError, GlpiValidationError
 from glpi_python_client.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -130,15 +130,20 @@ def _make(http: _FakeV1Http) -> GLPIV1Session:
 
 
 def test_v1_session_rejects_bad_refresh_interval() -> None:
-    """Constructor enforces a positive refresh interval."""
+    """Constructor enforces a positive refresh interval.
 
-    with pytest.raises(ValueError):
+    ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
+
+    with pytest.raises(GlpiValidationError) as excinfo:
         GLPIV1Session(
             base_url="https://glpi.example.test/apirest.php",
             user_token="u",
             app_token="a",
             session_refresh_interval_seconds=0,
         )
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_upload_acquires_session_then_posts() -> None:
@@ -214,7 +219,7 @@ def test_v1_upload_renews_session_on_401() -> None:
 
 
 def test_v1_upload_raises_on_5xx_after_retries() -> None:
-    """5xx upload responses surface as ``HTTPError`` after retries exhaust."""
+    """5xx upload responses are retried 3x and surface as ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -224,10 +229,14 @@ def test_v1_upload_raises_on_5xx_after_retries() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session.upload_document("a.txt", b"x", "text/plain")
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    # The retry predicate must retry GlpiServerError, not just RequestException:
+    # pin the attempt count so a predicate regression fails loudly instead of
+    # silently dropping to 1 attempt.
+    upload_calls = [c for c in http.calls if c["url"].endswith("/Document")]
+    assert len(upload_calls) == 3
 
 
 def test_v1_upload_raises_on_4xx_without_retry() -> None:
@@ -249,7 +258,11 @@ def test_v1_upload_raises_on_4xx_without_retry() -> None:
 
 
 def test_v1_upload_raises_on_unexpected_payload() -> None:
-    """A non-mapping JSON payload raises ``ValueError`` without retry."""
+    """A non-mapping JSON payload raises ``GlpiProtocolError`` without retry.
+
+    ``GlpiProtocolError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     http = _FakeV1Http(
         responses={
@@ -259,12 +272,13 @@ def test_v1_upload_raises_on_unexpected_payload() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(ValueError, match="unexpected payload"):
+    with pytest.raises(GlpiProtocolError, match="unexpected payload") as excinfo:
         session.upload_document("a.txt", b"x", "text/plain")
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_init_raises_on_5xx_after_retries() -> None:
-    """5xx ``initSession`` responses surface as ``HTTPError`` after retries."""
+    """5xx ``initSession`` responses are retried 3x and raise ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -272,10 +286,11 @@ def test_v1_init_raises_on_5xx_after_retries() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session._init_session()
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    init_calls = [c for c in http.calls if c["url"].endswith("/initSession")]
+    assert len(init_calls) == 3
 
 
 def test_v1_init_raises_on_4xx_without_retry() -> None:
@@ -292,14 +307,19 @@ def test_v1_init_raises_on_4xx_without_retry() -> None:
 
 
 def test_v1_init_raises_when_token_missing() -> None:
-    """``initSession`` returning no token raises ``ValueError`` without retry."""
+    """``initSession`` returning no token raises ``GlpiProtocolError`` without retry.
+
+    ``GlpiProtocolError`` inherits ``ValueError`` so existing callers that
+    catch the broader type keep working.
+    """
 
     http = _FakeV1Http(
         responses={"init": [FakeResponse(status_code=200, payload={})]},
     )
     session = _make(http)
-    with pytest.raises(ValueError, match="no session_token"):
+    with pytest.raises(GlpiProtocolError, match="no session_token") as excinfo:
         session._init_session()
+    assert isinstance(excinfo.value, ValueError)
 
 
 def test_v1_close_kills_session_and_closes_http() -> None:
@@ -408,7 +428,7 @@ def test_request_json_raises_on_4xx_without_retry() -> None:
 
 
 def test_request_json_retries_on_5xx() -> None:
-    """5xx responses surface as ``HTTPError`` after retries exhaust."""
+    """5xx responses are retried 3x and surface as ``GlpiServerError``."""
 
     http = _FakeV1Http(
         responses={
@@ -417,10 +437,56 @@ def test_request_json_retries_on_5xx() -> None:
         }
     )
     session = _make(http)
-    with pytest.raises(tenacity.RetryError) as excinfo:
+    with pytest.raises(GlpiServerError) as excinfo:
         session.request_json("GET", "PluginFieldsContainer")
-    inner = excinfo.value.last_attempt.exception()
-    assert isinstance(inner, requests.HTTPError)
+    assert excinfo.value.status_code == 500
+    json_calls = [c for c in http.calls if c["url"].endswith("/PluginFieldsContainer")]
+    assert len(json_calls) == 3
+
+
+def test_request_json_retries_on_network_error() -> None:
+    """Network faults during ``request_json`` are retried 3x, not swallowed.
+
+    Pins the ``requests.RequestException`` member of the v1 retry predicate
+    (``_RETRY_ON_NETWORK_ERRORS`` in ``_v1_session.py``): the 5xx tests above
+    only exercise the ``GlpiServerError`` member. Without this test a future
+    edit that narrows the predicate to drop ``requests.RequestException``
+    (for example when plan 3 swaps in ``GlpiTransportError``) would silently
+    drop v1 network retries from 3 attempts to 1 while every committed test
+    stayed green.
+    """
+
+    class _FlakyHttp(_FakeV1Http):
+        def get(
+            self,
+            url: str,
+            headers: dict[str, str],
+            timeout: int,
+            **kwargs: Any,
+        ) -> FakeResponse:
+            if url.endswith("/PluginFieldsContainer"):
+                self.calls.append(
+                    {
+                        "method": "GET",
+                        "url": url,
+                        "headers": headers,
+                        "timeout": timeout,
+                        **kwargs,
+                    }
+                )
+                raise requests.ConnectionError("network down")
+            return super().get(url, headers, timeout, **kwargs)
+
+    http = _FlakyHttp(
+        responses={
+            "init": [FakeResponse(status_code=200, payload={"session_token": "tk"})],
+        }
+    )
+    session = _make(http)
+    with pytest.raises(requests.ConnectionError):
+        session.request_json("GET", "PluginFieldsContainer")
+    json_calls = [c for c in http.calls if c["url"].endswith("/PluginFieldsContainer")]
+    assert len(json_calls) == 3
 
 
 def test_session_token_invalid_marker_triggers_renew() -> None:

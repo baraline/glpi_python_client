@@ -11,7 +11,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+
+from glpi_python_client._errors import (
+    GlpiServerError,
+    GlpiValidationError,
+    status_error_class,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,16 +115,16 @@ class GLPITokenManager:
         has_user_fields = len(missing_user_fields) < 2
 
         if has_client_fields and missing_client_fields:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI OAuth client credentials must include both client_id "
                 "and client_secret."
             )
         if has_user_fields and missing_user_fields:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI user credentials must include both username and password."
             )
         if not self._has_client_credentials and not self._has_user_credentials:
-            raise ValueError(
+            raise GlpiValidationError(
                 "GLPI authentication requires either client_id/client_secret, "
                 "username/password, or both."
             )
@@ -223,7 +229,12 @@ class GLPITokenManager:
             return False
         return now >= self.token_updated_at + self._auth_token_refresh_interval
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @retry(
+        retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(3),
+        reraise=True,
+    )
     def _acquire_token(self) -> None:
         """Acquire an OAuth2 access token using the configured auth flow.
 
@@ -234,8 +245,13 @@ class GLPITokenManager:
 
         Raises
         ------
-        ValueError
-            If token acquisition fails.
+        GlpiAuthError
+            If GLPI rejects the credentials (401/403). Not retried.
+        GlpiServerError
+            If the token endpoint fails (5xx). Retried up to 3 attempts.
+        GlpiStatusError
+            If the token endpoint returns any other unexpected status. Not
+            retried.
         """
 
         data = self._build_token_request_data()
@@ -247,11 +263,20 @@ class GLPITokenManager:
             error_detail = response.json()
         except Exception:
             error_detail = response.text
-        raise ValueError(
-            f"GLPI OAuth token returned {response.status_code}: {error_detail}"
+        error_class = status_error_class(response.status_code)
+        raise error_class(
+            f"GLPI OAuth token returned {response.status_code}: {error_detail}",
+            status_code=response.status_code,
+            url=self._token_url,
+            response_text=str(error_detail),
         )
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(3))
+    @retry(
+        retry=retry_if_exception_type(requests.RequestException),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(3),
+        reraise=True,
+    )
     def _refresh_access_token(self) -> None:
         """Refresh the OAuth2 access token using the stored refresh token.
 
@@ -259,6 +284,31 @@ class GLPITokenManager:
         -------
         None
             Stores the refreshed token or acquires a new one.
+
+        Raises
+        ------
+        GlpiAuthError
+            If GLPI rejects the credentials while refreshing (401/403). This
+            method does not raise directly on a non-2xx response: it logs a
+            warning and falls through to a nested :meth:`_acquire_token`
+            call, which raises. That nested call is not retried by either
+            decorator, so a persistent 401 costs 1 refresh POST + 1 acquire
+            POST (2 total) before this propagates.
+        GlpiServerError
+            If the token endpoint fails (5xx) while refreshing. This
+            method's own retry decorator only matches
+            ``requests.RequestException`` (network-level faults), not
+            ``GlpiServerError``, so it does not retry the fall-through to
+            :meth:`_acquire_token`. The nested call carries its own
+            independent decorator, which does retry ``GlpiServerError`` up
+            to 3 attempts. A persistent 5xx therefore costs exactly 1
+            refresh POST + 3 nested acquire POSTs = 4 POST requests, not the
+            12 an earlier, less precise predicate produced by retrying the
+            already-retried nested failure a second time.
+        GlpiStatusError
+            If the token endpoint returns any other unexpected status while
+            refreshing, raised by the nested :meth:`_acquire_token` call.
+            Not retried.
         """
 
         if not self.refresh_token:
@@ -306,5 +356,7 @@ def _refresh_interval(value: int | None) -> timedelta | None:
     if value is None:
         return None
     if value < 1:
-        raise ValueError("auth_token_refresh must be a positive integer or None")
+        raise GlpiValidationError(
+            "auth_token_refresh must be a positive integer or None"
+        )
     return timedelta(seconds=value)

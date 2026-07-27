@@ -12,6 +12,11 @@ from collections.abc import Mapping
 
 import requests
 
+from glpi_python_client._errors import (
+    GlpiProtocolError,
+    GlpiServerError,
+    status_error_class,
+)
 from glpi_python_client.clients.commons._constants import RequestParamValue
 
 
@@ -48,10 +53,15 @@ def require_access_token(access_token: str | None) -> str:
     Transport helpers call this right before request dispatch so missing
     token state turns into a clear local error instead of a malformed API
     call.
+
+    Raises
+    ------
+    GlpiProtocolError
+        When ``access_token`` is empty or ``None``.
     """
 
     if not access_token:
-        raise ValueError("Failed to acquire access token for API request")
+        raise GlpiProtocolError("Failed to acquire access token for API request")
     return access_token
 
 
@@ -112,6 +122,11 @@ def finalize_request_response(
     Server errors are raised immediately while non-success statuses outside
     the accepted set are logged for higher-level mutation and lookup helpers
     to interpret consistently.
+
+    Raises
+    ------
+    GlpiServerError
+        When ``response.status_code`` is a 5xx server error.
     """
 
     method_name = method.upper()
@@ -121,14 +136,19 @@ def finalize_request_response(
             f"{response.status_code} {response.reason}"
         )
         logger.warning(message)
-        raise requests.HTTPError(message)
+        raise GlpiServerError(
+            message,
+            status_code=response.status_code,
+            url=url,
+            response_text=response.text,
+        )
     if response.status_code not in success_statuses:
         logger.warning(
             "GLPI %s %s returned %s: %s",
             method_name,
             url,
             response.status_code,
-            response.text[:200],
+            response.text,
         )
     return response
 
@@ -139,15 +159,26 @@ def ensure_response_status(
     success_statuses: tuple[int, ...],
     failure_message: str,
 ) -> None:
-    """Raise a consistent ``ValueError`` for an unexpected response status.
+    """Raise a typed :class:`GlpiStatusError` for an unexpected response status.
 
     Higher-level client methods use this helper to keep their mutation and
-    fetch failure messages aligned across the per-endpoint mixins.
+    fetch failure messages aligned across the per-endpoint mixins. The
+    raised class narrows to :class:`GlpiAuthError`, :class:`GlpiNotFoundError`
+    or :class:`GlpiServerError` where the status allows it.
+
+    Raises
+    ------
+    GlpiStatusError
+        When ``response.status_code`` is outside ``success_statuses``.
     """
 
     if response.status_code not in success_statuses:
-        raise ValueError(
-            f"{failure_message}: {response.status_code} {response.text[:200]}"
+        error_class = status_error_class(response.status_code)
+        raise error_class(
+            f"{failure_message}: {response.status_code} {response.text}",
+            status_code=response.status_code,
+            url=str(response.url),
+            response_text=response.text,
         )
 
 
@@ -187,6 +218,11 @@ def require_response_int(
     GLPI v2 create responses document numeric identifiers under a small
     set of keys. Callers list the candidate keys explicitly so the
     behaviour stays predictable.
+
+    Raises
+    ------
+    GlpiProtocolError
+        When none of ``keys`` maps to an integer value in the response.
     """
 
     result = response_json_mapping(response)
@@ -194,7 +230,7 @@ def require_response_int(
         value = result.get(key)
         if isinstance(value, int) and not isinstance(value, bool):
             return value
-    raise ValueError(missing_message)
+    raise GlpiProtocolError(missing_message)
 
 
 def list_payload_items(payload: object) -> list[dict[str, object]]:

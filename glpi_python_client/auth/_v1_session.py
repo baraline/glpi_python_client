@@ -18,10 +18,18 @@ Retry policy
 Every public dispatch helper (``_init_session``, ``request_json``,
 ``upload_document``) carries the same :mod:`tenacity` retry decorator
 used by the v2 transport: three attempts spaced by three seconds,
-triggered exclusively by :class:`requests.RequestException` (which
-:func:`finalize_request_response` raises for 5xx server errors).
-:class:`ValueError` raised by status-code or payload checks does not
-trigger a retry — client-side or 4xx failures are surfaced immediately.
+triggered by :class:`requests.RequestException` (network faults) and
+:class:`~glpi_python_client.GlpiServerError` (which
+:func:`finalize_request_response` raises for 5xx server errors), with
+``reraise=True`` so the real error surfaces once retries are exhausted.
+Not every :class:`ValueError` subclass is retried, only the one named in
+the predicate above: :class:`~glpi_python_client.GlpiServerError` (5xx)
+*is* a ``ValueError`` and *is* retried by this decorator.
+:class:`~glpi_python_client.GlpiStatusError` subclasses for 4xx statuses,
+:class:`~glpi_python_client.GlpiValidationError`, and
+:class:`~glpi_python_client.GlpiProtocolError` are also ``ValueError``
+subclasses but are not in the retry predicate, so they surface
+immediately without a retry.
 """
 
 from __future__ import annotations
@@ -34,6 +42,11 @@ from typing import Any, cast
 import requests
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from glpi_python_client._errors import (
+    GlpiProtocolError,
+    GlpiServerError,
+    GlpiValidationError,
+)
 from glpi_python_client.clients.commons._http import (
     ensure_response_status,
     finalize_request_response,
@@ -45,9 +58,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_SESSION_REFRESH_INTERVAL_SECONDS = 15 * 60
 _AUTH_FAILURE_STATUS_CODES = frozenset({401, 403})
 _RETRY_ON_NETWORK_ERRORS = retry(
-    retry=retry_if_exception_type(requests.RequestException),
+    retry=retry_if_exception_type((requests.RequestException, GlpiServerError)),
     stop=stop_after_attempt(3),
     wait=wait_fixed(3),
+    reraise=True,
 )
 
 
@@ -74,7 +88,7 @@ class GLPIV1Session:
         self._user_token = user_token
         self._app_token = app_token
         if session_refresh_interval_seconds < 1:
-            raise ValueError(
+            raise GlpiValidationError(
                 "session_refresh_interval_seconds must be a positive integer"
             )
         self._session_refresh_interval = timedelta(
@@ -122,7 +136,7 @@ class GLPIV1Session:
 
         token = response.json().get("session_token")
         if not token:
-            raise ValueError("GLPI v1 initSession returned no session_token")
+            raise GlpiProtocolError("GLPI v1 initSession returned no session_token")
 
         self._session_token = str(token)
         self._session_started_at = datetime.now(tz=timezone.utc)
@@ -214,8 +228,9 @@ class GLPIV1Session:
         When the GLPI server rejects the current token the helper renews
         the session and retries the request once. The returned response
         has already been passed through :func:`finalize_request_response`
-        so 5xx errors surface as :class:`requests.HTTPError` for the
-        outer tenacity retry to catch; non-success statuses outside the
+        so 5xx errors surface as
+        :class:`~glpi_python_client.GlpiServerError` for the outer
+        tenacity retry to catch; non-success statuses outside the
         ``success_statuses`` set are logged but otherwise returned for
         the caller to validate with :func:`ensure_response_status`.
         """
@@ -303,9 +318,9 @@ class GLPIV1Session:
             HTTP status codes considered successful (default covers the
             CRUD codes returned by the v1 API).
         failure_message : str | None, optional
-            Prefix used in the :class:`ValueError` raised on a
-            non-success status. Defaults to ``"GLPI v1 {METHOD} {path}
-            failed"``.
+            Prefix used in the :class:`~glpi_python_client.GlpiStatusError`
+            raised on a non-success status. Defaults to ``"GLPI v1
+            {METHOD} {path} failed"``.
 
         Returns
         -------
@@ -315,10 +330,14 @@ class GLPIV1Session:
 
         Raises
         ------
-        ValueError
+        GlpiStatusError
             If the v1 server returns a non-success HTTP status outside
-            the 5xx range (which surfaces as :class:`requests.HTTPError`
-            and is retried).
+            the 5xx range (narrows to :class:`~glpi_python_client.GlpiAuthError`
+            or :class:`~glpi_python_client.GlpiNotFoundError` where the
+            status allows it). Inherits from ``ValueError``.
+        GlpiServerError
+            If the v1 server persistently returns a 5xx status after this
+            decorator's retries are exhausted.
         """
 
         url = f"{self._base_url}/{path.lstrip('/')}"
@@ -392,7 +411,7 @@ class GLPIV1Session:
         )
         payload = response.json()
         if not isinstance(payload, dict):
-            raise ValueError(
+            raise GlpiProtocolError(
                 "GLPI v1 document upload returned unexpected payload: "
                 f"{type(payload).__name__}"
             )

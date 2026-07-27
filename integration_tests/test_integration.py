@@ -17,6 +17,7 @@ import pytest
 
 from glpi_python_client import (
     GlpiClient,
+    GlpiStatusError,
     GlpiTicketContext,
     PostFollowup,
     PostLocation,
@@ -26,6 +27,7 @@ from glpi_python_client import (
     PostTicketTask,
     PostUser,
 )
+from glpi_python_client.models.api_schema.plugins import GetPluginFieldsContainer
 
 pytestmark = pytest.mark.integration
 
@@ -467,21 +469,39 @@ def test_iter_search_entities_yields_batches(client: GlpiClient) -> None:
 
 
 def test_iter_search_tickets_multi_page(client: GlpiClient) -> None:
-    """iter_search_tickets paginates correctly when batch_size forces multiple pages.
+    """iter_search_tickets advances ``start`` across successive pages.
 
-    Uses a small batch size (3) so that any instance with more than
-    three tickets exercises the multi-page code path.
+    Uses a small batch size (3) so any instance with more than three
+    tickets exercises the multi-page code path, and stops after a few
+    pages: a real instance holds tens of thousands of tickets, so an
+    unbounded walk would issue ~20k requests and run for hours.
+
+    ``status.id==1`` is the filter GLPI actually honours -- the v2 contract
+    types ``status`` as an object, so a bare ``status==1`` is silently
+    dropped and the search degrades to "every ticket".
     """
 
     from glpi_python_client.models.api_schema.assistance._ticket import GetTicket
 
+    max_pages = 3
     collected: list[GetTicket] = []
-    for batch in client.iter_search_tickets("status==1", batch_size=3):
+    pages = 0
+    for batch in client.iter_search_tickets("status.id==1", batch_size=3):
         assert isinstance(batch, list)
         assert len(batch) <= 3
         collected.extend(batch)
+        pages += 1
+        if pages >= max_pages:
+            break
 
-    assert isinstance(collected, list)
+    if pages < 2:
+        pytest.skip("instance has fewer than two pages of tickets to paginate")
+
+    # Distinct ids across pages prove the offset advanced; a stuck ``start``
+    # would re-yield the first page forever, which the old unbounded loop
+    # could not have detected.
+    ids = [t.id for t in collected]
+    assert len(set(ids)) == len(ids)
 
 
 # ---------------------------------------------------------------------------
@@ -652,11 +672,16 @@ def test_get_user_activity_raises_without_identifier(client: GlpiClient) -> None
 #
 # These tests target the live preprod ticket #62571, which carries an
 # ``aidelarsolution`` custom container set up via the GLPI Fields plugin.
-# When the plugin is not installed (no container attached to ``Ticket``)
-# the tests skip cleanly so the suite stays portable across instances.
+# When the plugin is not installed the tests skip cleanly so the suite stays
+# portable across instances.
 # ---------------------------------------------------------------------------
 
 _FIELDS_TEST_TICKET_ID = 62571
+
+# GLPI answers 400 with this marker when the itemtype in the URL is not a
+# known CommonDBTM subclass -- which is what an uninstalled plugin looks
+# like from the outside. An installed-but-empty plugin returns 200 and [].
+_FIELDS_ITEMTYPE_UNKNOWN = "ERROR_RESOURCE_NOT_FOUND_NOR_COMMONDBTM"
 
 
 def _skip_when_no_v1(live_config: _LiveGlpiConfig) -> None:
@@ -664,13 +689,35 @@ def _skip_when_no_v1(live_config: _LiveGlpiConfig) -> None:
         pytest.skip("live GLPI v1 credentials not configured")
 
 
-def test_plugin_fields_containers_discovery(
+@pytest.fixture
+def fields_containers(
     client: GlpiClient, live_config: _LiveGlpiConfig
+) -> list[GetPluginFieldsContainer]:
+    """Return Ticket containers, skipping when the Fields plugin is absent.
+
+    Credentials being configured says nothing about the plugin being
+    installed: without it GLPI rejects the ``PluginFieldsContainer``
+    itemtype outright rather than returning an empty list. Only that exact
+    signature skips -- any other status error is a real failure.
+    """
+
+    _skip_when_no_v1(live_config)
+    try:
+        return client.list_plugin_fields_containers(itemtype="Ticket")
+    except GlpiStatusError as exc:
+        if exc.status_code == 400 and _FIELDS_ITEMTYPE_UNKNOWN in (
+            exc.response_text or ""
+        ):
+            pytest.skip("GLPI Fields plugin is not installed on this instance")
+        raise
+
+
+def test_plugin_fields_containers_discovery(
+    client: GlpiClient, fields_containers: list[GetPluginFieldsContainer]
 ) -> None:
     """Discover Ticket-attached Fields plugin containers on the live instance."""
 
-    _skip_when_no_v1(live_config)
-    containers = client.list_plugin_fields_containers(itemtype="Ticket")
+    containers = fields_containers
     if not containers:
         pytest.skip("no PluginFieldsContainer attached to Ticket on this instance")
     for container in containers:
@@ -683,7 +730,7 @@ def test_plugin_fields_containers_discovery(
 
 
 def test_get_ticket_custom_fields_round_trip_on_known_ticket(
-    client: GlpiClient, live_config: _LiveGlpiConfig
+    client: GlpiClient, fields_containers: list[GetPluginFieldsContainer]
 ) -> None:
     """Round-trip the ``aidelarsolution`` custom field on ticket 62571.
 
@@ -691,8 +738,7 @@ def test_get_ticket_custom_fields_round_trip_on_known_ticket(
     read back, and finally restored so the test is net-zero.
     """
 
-    _skip_when_no_v1(live_config)
-    containers = client.list_plugin_fields_containers(itemtype="Ticket")
+    containers = fields_containers
     container = next((c for c in containers if c.name == "aidelarsolution"), None)
     if container is None:
         pytest.skip("'aidelarsolution' container missing on this instance")
@@ -721,12 +767,12 @@ def test_get_ticket_custom_fields_round_trip_on_known_ticket(
             )
 
 
+@pytest.mark.usefixtures("fields_containers")
 def test_set_ticket_custom_fields_rejects_unknown_container(
-    client: GlpiClient, live_config: _LiveGlpiConfig
+    client: GlpiClient,
 ) -> None:
     """Writing to a non-existent container raises before any HTTP call."""
 
-    _skip_when_no_v1(live_config)
     with pytest.raises(ValueError, match="Unknown plugin-fields container"):
         client.set_ticket_custom_fields(
             _FIELDS_TEST_TICKET_ID,

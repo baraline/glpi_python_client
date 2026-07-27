@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.custom._statistics import (
     StatisticsMixin,
     TaskDurationsResult,
@@ -295,8 +296,9 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         from glpi_python_client.clients.commons._filters import (
@@ -388,7 +390,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If none of ``user_id``, ``username``, ``realname``, or
             ``firstname`` are supplied, or if the supplied criteria match
             no GLPI users.
@@ -406,7 +408,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
         )
 
         if all(v is None for v in (user_id, username, realname, firstname)):
-            raise ValueError(
+            raise GlpiValidationError(
                 "At least one of user_id, username, realname, or "
                 "firstname must be supplied"
             )
@@ -432,7 +434,7 @@ class AsyncStatisticsMixin(StatisticsMixin):
                 limit=200,
             )
             if not matched_users:
-                raise ValueError("No users matched the supplied criteria")
+                raise GlpiValidationError("No users matched the supplied criteria")
             resolved_user_ids = [u.id for u in matched_users if u.id is not None]
             user_display_map = {
                 u.id: (

@@ -14,6 +14,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import TypedDict
 
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.clients.commons._filters import (
     rsql_all_filter,
     rsql_any_filter,
@@ -125,8 +126,9 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         start, end = _resolve_window(
@@ -265,8 +267,9 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
-            If ``default_days < 1`` or ``start_date > end_date``.
+        GlpiValidationError
+            If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+            valid ISO date, or ``start_date`` is after ``end_date``.
         """
 
         start, end = _resolve_window(
@@ -421,14 +424,14 @@ class StatisticsMixin(TransportMixin):
 
         Raises
         ------
-        ValueError
+        GlpiValidationError
             If none of ``user_id``, ``username``, ``realname``, or
             ``firstname`` are supplied, or if the supplied criteria match
             no GLPI users.
         """
 
         if all(v is None for v in (user_id, username, realname, firstname)):
-            raise ValueError(
+            raise GlpiValidationError(
                 "At least one of user_id, username, realname, or "
                 "firstname must be supplied"
             )
@@ -454,7 +457,7 @@ class StatisticsMixin(TransportMixin):
                 limit=200,
             )
             if not matched_users:
-                raise ValueError("No users matched the supplied criteria")
+                raise GlpiValidationError("No users matched the supplied criteria")
             resolved_user_ids = [u.id for u in matched_users if u.id is not None]
             user_display_map = {
                 u.id: (
@@ -561,18 +564,31 @@ def _resolve_window(
 
     Validation matches the legacy analytics helper: positive default span,
     parsed ISO dates, and ``start <= end``.
+
+    Raises
+    ------
+    GlpiValidationError
+        If ``default_days < 1``, ``start_date`` / ``end_date`` is not a
+        valid ISO ``YYYY-MM-DD`` string, or ``start_date`` is after
+        ``end_date``.
     """
 
     if default_days < 1:
-        raise ValueError("default_days must be a positive integer")
-    parsed_end = date.fromisoformat(end_date) if end_date else date.today()
-    parsed_start = (
-        date.fromisoformat(start_date)
-        if start_date
-        else parsed_end - timedelta(days=default_days - 1)
-    )
+        raise GlpiValidationError("default_days must be a positive integer")
+    try:
+        parsed_end = date.fromisoformat(end_date) if end_date else date.today()
+    except ValueError as exc:
+        raise GlpiValidationError(f"Invalid end_date: {end_date!r}") from exc
+    try:
+        parsed_start = (
+            date.fromisoformat(start_date)
+            if start_date
+            else parsed_end - timedelta(days=default_days - 1)
+        )
+    except ValueError as exc:
+        raise GlpiValidationError(f"Invalid start_date: {start_date!r}") from exc
     if parsed_start > parsed_end:
-        raise ValueError("start_date must be less than or equal to end_date")
+        raise GlpiValidationError("start_date must be less than or equal to end_date")
     return parsed_start, parsed_end
 
 
