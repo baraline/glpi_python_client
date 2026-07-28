@@ -1,9 +1,9 @@
-"""Unit tests for the asynchronous GLPI transport mixin.
+"""Unit tests for the GLPI transport mixin.
 
 The tests exercise the core dispatch path -- ``_ensure_token``,
 ``_send_request``, ``_execute_request``, and the four HTTP-verb helpers --
-using a real :class:`AsyncGlpiClient` with its session and auth stubbed out
-so no real network call is made.
+using a real client with its session and auth stubbed out so no real
+network call is made.
 
 Retry semantics for the v2 transport are folded in here too: 5xx is retried,
 4xx is not. These tests are the regression net for the retry predicate.
