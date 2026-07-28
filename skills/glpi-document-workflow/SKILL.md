@@ -1,11 +1,11 @@
-﻿---
+---
 name: glpi-document-workflow
-description: "Manage GLPI document metadata, upload binary content via the legacy v1 fallback, download document binaries, and link documents to a ticket timeline with the asynchronous glpi_python_client.GlpiClient and the GetDocument/PostDocument/PatchDocument/DeleteDocument models. Use for ticket attachments, document binary content, document metadata, or saving downloaded files."
+description: "Manage GLPI document metadata, upload binary content via the legacy v1 fallback, download document binaries, and link documents to a ticket timeline with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetDocument/PostDocument/PatchDocument/DeleteDocument models. Use for ticket attachments, document binary content, document metadata, or saving downloaded files."
 license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and v1 credentials configured on the client for binary uploads."
 metadata:
   package: glpi-python-client
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # GLPI Document Workflow

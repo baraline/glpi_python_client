@@ -1,11 +1,11 @@
-﻿---
+---
 name: glpi-team-members
-description: "List, add, and remove GLPI ticket team members with the asynchronous glpi_python_client.GlpiClient and the GetTeamMember/PostTeamMember models. Use when assigning users or groups to tickets, inspecting ticket teams, or removing GLPI ticket participants."
+description: "List, add, and remove GLPI ticket team members with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetTeamMember/PostTeamMember models. Use when assigning users or groups to tickets, inspecting ticket teams, or removing GLPI ticket participants."
 license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to manage ticket teams."
 metadata:
   package: glpi-python-client
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # GLPI Team Members

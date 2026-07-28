@@ -1,11 +1,11 @@
-﻿---
+---
 name: glpi-ticket-timeline
-description: "Read GLPI ticket timeline records and create or update followups, tasks, solutions, and timeline document links with the asynchronous glpi_python_client.GlpiClient. Use when handling ticket notes, followups, tasks, solutions, or attached documents on a GLPI ticket timeline."
+description: "Read GLPI ticket timeline records and create or update followups, tasks, solutions, and timeline document links with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient. Use when handling ticket notes, followups, tasks, solutions, or attached documents on a GLPI ticket timeline."
 license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, and network access to the GLPI v2 API."
 metadata:
   package: glpi-python-client
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # GLPI Ticket Timeline
