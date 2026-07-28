@@ -241,6 +241,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   module and its `remote_error_message` helper are removed. It had no
   library call sites, and `reraise=True` leaves it nothing to unwrap.
 
+### Performance
+
+- **`sniffio` is now a dependency, and the async client is ~2.6x faster at
+  wide fan-out because of it.** `httpcore` decides whether it is running
+  under asyncio or trio by probing for `sniffio` on every async request,
+  falling back to `"asyncio"` when the import fails. Nothing in the
+  dependency chain required it — `httpx` pulls in `anyio`, and `anyio` 4.14
+  dropped `sniffio` — so a fresh install had no `sniffio`, and because
+  Python never caches a failed import, every single request re-walked
+  `sys.path` doing filesystem stats. Measured against a local server with
+  50 ms latency, a fan-out of 128 took **3354 ms without `sniffio` and
+  1304 ms with it**. `pip check` reports no broken requirements either way,
+  which is why this went unnoticed: nothing declares the package, nothing
+  imports it, and the only symptom is that every request is slower.
+
+- **Bounding a wide fan-out is now a documented requirement, not a
+  suggestion.** `httpcore` rescans its entire connection pool on every
+  request assignment, calling `has_expired()` per connection — profiled at
+  9040 such calls for a 64-request fan-out. The cost is quadratic in the
+  width of the fan-out and it saturates the event loop, so server-observed
+  concurrency *falls* as the fan-out widens. Raising `httpx.Limits` does not
+  help. At a fan-out of 16 against a 50 ms server, an unbounded
+  `gather` took 350 ms while the same work capped at 16 with an
+  `asyncio.Semaphore` took 108 ms. See "Bounding concurrency" in the user
+  guide. This is a property of `httpx` 0.28 / `httpcore` 1.0.9, which are
+  the current releases; there is no version to upgrade to.
+
 ### Documentation
 
 - **The documentation still described the deleted bridge**, in the places
