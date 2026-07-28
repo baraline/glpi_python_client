@@ -1,4 +1,4 @@
-"""Unit tests for client setup and lifecycle helpers."""
+"""Unit tests for client construction and lifecycle helpers."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from typing import Any
 import pytest
 
 from glpi_python_client import GlpiClient
+from glpi_python_client._sync._testing import make_client
 from glpi_python_client._sync.clients.commons._config import build_client_env_config
 
 
 def test_glpi_client_from_env_uses_overrides_and_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``GlpiClient.from_env`` resolves env vars and applies overrides."""
+    """``from_env`` resolves env vars and applies overrides."""
 
     env = {
         "GLPI_API_URL": "https://glpi.example.test/api.php/v2",
@@ -41,17 +42,11 @@ def test_glpi_client_close_is_idempotent() -> None:
 
 
 def test_glpi_client_async_context_manager() -> None:
-    """Using ``async with`` closes the client on exit."""
+    """The context manager closes the client on exit."""
 
-    with GlpiClient(
-        glpi_api_url="https://glpi.example.test/api.php/v2",
-        username="u",
-        password="p",
-    ) as client:
-        assert client.glpi_api_url.endswith("/api.php/v2")
-    # After __aexit__ the client is closed and rejects further calls.
-    with pytest.raises(RuntimeError, match="closed"):
-        client._ensure_token()
+    with make_client() as c:
+        assert c._session is not None
+    assert c._closed is True
 
 
 def test_glpi_client_rejects_invalid_credentials() -> None:

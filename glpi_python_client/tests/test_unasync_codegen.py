@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -129,6 +130,41 @@ def test_no_identifier_collides_with_a_substitution_key() -> None:
     )
 
 
+#: Matches ``_async`` as its own NAME token -- i.e. a qualified reference
+#: such as ``glpi_python_client._async.clients.api`` or a bare directory
+#: mention such as ``_async/`` -- but not as a fragment embedded inside a
+#: larger identifier such as ``test_glpi_client_async_context_manager``.
+#: Python's tokenizer never splits an identifier at an underscore, so a
+#: name like that is a single NAME token the codegen's own substitution
+#: cannot touch and is not a reference to the async tree at all; only the
+#: word-boundary-delimited occurrence is the thing this guard cares about.
+_BARE_ASYNC_MENTION = re.compile(r"(?<![\w])_async(?![\w])")
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("from glpi_python_client._async import foo", True),
+        ("See :mod:`glpi_python_client._async.clients.api`.", True),
+        ("checked into ``_async/`` by hand", True),
+        ("def test_glpi_client_async_context_manager() -> None:", False),
+        ("def test_async_transport_ensure_open_blocks_after_close() -> None:", False),
+    ],
+)
+def test_bare_async_mention_pattern_distinguishes_token_from_fragment(
+    line: str, expected: bool
+) -> None:
+    """The pattern flags a standalone ``_async`` token but not an embedded one.
+
+    Positive control for :data:`_BARE_ASYNC_MENTION`: without this, a future
+    edit could widen or narrow the pattern and
+    ``test_the_generated_tree_never_names_the_async_one`` would only notice
+    if the checked-in tree happened to contain a matching line that day.
+    """
+
+    assert bool(_BARE_ASYNC_MENTION.search(line)) is expected
+
+
 def test_the_generated_tree_never_names_the_async_one() -> None:
     """No module under ``_sync/`` mentions ``_async`` anywhere.
 
@@ -149,6 +185,12 @@ def test_the_generated_tree_never_names_the_async_one() -> None:
     The hand-written twins are exempt. They are not generated, and each
     one names its counterpart on purpose: pointing at the other file is
     the only way to explain why the pair exists.
+
+    The scan looks for ``_async`` as its own token, not as a substring --
+    a colocated test such as ``test_glpi_client_async_context_manager``
+    legitimately contains the letters ``_async`` without naming the async
+    tree, because it is a single identifier a reader (and the codegen) can
+    never split. See :data:`_BARE_ASYNC_MENTION`.
     """
 
     build = _build_module()
@@ -158,7 +200,7 @@ def test_the_generated_tree_never_names_the_async_one() -> None:
         for path in sorted(_SYNC_DIR.rglob("*.py"))
         if "__pycache__" not in path.parts and path.name not in hand_written
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
-        if "_async" in line
+        if _BARE_ASYNC_MENTION.search(line)
     ]
     assert offenders == [], (
         "the generated sync tree still refers to the async one:\n"
