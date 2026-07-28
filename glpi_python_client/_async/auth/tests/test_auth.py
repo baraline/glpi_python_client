@@ -13,7 +13,7 @@ from glpi_python_client import (
     GlpiTransportError,
     GlpiValidationError,
 )
-from glpi_python_client._sync.auth.auth import GLPITokenManager
+from glpi_python_client._async.auth.auth import GLPITokenManager
 from glpi_python_client.testing.utils import FakeResponse, TokenResponse
 
 
@@ -22,7 +22,7 @@ class _FakeSession:
         self.response = response or TokenResponse()
         self.calls: list[dict[str, object]] = []
 
-    def post(
+    async def post(
         self,
         url: str,
         data: dict[str, str],
@@ -32,16 +32,16 @@ class _FakeSession:
         return self.response
 
 
-def test_token_manager_uses_password_grant_with_user_credentials_only() -> None:
+async def test_token_manager_uses_password_grant_with_user_credentials_only() -> None:
     session = _FakeSession()
     auth = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
         username="api-user",
         password="api-password",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
 
-    auth._acquire_token()
+    await auth._acquire_token()
 
     assert session.calls[0]["data"] == {
         "grant_type": "password",
@@ -52,16 +52,16 @@ def test_token_manager_uses_password_grant_with_user_credentials_only() -> None:
     assert auth.access_token == "token"
 
 
-def test_token_manager_uses_client_credentials_grant() -> None:
+async def test_token_manager_uses_client_credentials_grant() -> None:
     session = _FakeSession(response=TokenResponse(status_code=201))
     auth = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
 
-    auth._acquire_token()
+    await auth._acquire_token()
 
     assert session.calls[0]["data"] == {
         "grant_type": "client_credentials",
@@ -72,16 +72,16 @@ def test_token_manager_uses_client_credentials_grant() -> None:
     assert auth.access_token == "token"
 
 
-def test_token_manager_preserves_raw_credential_text() -> None:
+async def test_token_manager_preserves_raw_credential_text() -> None:
     session = _FakeSession(response=TokenResponse(status_code=201))
     auth = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="  client-id  ",
         client_secret="  client-secret  ",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
 
-    auth._acquire_token()
+    await auth._acquire_token()
 
     assert session.calls[0]["data"] == {
         "grant_type": "client_credentials",
@@ -91,7 +91,7 @@ def test_token_manager_preserves_raw_credential_text() -> None:
     }
 
 
-def test_token_manager_uses_password_grant_with_both_credential_sets() -> None:
+async def test_token_manager_uses_password_grant_with_both_credential_sets() -> None:
     session = _FakeSession()
     auth = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
@@ -99,10 +99,10 @@ def test_token_manager_uses_password_grant_with_both_credential_sets() -> None:
         client_secret="client-secret",
         username="api-user",
         password="api-password",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
 
-    auth._acquire_token()
+    await auth._acquire_token()
 
     assert session.calls[0]["data"] == {
         "grant_type": "password",
@@ -114,13 +114,13 @@ def test_token_manager_uses_password_grant_with_both_credential_sets() -> None:
     }
 
 
-def test_token_manager_refreshes_when_configured_interval_elapses() -> None:
+async def test_token_manager_refreshes_when_configured_interval_elapses() -> None:
     session = _FakeSession()
     auth = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
         auth_token_refresh=60,
     )
     auth.access_token = "old-token"
@@ -128,7 +128,7 @@ def test_token_manager_refreshes_when_configured_interval_elapses() -> None:
     auth.token_updated_at = datetime.now(tz=timezone.utc) - timedelta(seconds=61)
     auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=1)
 
-    auth.ensure_token()
+    await auth.ensure_token()
 
     assert auth.auth_token_refresh == 60
     assert session.calls[0]["data"] == {
@@ -206,7 +206,7 @@ def test_token_manager_rejects_incomplete_credentials(
     assert isinstance(excinfo.value, ValueError)
 
 
-def test_oauth_401_raises_glpi_auth_error() -> None:
+async def test_oauth_401_raises_glpi_auth_error() -> None:
     """A rejected credential surfaces as ``GlpiAuthError``, not a bare ValueError."""
 
     session = _FakeSession(
@@ -216,16 +216,16 @@ def test_oauth_401_raises_glpi_auth_error() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="wrong",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
     with pytest.raises(GlpiAuthError) as excinfo:
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert excinfo.value.status_code == 401
     assert isinstance(excinfo.value, ValueError)
 
 
-def test_oauth_401_is_not_retried() -> None:
+async def test_oauth_401_is_not_retried() -> None:
     """A 4xx from the token endpoint is final; retrying cannot help."""
 
     session = _FakeSession(
@@ -235,15 +235,15 @@ def test_oauth_401_is_not_retried() -> None:
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="wrong",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
     with pytest.raises(GlpiAuthError):
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert len(session.calls) == 1
 
 
-def test_oauth_5xx_raises_glpi_server_error_after_retries(
+async def test_oauth_5xx_raises_glpi_server_error_after_retries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A 5xx from the token endpoint is retried, then reraised as-is."""
@@ -254,10 +254,10 @@ def test_oauth_5xx_raises_glpi_server_error_after_retries(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
     with pytest.raises(GlpiServerError) as excinfo:
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert excinfo.value.status_code == 503
     assert len(session.calls) == 3
@@ -278,7 +278,7 @@ def _make_refresh_ready_manager(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
     manager.access_token = "stale-token"
     manager.refresh_token = "refresh-token"
@@ -287,7 +287,7 @@ def _make_refresh_ready_manager(
     return manager
 
 
-def test_refresh_401_stays_final_with_one_nested_acquire_call(
+async def test_refresh_401_stays_final_with_one_nested_acquire_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A 4xx during refresh is not retried by either decorator.
@@ -312,7 +312,7 @@ def test_refresh_401_stays_final_with_one_nested_acquire_call(
     manager = _make_refresh_ready_manager(session)
 
     with pytest.raises(GlpiAuthError) as excinfo:
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert excinfo.value.status_code == 401
     # 1 refresh POST (logged, falls through) + 1 nested _acquire_token POST
@@ -320,7 +320,7 @@ def test_refresh_401_stays_final_with_one_nested_acquire_call(
     assert len(session.calls) == 2
 
 
-def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
+async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A persistent 5xx during refresh costs 4 POSTs, not 12.
@@ -350,13 +350,13 @@ def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
     manager = _make_refresh_ready_manager(session)
 
     with pytest.raises(GlpiServerError) as excinfo:
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert excinfo.value.status_code == 503
     assert len(session.calls) == 4
 
 
-def test_acquire_token_network_error_is_retried_three_times(
+async def test_acquire_token_network_error_is_retried_three_times(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A connection-level failure (no HTTP response at all) is retried.
@@ -372,7 +372,9 @@ def test_acquire_token_network_error_is_retried_three_times(
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def post(self, url: str, data: dict[str, str], timeout: int) -> FakeResponse:
+        async def post(
+            self, url: str, data: dict[str, str], timeout: int
+        ) -> FakeResponse:
             self.calls.append({"url": url, "data": data, "timeout": timeout})
             raise httpx.ConnectError("network down")
 
@@ -381,16 +383,16 @@ def test_acquire_token_network_error_is_retried_three_times(
         token_url="https://glpi.example.test/api.php/token",
         client_id="client-id",
         client_secret="client-secret",
-        session=cast(httpx.Client, session),
+        session=cast(httpx.AsyncClient, session),
     )
 
     with pytest.raises(GlpiTransportError):
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert len(session.calls) == 3
 
 
-def test_refresh_network_error_is_retried_three_times(
+async def test_refresh_network_error_is_retried_three_times(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A connection-level failure during refresh is retried by refresh's own decorator.
@@ -420,7 +422,9 @@ def test_refresh_network_error_is_retried_three_times(
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def post(self, url: str, data: dict[str, str], timeout: int) -> FakeResponse:
+        async def post(
+            self, url: str, data: dict[str, str], timeout: int
+        ) -> FakeResponse:
             self.calls.append({"url": url, "data": data, "timeout": timeout})
             raise httpx.ConnectError("network down")
 
@@ -428,6 +432,6 @@ def test_refresh_network_error_is_retried_three_times(
     manager = _make_refresh_ready_manager(cast(_FakeSession, session))
 
     with pytest.raises(GlpiTransportError):
-        manager.ensure_token()
+        await manager.ensure_token()
 
     assert len(session.calls) == 3

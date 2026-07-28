@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from tenacity import wait_fixed
 
 from glpi_python_client import (
     GlpiProtocolError,
@@ -17,16 +18,29 @@ from glpi_python_client import (
 from glpi_python_client._sync.auth._v1_session import GLPIV1Session
 from glpi_python_client.testing.utils import FakeResponse
 
+#: Every ``GLPIV1Session`` method carrying the shared network retry decorator.
+_RETRIED_METHODS = (
+    "_init_session",
+    "request_json",
+    "upload_document",
+)
+
 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Disable tenacity wait between retry attempts to keep tests fast."""
+    """Drop the 3s fixed wait so retry tests stay instant.
 
-    monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
+    Each decorated method's own ``Retrying`` object is patched directly.
+    Patching ``tenacity.nap.time.sleep`` would work today but silently stops
+    working on the async path, so it is deliberately not used here.
+    """
+
+    for name in _RETRIED_METHODS:
+        monkeypatch.setattr(getattr(GLPIV1Session, name).retry, "wait", wait_fixed(0))
 
 
 class _FakeV1Http:
-    """In-memory ``httpx.Client`` stand-in capturing every call."""
+    """In-memory HTTP client stand-in capturing every call."""
 
     def __init__(self, responses: dict[str, list[FakeResponse]]) -> None:
         self._responses = responses
@@ -425,7 +439,9 @@ def test_request_json_supports_get_with_params() -> None:
         }
     )
     session = _make(http)
-    out = session.request_json("GET", "PluginFieldsContainer", params={"range": "0-1"})
+    out = session.request_json(
+        "GET", "PluginFieldsContainer", params={"range": "0-1"}
+    )
     assert out == [{"id": 1}]
     get_call = next(
         call for call in http.calls if call["url"].endswith("/PluginFieldsContainer")
