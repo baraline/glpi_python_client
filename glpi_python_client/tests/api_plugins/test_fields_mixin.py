@@ -62,10 +62,7 @@ def client() -> GlpiClient:
 def test_value_itemtype_naming() -> None:
     """The value itemtype is built from parent type + lowercase container."""
 
-    assert (
-        _value_itemtype_for("Ticket", "aidelarsolution")
-        == "PluginFieldsTicketaidelarsolution"
-    )
+    assert _value_itemtype_for("Ticket", "extrainfo") == "PluginFieldsTicketextrainfo"
     # Mixed-case names get normalised to lowercase to match the v1 routes.
     assert (
         _value_itemtype_for("Ticket", "MyContainer") == "PluginFieldsTicketmycontainer"
@@ -169,19 +166,19 @@ def test_list_item_plugin_field_rows_hits_subresource(client: GlpiClient) -> Non
             [
                 {
                     "id": 1,
-                    "items_id": 62571,
+                    "items_id": 1234,
                     "itemtype": "Ticket",
                     "plugin_fields_containers_id": 10,
                     "entities_id": 0,
-                    "aidelarsolutionfield": "<p>test</p>",
+                    "extrainfofield": "<p>test</p>",
                 }
             ]
         ]
     )
     client._v1 = fake  # type: ignore[assignment]
-    rows = client.list_item_plugin_field_rows("Ticket", 62571, "aidelarsolution")
-    assert rows[0].extra_payload == {"aidelarsolutionfield": "<p>test</p>"}
-    assert fake.calls[0]["path"] == "Ticket/62571/PluginFieldsTicketaidelarsolution"
+    rows = client.list_item_plugin_field_rows("Ticket", 1234, "extrainfo")
+    assert rows[0].extra_payload == {"extrainfofield": "<p>test</p>"}
+    assert fake.calls[0]["path"] == "Ticket/1234/PluginFieldsTicketextrainfo"
 
 
 def test_create_item_plugin_field_row_returns_new_id(client: GlpiClient) -> None:
@@ -193,20 +190,20 @@ def test_create_item_plugin_field_row_returns_new_id(client: GlpiClient) -> None
         itemtype="Ticket",
         items_id=99,
         container_id=10,
-        container_name="aidelarsolution",
-        values={"aidelarsolutionfield": "<p>x</p>"},
+        container_name="extrainfo",
+        values={"extrainfofield": "<p>x</p>"},
         entities_id=3,
     )
     assert row_id == 7
     call = fake.calls[0]
     assert call["method"] == "POST"
-    assert call["path"] == "PluginFieldsTicketaidelarsolution"
+    assert call["path"] == "PluginFieldsTicketextrainfo"
     assert call["json_body"] == {
         "input": {
             "items_id": 99,
             "itemtype": "Ticket",
             "plugin_fields_containers_id": 10,
-            "aidelarsolutionfield": "<p>x</p>",
+            "extrainfofield": "<p>x</p>",
             "entities_id": 3,
         }
     }
@@ -219,16 +216,14 @@ def test_update_item_plugin_field_row_puts_partial_body(client: GlpiClient) -> N
     client._v1 = fake  # type: ignore[assignment]
     client.update_item_plugin_field_row(
         itemtype="Ticket",
-        container_name="aidelarsolution",
+        container_name="extrainfo",
         row_id=1,
-        values={"aidelarsolutionfield": "<p>updated</p>"},
+        values={"extrainfofield": "<p>updated</p>"},
     )
     call = fake.calls[0]
     assert call["method"] == "PUT"
-    assert call["path"] == "PluginFieldsTicketaidelarsolution/1"
-    assert call["json_body"] == {
-        "input": {"id": 1, "aidelarsolutionfield": "<p>updated</p>"}
-    }
+    assert call["path"] == "PluginFieldsTicketextrainfo/1"
+    assert call["json_body"] == {"input": {"id": 1, "extrainfofield": "<p>updated</p>"}}
 
 
 def test_get_ticket_custom_fields_aggregates_containers(client: GlpiClient) -> None:
@@ -238,28 +233,28 @@ def test_get_ticket_custom_fields_aggregates_containers(client: GlpiClient) -> N
         responses=[
             # 1. list_plugin_fields_containers(Ticket)
             [
-                {"id": 10, "name": "aidelarsolution", "itemtypes": '["Ticket"]'},
-                {"id": 2, "name": "sige", "itemtypes": '["Ticket"]'},
+                {"id": 10, "name": "extrainfo", "itemtypes": '["Ticket"]'},
+                {"id": 2, "name": "secondary", "itemtypes": '["Ticket"]'},
                 {"id": 3, "name": "ignored", "itemtypes": '["Computer"]'},
             ],
-            # 2. list_item_plugin_field_rows aidelarsolution
+            # 2. list_item_plugin_field_rows extrainfo
             [
                 {
                     "id": 1,
-                    "items_id": 62571,
+                    "items_id": 1234,
                     "itemtype": "Ticket",
                     "plugin_fields_containers_id": 10,
                     "entities_id": 0,
-                    "aidelarsolutionfield": "<p>test</p>",
+                    "extrainfofield": "<p>test</p>",
                 }
             ],
-            # 3. list_item_plugin_field_rows sige -> no row yet
+            # 3. list_item_plugin_field_rows secondary -> no row yet
             [],
         ]
     )
     client._v1 = fake  # type: ignore[assignment]
-    result = client.get_ticket_custom_fields(62571)
-    assert result == {"aidelarsolution": {"aidelarsolutionfield": "<p>test</p>"}}
+    result = client.get_ticket_custom_fields(1234)
+    assert result == {"extrainfo": {"extrainfofield": "<p>test</p>"}}
 
 
 def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> None:
@@ -269,13 +264,13 @@ def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> No
         responses=[
             # list containers
             [
-                {"id": 10, "name": "aidelarsolution", "itemtypes": '["Ticket"]'},
+                {"id": 10, "name": "extrainfo", "itemtypes": '["Ticket"]'},
             ],
             # list fields for container 10
             [
                 {
                     "id": 11,
-                    "name": "aidelarsolutionfield",
+                    "name": "extrainfofield",
                     "plugin_fields_containers_id": 10,
                 }
             ],
@@ -283,7 +278,7 @@ def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> No
             [
                 {
                     "id": 1,
-                    "items_id": 62571,
+                    "items_id": 1234,
                     "itemtype": "Ticket",
                     "plugin_fields_containers_id": 10,
                 }
@@ -294,14 +289,12 @@ def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> No
     )
     client._v1 = fake  # type: ignore[assignment]
     client.set_ticket_custom_fields(
-        62571, {"aidelarsolution": {"aidelarsolutionfield": "<p>new</p>"}}
+        1234, {"extrainfo": {"extrainfofield": "<p>new</p>"}}
     )
     methods = [c["method"] for c in fake.calls]
     assert methods == ["GET", "GET", "GET", "PUT"]
     put = fake.calls[-1]
-    assert put["json_body"] == {
-        "input": {"id": 1, "aidelarsolutionfield": "<p>new</p>"}
-    }
+    assert put["json_body"] == {"input": {"id": 1, "extrainfofield": "<p>new</p>"}}
 
 
 def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> None:
@@ -310,12 +303,12 @@ def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> No
     fake = _FakeV1(
         responses=[
             [
-                {"id": 10, "name": "aidelarsolution", "itemtypes": '["Ticket"]'},
+                {"id": 10, "name": "extrainfo", "itemtypes": '["Ticket"]'},
             ],
             [
                 {
                     "id": 11,
-                    "name": "aidelarsolutionfield",
+                    "name": "extrainfofield",
                     "plugin_fields_containers_id": 10,
                 }
             ],
@@ -325,17 +318,17 @@ def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> No
     )
     client._v1 = fake  # type: ignore[assignment]
     client.set_ticket_custom_fields(
-        62571, {"aidelarsolution": {"aidelarsolutionfield": "<p>new</p>"}}
+        1234, {"extrainfo": {"extrainfofield": "<p>new</p>"}}
     )
     methods = [c["method"] for c in fake.calls]
     assert methods == ["GET", "GET", "GET", "POST"]
     post = fake.calls[-1]
     assert post["json_body"] == {
         "input": {
-            "items_id": 62571,
+            "items_id": 1234,
             "itemtype": "Ticket",
             "plugin_fields_containers_id": 10,
-            "aidelarsolutionfield": "<p>new</p>",
+            "extrainfofield": "<p>new</p>",
         }
     }
 
@@ -352,7 +345,7 @@ def test_set_ticket_custom_fields_rejects_unknown_container(client: GlpiClient) 
     with pytest.raises(
         GlpiValidationError, match="Unknown plugin-fields container"
     ) as excinfo:
-        client.set_ticket_custom_fields(62571, {"typo": {"any": "value"}})
+        client.set_ticket_custom_fields(1234, {"typo": {"any": "value"}})
     # No mutation was sent.
     assert all(c["method"] == "GET" for c in fake.calls)
     assert isinstance(excinfo.value, ValueError)
@@ -371,11 +364,11 @@ def test_set_ticket_custom_fields_rejects_container_without_id(
     working.
     """
 
-    fake = _FakeV1(responses=[[{"name": "aidelarsolution", "itemtypes": '["Ticket"]'}]])
+    fake = _FakeV1(responses=[[{"name": "extrainfo", "itemtypes": '["Ticket"]'}]])
     client._v1 = fake  # type: ignore[assignment]
     with pytest.raises(GlpiProtocolError, match="has no id") as excinfo:
         client.set_ticket_custom_fields(
-            62571, {"aidelarsolution": {"aidelarsolutionfield": "value"}}
+            1234, {"extrainfo": {"extrainfofield": "value"}}
         )
     assert all(c["method"] == "GET" for c in fake.calls)
     assert isinstance(excinfo.value, ValueError)
@@ -390,11 +383,11 @@ def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> N
 
     fake = _FakeV1(
         responses=[
-            [{"id": 10, "name": "aidelarsolution", "itemtypes": '["Ticket"]'}],
+            [{"id": 10, "name": "extrainfo", "itemtypes": '["Ticket"]'}],
             [
                 {
                     "id": 11,
-                    "name": "aidelarsolutionfield",
+                    "name": "extrainfofield",
                     "plugin_fields_containers_id": 10,
                 }
             ],
@@ -402,7 +395,7 @@ def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> N
     )
     client._v1 = fake  # type: ignore[assignment]
     with pytest.raises(GlpiValidationError, match="Unknown field") as excinfo:
-        client.set_ticket_custom_fields(62571, {"aidelarsolution": {"typo": "value"}})
+        client.set_ticket_custom_fields(1234, {"extrainfo": {"typo": "value"}})
     assert isinstance(excinfo.value, ValueError)
 
 
@@ -413,5 +406,5 @@ def test_set_ticket_custom_fields_with_empty_mapping_is_noop(
 
     fake = _FakeV1(responses=[])
     client._v1 = fake  # type: ignore[assignment]
-    client.set_ticket_custom_fields(62571, {})
+    client.set_ticket_custom_fields(1234, {})
     assert fake.calls == []

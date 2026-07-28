@@ -15,10 +15,13 @@ exclude = [
     "dist/",
     "*.egg-info/",
     "docs/_build/",
+    "docs/superpowers/",
+    "docs/glpi_api_contract.json",
     ".venv/",
     "venv/",
     ".env",
     ".env.*",
+    ".coverage",
     "secrets/",
     "integration_tests/",
 ]

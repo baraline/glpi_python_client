@@ -733,8 +733,8 @@ internal container and field names:
        client.set_ticket_custom_fields(
            ticket_id,
            {
-               "aidelarsolution": {
-                   "aidelarsolutionfield": "<p>Handled by the NOC shift</p>",
+               "extrainfo": {
+                   "extrainfofield": "<p>Handled by the NOC shift</p>",
                }
            },
        )

@@ -21,8 +21,8 @@ Two abstraction layers are provided:
 
 The value itemtype for one container is derived from the container
 ``name`` field with :func:`_value_itemtype_for`: container
-``aidelarsolution`` attached to ``Ticket`` becomes
-``PluginFieldsTicketaidelarsolution``. Field column names declared on
+``extrainfo`` attached to ``Ticket`` becomes
+``PluginFieldsTicketextrainfo``. Field column names declared on
 :class:`~glpi_python_client.models.api_schema.plugins.GetPluginFieldsField`
 flow through :attr:`~glpi_python_client.models._base.GlpiModel.extra_payload`
 on the value rows.

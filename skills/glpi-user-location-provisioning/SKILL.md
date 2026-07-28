@@ -62,7 +62,7 @@ location_id = (
 Look entities up by name fragment:
 
 ```python
-entities = await client.search_entities("name=like=*novahe*", limit=10)
+entities = await client.search_entities("name=like=*acme*", limit=10)
 for entity in entities:
     print(entity.id, entity.name, entity.completename)
 ```

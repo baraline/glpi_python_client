@@ -670,13 +670,18 @@ def test_get_user_activity_raises_without_identifier(client: GlpiClient) -> None
 # ---------------------------------------------------------------------------
 # GLPI Fields plugin (legacy v1 endpoints)
 #
-# These tests target the live preprod ticket #62571, which carries an
-# ``aidelarsolution`` custom container set up via the GLPI Fields plugin.
-# When the plugin is not installed the tests skip cleanly so the suite stays
-# portable across instances.
+# These tests target a ticket carrying a custom container set up via the GLPI
+# Fields plugin. Both the ticket id and the container/field names are
+# instance-specific, so they are read from local secrets rather than hardcoded.
+# When the plugin or the configuration is absent the tests skip cleanly so the
+# suite stays portable across instances.
 # ---------------------------------------------------------------------------
 
-_FIELDS_TEST_TICKET_ID = 62571
+_FIELDS_TEST_TICKET_ID = _parse_int(
+    _read_value("glpi_fields_ticket_id", "GLPI_FIELDS_TICKET_ID")
+)
+_FIELDS_CONTAINER_NAME = _read_value("glpi_fields_container", "GLPI_FIELDS_CONTAINER")
+_FIELDS_FIELD_NAME = _read_value("glpi_fields_field", "GLPI_FIELDS_FIELD")
 
 # GLPI answers 400 with this marker when the itemtype in the URL is not a
 # known CommonDBTM subclass -- which is what an uninstalled plugin looks
@@ -732,38 +737,45 @@ def test_plugin_fields_containers_discovery(
 def test_get_ticket_custom_fields_round_trip_on_known_ticket(
     client: GlpiClient, fields_containers: list[GetPluginFieldsContainer]
 ) -> None:
-    """Round-trip the ``aidelarsolution`` custom field on ticket 62571.
+    """Round-trip the configured custom field on the configured ticket.
 
     The original value is captured, replaced by a timestamped probe value,
     read back, and finally restored so the test is net-zero.
     """
 
+    if (
+        _FIELDS_TEST_TICKET_ID is None
+        or _FIELDS_CONTAINER_NAME is None
+        or _FIELDS_FIELD_NAME is None
+    ):
+        pytest.skip("Fields plugin round-trip target not configured in secrets")
+
     containers = fields_containers
-    container = next((c for c in containers if c.name == "aidelarsolution"), None)
+    container = next((c for c in containers if c.name == _FIELDS_CONTAINER_NAME), None)
     if container is None:
-        pytest.skip("'aidelarsolution' container missing on this instance")
+        pytest.skip("configured container missing on this instance")
     assert container.id is not None
     fields = client.list_plugin_fields_fields(container_id=container.id)
-    field = next((f for f in fields if f.name == "aidelarsolutionfield"), None)
+    field = next((f for f in fields if f.name == _FIELDS_FIELD_NAME), None)
     if field is None:
-        pytest.skip("'aidelarsolutionfield' missing in container")
+        pytest.skip("configured field missing in container")
 
     before = client.get_ticket_custom_fields(_FIELDS_TEST_TICKET_ID)
-    original = before.get("aidelarsolution", {}).get("aidelarsolutionfield")
+    original = before.get(_FIELDS_CONTAINER_NAME, {}).get(_FIELDS_FIELD_NAME)
 
     probe_value = f"<p>integration probe {_suffix()}</p>"
     try:
         client.set_ticket_custom_fields(
             _FIELDS_TEST_TICKET_ID,
-            {"aidelarsolution": {"aidelarsolutionfield": probe_value}},
+            {_FIELDS_CONTAINER_NAME: {_FIELDS_FIELD_NAME: probe_value}},
         )
         after = client.get_ticket_custom_fields(_FIELDS_TEST_TICKET_ID)
-        assert after["aidelarsolution"]["aidelarsolutionfield"] == probe_value
+        assert after[_FIELDS_CONTAINER_NAME][_FIELDS_FIELD_NAME] == probe_value
     finally:
         if original is not None:
             client.set_ticket_custom_fields(
                 _FIELDS_TEST_TICKET_ID,
-                {"aidelarsolution": {"aidelarsolutionfield": original}},
+                {_FIELDS_CONTAINER_NAME: {_FIELDS_FIELD_NAME: original}},
             )
 
 
@@ -773,8 +785,9 @@ def test_set_ticket_custom_fields_rejects_unknown_container(
 ) -> None:
     """Writing to a non-existent container raises before any HTTP call."""
 
+    # The ticket id is irrelevant here: the guard fires before any HTTP call.
     with pytest.raises(ValueError, match="Unknown plugin-fields container"):
         client.set_ticket_custom_fields(
-            _FIELDS_TEST_TICKET_ID,
+            1,
             {"does-not-exist-xyz": {"any_field": "value"}},
         )
