@@ -1,4 +1,4 @@
-"""Tests for the GLPI Knowledge base endpoint path constants."""
+"""Unit tests for the endpoint constant table."""
 
 from __future__ import annotations
 
