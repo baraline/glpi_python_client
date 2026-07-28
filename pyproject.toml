@@ -24,6 +24,13 @@ exclude = [
     ".coverage",
     "secrets/",
     "integration_tests/",
+    # Unit tests live beside the modules they test, so they sit inside the
+    # package directory. Both patterns are gitignore-style and match at any
+    # depth; "tests/" matches only a directory named exactly that, so
+    # glpi_python_client/testing/ -- a documented downstream helper -- is
+    # untouched.
+    "tests/",
+    "conftest.py",
 ]
 
 [project]
