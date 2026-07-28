@@ -119,9 +119,9 @@ async def test_glpi_client_init_failure_creates_no_session(
     """A bad credential set is rejected before any session is constructed.
 
     This used to build the session first and unwind it from an ``except``
-    clause. That shape is not expressible on the async surface -- an
-    ``httpx.AsyncClient`` has no synchronous close and a constructor cannot
-    await one -- so the configuration is now validated up front instead.
+    clause. That assumes a constructor can always close a partially built
+    session before it returns, which is not something every client variant
+    guarantees -- so the configuration is now validated up front instead.
 
     Asserting *nothing was built* is the stronger property: there is no
     window in which a session exists but the client does not, so there is
