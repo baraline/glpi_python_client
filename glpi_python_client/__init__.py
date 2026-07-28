@@ -2,10 +2,13 @@
 
 The package re-exports two client classes:
 
-* :class:`GlpiClient` — synchronous, blocking client (single source of
-  truth for endpoint behaviour).
-* :class:`AsyncGlpiClient` — asynchronous facade that wraps each
-  synchronous method into a coroutine.
+* :class:`GlpiClient` — synchronous, blocking client.
+* :class:`AsyncGlpiClient` — asynchronous client doing real
+  non-blocking I/O on the event loop.
+
+They expose identical endpoint surfaces because they are the same
+code: the async tree is hand-written and the sync one is generated
+from it. Neither is a wrapper around the other.
 
 The ``api_schema`` and ``custom_schema`` Pydantic models are also
 re-exported so downstream users can import them from a single stable
@@ -14,6 +17,7 @@ package root.
 
 from __future__ import annotations
 
+from glpi_python_client._async.clients import AsyncGlpiClient
 from glpi_python_client._errors import (
     GlpiAuthError,
     GlpiError,
@@ -25,7 +29,7 @@ from glpi_python_client._errors import (
     GlpiTransportError,
     GlpiValidationError,
 )
-from glpi_python_client.clients import AsyncGlpiClient, GlpiClient
+from glpi_python_client._sync.clients import GlpiClient
 from glpi_python_client.models import (
     DeleteDocument,
     DeleteEntity,

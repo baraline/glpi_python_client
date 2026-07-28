@@ -1,11 +1,11 @@
-﻿---
+---
 name: glpi-document-workflow
-description: "Manage GLPI document metadata, upload binary content via the legacy v1 fallback, download document binaries, and link documents to a ticket timeline with the asynchronous glpi_python_client.GlpiClient and the GetDocument/PostDocument/PatchDocument/DeleteDocument models. Use for ticket attachments, document binary content, document metadata, or saving downloaded files."
+description: "Manage GLPI document metadata, upload binary content via the legacy v1 fallback, download document binaries, and link documents to a ticket timeline with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetDocument/PostDocument/PatchDocument/DeleteDocument models. Use for ticket attachments, document binary content, document metadata, or saving downloaded files."
 license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and v1 credentials configured on the client for binary uploads."
 metadata:
   package: glpi-python-client
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # GLPI Document Workflow
@@ -65,7 +65,7 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 ## Gotchas
 
 - `upload_document` raises `RuntimeError` when the v1 session is not configured. Pass `v1_base_url` and `v1_user_token` to the client constructor or `from_env`.
-- `upload_document` requires a non-empty `filename` and dispatches the blocking HTTP call through `asyncio.to_thread`; the running event loop is not blocked.
+- `upload_document` requires a non-empty `filename`. On the async client the multipart POST is awaited like any other call, so the event loop is not blocked.
 - `download_document_content` returns `bytes` and raises on non-200 responses.
 - `mime_type` defaults to `application/octet-stream` when omitted on `upload_document`.
 - All methods are async; always `await` them.

@@ -15,11 +15,12 @@ The package exposes two clients with identical endpoint surfaces:
 - `glpi_python_client.GlpiClient` — synchronous, blocking client. Use it from
   scripts, CLI tools, or any code that is not already running inside an
   event loop.
-- `glpi_python_client.AsyncGlpiClient` — asynchronous facade. Each method
-  is a coroutine that dispatches the underlying blocking call on a worker
-  thread (`asyncio.to_thread` by default, or a caller-supplied
-  `concurrent.futures.Executor`). Use it when an event loop is already
-  running or when you want concurrent fan-out via `asyncio.gather`.
+- `glpi_python_client.AsyncGlpiClient` — asynchronous client. Each method is
+  a coroutine performing real non-blocking I/O on the event loop; there is
+  no worker thread and no executor. Use it when an event loop is already
+  running or when you want concurrent fan-out via `asyncio.gather` —
+  bounded, see step 8. Unlike the retired thread-pool bridge, cancelling
+  a call here actually releases its capacity, so timeouts work.
 
 Both clients share the same method names and signatures, including
 `from_env`, OAuth handling, retry behaviour, and the optional v1
@@ -47,8 +48,13 @@ call `client.close()` (or `await client.close()`) when finished.
    uploads are needed (`upload_document`). `v1_app_token` is optional.
 7. Keep `verify_ssl=True` unless the user explicitly confirms a test or
    internal endpoint that cannot validate TLS.
-8. For the async client only, optionally pass `executor=` a
-   `concurrent.futures.ThreadPoolExecutor` to bound worker threads.
+8. Bound any large async fan-out with an `asyncio.Semaphore` on the
+   caller side. This is not just tidiness: the underlying HTTP pool
+   rescans itself on every request assignment, so an unbounded fan-out
+   saturates the event loop and gets *slower* as it widens — measured
+   against a 50 ms server, 16 concurrent calls took 350 ms unbounded and
+   108 ms capped at 16. There is no `executor=` argument and no thread
+   pool to size.
 
 ## Environment Defaults
 
@@ -152,6 +158,9 @@ with GlpiClient.from_env(
   document-upload fallback.
 - Closing the client matters because it owns one or two HTTP sessions
   plus an OAuth token manager. Prefer the context-manager form.
-- A shared `threading.Lock` serialises OAuth token acquisition, so it
-  is safe to launch concurrent `asyncio.gather` fan-outs on
-  `AsyncGlpiClient` even before the token has been fetched once.
+- Concurrent callers cannot stampede the token endpoint: the client
+  holds a lock around OAuth acquisition, so it is safe to launch a
+  fan-out on `AsyncGlpiClient` before the token has ever been fetched.
+  The primitive differs per surface — an `asyncio.Lock` on the async
+  client, a `threading.Lock` on the synchronous one — which is why a
+  synchronous client is the one safe to share across threads.

@@ -69,7 +69,23 @@ class GlpiPriority(GlpiEnum):
     """Common GLPI urgency, impact, and priority identifiers.
 
     The contract advertises the same ``[1, 2, 3, 4, 5]`` enum on the
-    ``urgency``, ``impact``, and ``priority`` ticket fields.
+    ``urgency``, ``impact``, and ``priority`` ticket fields, but the live
+    server does not honour that for ``priority``: GLPI's priority scale has
+    a sixth level, ``Major``, which it derives from urgency and impact.
+    ``urgency`` and ``impact`` really do stop at 5.
+
+    :attr:`MAJOR` is therefore included even though the contract omits it,
+    following the same rule the timeline helpers use -- observed server
+    behaviour wins over the published contract. Leaving it out was not a
+    cosmetic gap: ``priority`` is typed with this enum on ``GetTicket``, so
+    a single ``Major`` ticket anywhere in a result set failed validation and
+    took the whole search down with it, which is exactly the kind of ticket
+    a reporting query is most likely to touch.
+
+    The cost of sharing one enum across the three fields is that ``urgency``
+    and ``impact`` now also accept 6, which GLPI will never send. Accepting
+    a value that cannot occur is harmless; rejecting one that does occur was
+    not.
     """
 
     VERY_LOW = 1
@@ -77,6 +93,7 @@ class GlpiPriority(GlpiEnum):
     MEDIUM = 3
     HIGH = 4
     VERY_HIGH = 5
+    MAJOR = 6
 
 
 class GlpiTicketType(GlpiEnum):

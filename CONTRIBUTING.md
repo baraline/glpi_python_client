@@ -51,10 +51,13 @@ python -m sphinx -W --keep-going -b html docs docs/_build/html
 ## Design Guidelines
 
 - Keep API calls behind `GlpiClient` / `AsyncGlpiClient` methods. Add
-  new endpoints to a sync endpoint mixin only; `AsyncGlpiClient`
-  exposes them as coroutines automatically through `AsyncBridge`. Only
-  add a dedicated async override when the method needs concurrent
-  fan-out via `asyncio.gather`.
+  new endpoints to the async endpoint mixin under
+  `glpi_python_client/_async/`, then run `python unasync_build.py` to
+  regenerate `glpi_python_client/_sync/` and commit both. Never edit
+  `_sync/` by hand; CI regenerates it and fails on any difference. For
+  concurrent fan-out use `gather` from `_async/_concurrency.py` rather
+  than `asyncio.gather` directly, so the generated sync code stays
+  correct.
 - Prefer field-validated Pydantic models for request and response payloads.
 - Avoid organization-specific category, entity, or profile defaults in the
   library core.

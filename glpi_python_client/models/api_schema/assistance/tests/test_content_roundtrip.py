@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from glpi_python_client.clients.commons._payloads import model_to_payload
+from glpi_python_client._sync.clients.commons._payloads import model_to_payload
 from glpi_python_client.models.api_schema.assistance import (
     GetTicket,
     PatchTicket,

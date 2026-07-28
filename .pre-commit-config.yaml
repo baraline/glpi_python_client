@@ -17,6 +17,16 @@ repos:
         types: [python]
         pass_filenames: false
 
+      # Fails on a _sync/ tree left stale by an edit to _async/. Runs at
+      # commit time rather than pre-push so the generated tree is never
+      # committed out of step with its source.
+      - id: unasync-check
+        name: generated sync tree is up to date
+        entry: python unasync_build.py --check
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: pytest-coverage
         name: pytest with coverage (>=95%)
         entry: python -m pytest -m "not integration" --cov=glpi_python_client --cov-fail-under=95 -q

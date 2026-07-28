@@ -11,8 +11,8 @@ Clients
 -------
 
 The package exposes two clients with identical endpoint surfaces. The
-synchronous one is the single source of truth for endpoint behaviour;
-the asynchronous one wraps each synchronous method into a coroutine.
+asynchronous one is hand-written and the synchronous one is generated
+from it, so neither wraps the other and the two cannot drift apart.
 
 .. autoclass:: GlpiClient
    :members:
@@ -24,10 +24,6 @@ the asynchronous one wraps each synchronous method into a coroutine.
    :inherited-members:
    :show-inheritance:
 
-.. autoclass:: glpi_python_client.clients.commons._async_bridge.AsyncBridge
-   :members:
-   :show-inheritance:
-
 Exceptions
 ----------
 
@@ -37,12 +33,13 @@ unusable response body derive from :class:`GlpiError`.
 :class:`GlpiProtocolError` also inherit :class:`ValueError` for backwards
 compatibility with releases that raised bare ``ValueError``.
 
-This is not the library's entire failure surface. Network-level faults
-(connection failures, DNS errors, timeouts) still propagate as
-``requests`` exceptions today: :class:`GlpiTransportError` and
-:class:`GlpiTimeoutError` are reserved for that case but are not raised
-until a future httpx transport swap. A handful of sites also
-deliberately still raise bare ``RuntimeError`` or ``TypeError`` instead
+Network-level faults (connection failures, DNS errors, timeouts) are
+raised as :class:`GlpiTransportError`, or its :class:`GlpiTimeoutError`
+subclass for a timeout, with the underlying transport exception attached
+as ``__cause__``. Catching :class:`GlpiError` is therefore sufficient for
+the library's failure surface -- you never need to import the HTTP
+library. A handful of sites do still deliberately raise bare
+``RuntimeError`` or ``TypeError`` instead
 of a library type, so existing ``except RuntimeError`` / ``except
 TypeError`` code keeps working. See :ref:`error-handling` in the user
 guide for the full picture, including which methods raise which type.

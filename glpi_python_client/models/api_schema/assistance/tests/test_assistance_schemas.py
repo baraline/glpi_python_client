@@ -47,6 +47,35 @@ def test_get_ticket_validates_rich_payload() -> None:
     assert ticket.team[0].role == "requester"
 
 
+def test_get_ticket_accepts_the_major_priority_level() -> None:
+    """A ``Major`` (6) priority ticket validates.
+
+    GLPI's priority scale has six levels while the published contract
+    advertises five, so ``GetTicket`` used to raise ``ValidationError`` on
+    any ticket GLPI had escalated to ``Major``. Because validation happens
+    per record inside a search, one such ticket failed the *entire* query --
+    and a reporting query filtering on high priority is precisely where it
+    would show up.
+    """
+
+    ticket = GetTicket.model_validate({"id": 1, "name": "major", "priority": 6})
+    assert ticket.priority is GlpiPriority.MAJOR
+    assert ticket.priority.glpi_id == 6
+
+
+def test_urgency_and_impact_still_span_one_to_five() -> None:
+    """The five contract-declared levels keep their identifiers.
+
+    Widening the shared enum must not renumber the levels that were already
+    correct: these values are sent back to GLPI in filters, so a shift would
+    silently reinterpret every stored query.
+    """
+
+    assert [member.value for member in GlpiPriority] == [1, 2, 3, 4, 5, 6]
+    assert GlpiPriority.VERY_HIGH.value == 5
+    assert GlpiPriority.VERY_HIGH.rsql_equals("priority") == "priority==5"
+
+
 def test_post_ticket_excludes_read_only_fields() -> None:
     """Read-only contract fields are captured in ``extra_payload``.
 

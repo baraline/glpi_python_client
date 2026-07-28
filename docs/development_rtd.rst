@@ -116,21 +116,21 @@ Package Layout
    Public import surface (``GlpiClient``, ``GlpiTicketContext``, public Pydantic
    models, enums, and ``__version__``).
 
-``glpi_python_client.clients.glpi_client``
+``glpi_python_client._async.clients.client``
    Composition root. ``GlpiClient`` mixes the per-resource async API mixins,
    the OAuth2 token manager, the asynchronous v2 transport, and the optional
    internal v1 session used for document uploads.
 
-``glpi_python_client.clients.api``
+``glpi_python_client._async.clients.api``
    Async API mixins generated from the GLPI v2 OpenAPI contract: tickets,
    ticket timeline (followups, tasks, solutions, documents), team members,
    documents, users, locations, entities, ...
 
-``glpi_python_client.clients.custom``
+``glpi_python_client._async.clients.custom``
    Higher-level helpers built on top of the contract mixins:
    ``get_ticket_context``, ``get_ticket_statistics``, ``get_task_statistics``.
 
-``glpi_python_client.clients.commons``
+``glpi_python_client._async.clients.commons``
    Shared HTTP transport pieces, including the timeline envelope unwrap that
    reconciles live server behaviour with the OpenAPI contract.
 
@@ -147,11 +147,11 @@ Adding Endpoints
 
 #. Add or extend the contract-aligned models in
    ``glpi_python_client.models.api_schema``.
-#. Add the async mixin and method under ``glpi_python_client.clients.api``,
+#. Add the async mixin and method under ``glpi_python_client._async.clients.api``,
    mirroring the OpenAPI path and HTTP verb.
 #. When the live server diverges from the contract, document the choice in the
    module docstring and (when needed) wire an unwrap helper from
-   ``glpi_python_client.clients.commons``.
+   ``glpi_python_client._async.clients.commons``.
 #. Re-export new public symbols from ``glpi_python_client.__init__``.
 #. Add tests for payload serialization, response parsing, and client behaviour.
 #. Document the workflow in :doc:`user_guide` and the matching skill in

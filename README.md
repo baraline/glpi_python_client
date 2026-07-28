@@ -17,10 +17,12 @@ back to HTML for outgoing payloads.
 It currently focuses on ticket-centric workflows and exposes two high-level
 clients built on top of the GLPI v2 REST API:
 
-- `GlpiClient` — synchronous, blocking client (single source of truth for
-  endpoint behaviour).
-- `AsyncGlpiClient` — asynchronous facade that wraps every synchronous
-  method into a coroutine and dispatches it to a worker thread.
+- `GlpiClient` — synchronous, blocking client.
+- `AsyncGlpiClient` — asynchronous client doing real non-blocking I/O on the
+  event loop.
+
+Neither wraps the other. The async tree is hand-written and the sync one is
+generated from it, so the two surfaces cannot drift apart.
 
 Note that all integration tests using this package are made on GLPI 11.
 I cannot make any guarantee of the behaviour on previous versions.
@@ -106,15 +108,19 @@ variables.
 ### Sync or async?
 
 Both clients expose the exact same endpoint surface and accept the same
-constructor arguments. The async client is a thin facade that wraps each
-synchronous method into a coroutine dispatched to a worker thread via
-`asyncio.to_thread` (or a caller-supplied `concurrent.futures.Executor`).
-A shared `threading.Lock` serialises OAuth token acquisition so concurrent
-`asyncio.gather(...)` fan-outs cannot race. Pick `GlpiClient` for plain
-scripts, CLI tools, and synchronous services; pick `AsyncGlpiClient` when
-your application already runs an event loop or when you need concurrent
-fan-out (the aggregated `get_ticket_context` and per-ticket
-`get_task_statistics` helpers use `asyncio.gather` on the async client).
+constructor arguments, because both are generated from one source: the
+async tree is hand-written and the sync one is produced from it by a build
+step that strips `async`/`await`. `AsyncGlpiClient` performs real
+non-blocking I/O on the event loop — there is no worker thread and no
+executor — and `GlpiClient` performs real blocking I/O with no coroutine
+scheduling. An auth lock serialises OAuth token acquisition on both
+surfaces, so concurrent fan-outs cannot race.
+
+Pick `GlpiClient` for plain scripts, CLI tools, and synchronous services;
+pick `AsyncGlpiClient` when your application already runs an event loop or
+when you need concurrent fan-out (the aggregated `get_ticket_context` and
+per-ticket `get_task_statistics` helpers overlap their calls there, and run
+them one after another on the sync client).
 
 ## Documentation
 

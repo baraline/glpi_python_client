@@ -5,7 +5,7 @@ user-defined custom fields to any GLPI itemtype (tickets, computers,
 problems, ...). It is configured through two top-level itemtypes:
 
 * :class:`GetPluginFieldsContainer` — one container per "tab" or "block"
-  added to an itemtype (e.g. an ``Aide à la résolution`` tab on
+  added to an itemtype (e.g. an ``Extra information`` tab on
   ``Ticket``).
 * :class:`GetPluginFieldsField` — one user-defined field declaration
   belonging to a container (the column name, type, default value, ...).
@@ -13,7 +13,7 @@ problems, ...). It is configured through two top-level itemtypes:
 For each container, the plugin creates a dedicated itemtype that stores
 one row per "item + container" pair. The itemtype name is built as
 ``PluginFields<Itemtype><ContainerName>`` (e.g.
-``PluginFieldsTicketaidelarsolution`` for an ``aidelarsolution``
+``PluginFieldsTicketextrainfo`` for an ``extrainfo``
 container attached to ``Ticket``). Rows from those itemtypes are modelled
 by :class:`GetPluginFieldsValueRow` — the actual field columns are
 dynamic so they flow through the ``extra_payload`` escape hatch on

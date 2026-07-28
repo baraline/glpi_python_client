@@ -103,6 +103,14 @@ jobs:
       - name: Run mypy
         run: python -m mypy glpi_python_client
 
+      # The sync client tree is generated from the async one and checked in.
+      # This catches a _sync/ left stale by an edit to _async/. It does NOT
+      # catch a token collision -- that is deterministic, so regenerating
+      # reproduces it and the diff stays clean. test_unasync_codegen.py
+      # covers that case.
+      - name: Check the generated sync tree is up to date
+        run: python unasync_build.py --check
+
       - name: Build documentation
         run: python -m sphinx -W --keep-going -b html docs docs/_build/html
 
