@@ -17,12 +17,10 @@ from tenacity import wait_fixed
 from glpi_python_client import (
     GlpiClient,
     GlpiError,
-    GlpiNotFoundError,
     GlpiServerError,
     GlpiTimeoutError,
     GlpiTransportError,
 )
-from glpi_python_client._sync.clients.commons._http import ensure_response_status
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
 _RETRIED_METHODS = (
@@ -118,22 +116,6 @@ def test_4xx_is_not_retried_by_the_transport(client: Any, method_name: str) -> N
 
     assert len(attempts) == 1
     assert response.status_code == 404
-
-
-def test_4xx_raises_a_typed_status_error_from_ensure_response_status() -> None:
-    """The 4xx raise stays in ``ensure_response_status`` and is typed."""
-
-    response = FakeResponse(status_code=404, payload={}, text="nope")
-    with pytest.raises(GlpiNotFoundError) as excinfo:
-        ensure_response_status(
-            response,
-            success_statuses=(200, 206),
-            failure_message="Failed to fetch ticket 1",
-        )
-
-    assert excinfo.value.status_code == 404
-    assert isinstance(excinfo.value, ValueError)
-    assert str(excinfo.value) == "Failed to fetch ticket 1: 404 nope"
 
 
 def test_tolerant_search_still_returns_empty_on_4xx(client: Any) -> None:

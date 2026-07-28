@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`glpi_python_client._sync.clients.commons._http`.
+"""Unit tests for :mod:`glpi_python_client._async.clients.commons._http`.
 
 The tests cover the small request and response helper utilities used by the
 asynchronous transport and the per-endpoint mixins.
@@ -10,8 +10,8 @@ import json
 
 import pytest
 
-from glpi_python_client import GlpiProtocolError, GlpiValidationError
-from glpi_python_client._sync.clients.commons._http import (
+from glpi_python_client import GlpiNotFoundError, GlpiProtocolError, GlpiValidationError
+from glpi_python_client._async.clients.commons._http import (
     build_request_headers,
     build_request_url,
     ensure_response_status,
@@ -179,3 +179,19 @@ def test_protocol_error_is_not_a_validation_error() -> None:
     """A server-shape fault must not masquerade as a caller mistake."""
 
     assert not issubclass(GlpiProtocolError, GlpiValidationError)
+
+
+def test_4xx_raises_a_typed_status_error_from_ensure_response_status() -> None:
+    """The 4xx raise stays in ``ensure_response_status`` and is typed."""
+
+    response = FakeResponse(status_code=404, payload={}, text="nope")
+    with pytest.raises(GlpiNotFoundError) as excinfo:
+        ensure_response_status(
+            response,
+            success_statuses=(200, 206),
+            failure_message="Failed to fetch ticket 1",
+        )
+
+    assert excinfo.value.status_code == 404
+    assert isinstance(excinfo.value, ValueError)
+    assert str(excinfo.value) == "Failed to fetch ticket 1: 404 nope"
