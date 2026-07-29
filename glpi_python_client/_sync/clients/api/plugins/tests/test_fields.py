@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import GlpiClient, GlpiProtocolError, GlpiValidationError
+from glpi_python_client import GlpiProtocolError, GlpiValidationError
 from glpi_python_client._sync.clients.api.plugins._fields import (
     _container_targets_itemtype,
     _extract_row_id,
@@ -15,7 +15,6 @@ from glpi_python_client._sync.clients.api.plugins._fields import (
 from glpi_python_client.models.api_schema.plugins import (
     GetPluginFieldsContainer,
 )
-from glpi_python_client.testing.utils import make_client
 
 
 class _FakeV1:
@@ -51,12 +50,8 @@ class _FakeV1:
             )
         return self.responses.pop(0)
 
-
-@pytest.fixture
-def client() -> GlpiClient:
-    """Return a client without any HTTP plumbing wired up."""
-
-    return make_client()
+    def close(self) -> None:
+        """No-op; the real session is closed with the client."""
 
 
 def test_value_itemtype_naming() -> None:
@@ -115,7 +110,7 @@ def test_extract_row_id_rejects_unexpected_payload() -> None:
     assert isinstance(excinfo.value, ValueError)
 
 
-def test_require_v1_raises_without_session(client: GlpiClient) -> None:
+def test_require_v1_raises_without_session(client: Any) -> None:
     """Every helper raises ``RuntimeError`` when the v1 session is missing."""
 
     assert client._v1 is None
@@ -123,7 +118,7 @@ def test_require_v1_raises_without_session(client: GlpiClient) -> None:
         client.list_plugin_fields_containers()
 
 
-def test_list_plugin_fields_containers_filters_itemtype(client: GlpiClient) -> None:
+def test_list_plugin_fields_containers_filters_itemtype(client: Any) -> None:
     """Client-side filtering keeps only the containers attached to itemtype."""
 
     fake = _FakeV1(
@@ -142,7 +137,7 @@ def test_list_plugin_fields_containers_filters_itemtype(client: GlpiClient) -> N
     assert fake.calls[0]["params"] == {"range": "0-999"}
 
 
-def test_list_plugin_fields_fields_filters_by_container(client: GlpiClient) -> None:
+def test_list_plugin_fields_fields_filters_by_container(client: Any) -> None:
     """Field listing applies the optional container filter client-side."""
 
     fake = _FakeV1(
@@ -158,7 +153,7 @@ def test_list_plugin_fields_fields_filters_by_container(client: GlpiClient) -> N
     assert [f.id for f in result] == [1]
 
 
-def test_list_item_plugin_field_rows_hits_subresource(client: GlpiClient) -> None:
+def test_list_item_plugin_field_rows_hits_subresource(client: Any) -> None:
     """Per-item value rows go through ``/<Itemtype>/<id>/<value-itemtype>``."""
 
     fake = _FakeV1(
@@ -181,7 +176,7 @@ def test_list_item_plugin_field_rows_hits_subresource(client: GlpiClient) -> Non
     assert fake.calls[0]["path"] == "Ticket/1234/PluginFieldsTicketextrainfo"
 
 
-def test_create_item_plugin_field_row_returns_new_id(client: GlpiClient) -> None:
+def test_create_item_plugin_field_row_returns_new_id(client: Any) -> None:
     """Create POSTs ``{"input": ...}`` and returns the new row id."""
 
     fake = _FakeV1(responses=[[{"7": True, "message": ""}]])
@@ -209,7 +204,7 @@ def test_create_item_plugin_field_row_returns_new_id(client: GlpiClient) -> None
     }
 
 
-def test_update_item_plugin_field_row_puts_partial_body(client: GlpiClient) -> None:
+def test_update_item_plugin_field_row_puts_partial_body(client: Any) -> None:
     """Update PUTs ``{"input": {"id": row_id, ...}}`` against the row endpoint."""
 
     fake = _FakeV1(responses=[[{"1": True, "message": ""}]])
@@ -226,7 +221,7 @@ def test_update_item_plugin_field_row_puts_partial_body(client: GlpiClient) -> N
     assert call["json_body"] == {"input": {"id": 1, "extrainfofield": "<p>updated</p>"}}
 
 
-def test_get_ticket_custom_fields_aggregates_containers(client: GlpiClient) -> None:
+def test_get_ticket_custom_fields_aggregates_containers(client: Any) -> None:
     """The high-level helper aggregates per-container values into one mapping."""
 
     fake = _FakeV1(
@@ -257,7 +252,7 @@ def test_get_ticket_custom_fields_aggregates_containers(client: GlpiClient) -> N
     assert result == {"extrainfo": {"extrainfofield": "<p>test</p>"}}
 
 
-def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> None:
+def test_set_ticket_custom_fields_updates_existing_row(client: Any) -> None:
     """When a row exists the high-level helper PATCHes it in place."""
 
     fake = _FakeV1(
@@ -297,7 +292,7 @@ def test_set_ticket_custom_fields_updates_existing_row(client: GlpiClient) -> No
     assert put["json_body"] == {"input": {"id": 1, "extrainfofield": "<p>new</p>"}}
 
 
-def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> None:
+def test_set_ticket_custom_fields_creates_when_missing(client: Any) -> None:
     """When no row exists the high-level helper POSTs a new one."""
 
     fake = _FakeV1(
@@ -333,7 +328,7 @@ def test_set_ticket_custom_fields_creates_when_missing(client: GlpiClient) -> No
     }
 
 
-def test_set_ticket_custom_fields_rejects_unknown_container(client: GlpiClient) -> None:
+def test_set_ticket_custom_fields_rejects_unknown_container(client: Any) -> None:
     """A typo in the container name raises before any write.
 
     ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
@@ -352,7 +347,7 @@ def test_set_ticket_custom_fields_rejects_unknown_container(client: GlpiClient) 
 
 
 def test_set_ticket_custom_fields_rejects_container_without_id(
-    client: GlpiClient,
+    client: Any,
 ) -> None:
     """A matched container with no ``id`` raises before any write.
 
@@ -374,7 +369,7 @@ def test_set_ticket_custom_fields_rejects_container_without_id(
     assert isinstance(excinfo.value, ValueError)
 
 
-def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> None:
+def test_set_ticket_custom_fields_rejects_unknown_field(client: Any) -> None:
     """A typo in the field name raises before any write.
 
     ``GlpiValidationError`` inherits ``ValueError`` so existing callers that
@@ -400,7 +395,7 @@ def test_set_ticket_custom_fields_rejects_unknown_field(client: GlpiClient) -> N
 
 
 def test_set_ticket_custom_fields_with_empty_mapping_is_noop(
-    client: GlpiClient,
+    client: Any,
 ) -> None:
     """Passing an empty mapping performs no HTTP call."""
 

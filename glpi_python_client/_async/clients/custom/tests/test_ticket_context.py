@@ -1,7 +1,7 @@
-"""Unit tests for the synchronous ticket-context mixin.
+"""Unit tests for the ticket-context mixin.
 
-The tests stub ``_get_request`` on a real :class:`GlpiClient` so
-:meth:`~glpi_python_client._sync.clients.custom._ticket_context.TicketContextMixin.get_ticket_context`
+The tests stub ``_get_request`` on a real client so
+:meth:`~glpi_python_client._async.clients.custom._ticket_context.TicketContextMixin.get_ticket_context`
 exercises its real aggregation logic without any network call.
 """
 
@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from glpi_python_client.testing.utils import FakeResponse, make_client
+from glpi_python_client._async._testing import make_client
+from glpi_python_client.testing.utils import FakeResponse
 
 
-def test_get_ticket_context_assembles_ticket_and_timeline() -> None:
+async def test_get_ticket_context_assembles_ticket_and_timeline() -> None:
     """``get_ticket_context`` fetches one ticket and four timeline lists.
 
     The method must call ``get_ticket`` once and one list helper for each
@@ -23,7 +24,7 @@ def test_get_ticket_context_assembles_ticket_and_timeline() -> None:
     client = make_client()
     calls: list[str] = []
 
-    def _get(
+    async def _get(
         endpoint: str,
         params: Any = None,
         skip_entity: bool = False,
@@ -44,7 +45,7 @@ def test_get_ticket_context_assembles_ticket_and_timeline() -> None:
         )
 
     client._get_request = _get  # type: ignore[method-assign]
-    ctx = client.get_ticket_context(42)
+    ctx = await client.get_ticket_context(42)
 
     assert ctx.ticket.id == 42
     assert ctx.tasks == []
@@ -54,4 +55,4 @@ def test_get_ticket_context_assembles_ticket_and_timeline() -> None:
     # Five separate GET calls must have been dispatched.
     assert len(calls) == 5
 
-    client.close()
+    await client.close()
