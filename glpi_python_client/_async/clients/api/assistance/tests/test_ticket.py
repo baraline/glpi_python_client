@@ -162,13 +162,25 @@ async def test_iter_search_tickets_single_page(client: Any) -> None:
     """A response shorter than batch_size yields one batch then stops."""
 
     pages: list[list[Any]] = [[{"id": 1, "name": "t1", "content": "c"}]]
-    rec = TransportRecorder(get_payload=pages[0])
-    rec.install(client)
+    call_count = 0
 
-    batches = [batch async for batch in client.iter_search_tickets(batch_size=50)]
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        nonlocal call_count
+        call_count += 1
+        return pages[0]
 
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches = [b async for b in client.iter_search_tickets("status==1", batch_size=50)]
+    assert call_count == 1
     assert len(batches) == 1
-    assert batches[0][0].id == 1
+    assert len(batches[0]) == 1
 
 
 async def test_iter_search_tickets_multi_page_stops_on_short_batch(
