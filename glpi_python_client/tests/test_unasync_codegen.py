@@ -304,6 +304,18 @@ def test_gather_twins_agree_on_ordering() -> None:
     assert gather() == []
 
 
+def test_the_concurrency_test_twins_both_exist() -> None:
+    """Neither hand-written concurrency suite can go missing unnoticed.
+
+    These two are exempt from generation, so the diff gate says nothing
+    about them. If one is deleted, its surface simply stops being tested
+    and everything stays green.
+    """
+
+    assert (_ASYNC_DIR / "tests" / "test_concurrency.py").is_file()
+    assert (_SYNC_DIR / "tests" / "test_concurrency.py").is_file()
+
+
 def test_the_checked_in_sync_tree_is_not_stale() -> None:
     """``_sync/`` matches what ``_async/`` currently generates.
 

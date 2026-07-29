@@ -49,13 +49,18 @@ SYNC_DIR = PACKAGE / "_sync"
 
 #: Files that are hand-written on *both* sides and never generated.
 #:
-#: ``_concurrency.py`` is the only one. It is where the two trees genuinely
-#: differ in kind rather than in syntax: a fan-out is ``asyncio.gather`` on
-#: one side and plain sequential evaluation on the other, and the auth lock
-#: is an ``asyncio.Lock`` on one side and a ``threading.Lock`` on the other.
-#: Token substitution cannot express either, so both files are maintained by
-#: hand and kept deliberately tiny.
-HAND_WRITTEN = {"_concurrency.py"}
+#: ``_concurrency.py`` is where the two trees genuinely differ in kind
+#: rather than in syntax: a fan-out is ``asyncio.gather`` on one side and
+#: plain sequential evaluation on the other, and the auth lock is an
+#: ``asyncio.Lock`` on one side and a ``threading.Lock`` on the other.
+#: Token substitution cannot express either, so both files are maintained
+#: by hand and kept deliberately tiny.
+#:
+#: ``test_concurrency.py`` follows for the same reason. "Two tasks contend
+#: the lock without deadlocking" has no sync twin worth generating -- the
+#: sync side asserts that ``gather`` preserves order and evaluates in
+#: sequence, which is a different claim about a different primitive.
+HAND_WRITTEN = {"_concurrency.py", "test_concurrency.py"}
 
 #: Token substitutions beyond unasync's defaults.
 #:

@@ -23,7 +23,7 @@ import pytest
 
 from glpi_python_client import AsyncGlpiClient, GlpiTimeoutError, GlpiTransportError
 from glpi_python_client._async._concurrency import gather
-from glpi_python_client.testing.utils import make_async_client
+from glpi_python_client._async._testing import make_client
 
 
 class _Response:
@@ -60,7 +60,7 @@ def _stub(client: AsyncGlpiClient, payload: Any) -> list[str]:
 async def test_a_read_awaits_and_returns_a_model() -> None:
     """The async client dispatches and parses exactly like its twin."""
 
-    client = make_async_client()
+    client = make_client()
     calls = _stub(client, {"id": 42, "name": "async ticket"})
     try:
         ticket = await client.get_ticket(42)
@@ -74,7 +74,7 @@ async def test_a_read_awaits_and_returns_a_model() -> None:
 async def test_close_is_idempotent_and_blocks_further_calls() -> None:
     """Closing twice is safe and a closed client refuses to dispatch."""
 
-    client = make_async_client()
+    client = make_client()
     _stub(client, {"id": 1, "name": "x"})
     await client.close()
     await client.close()
@@ -85,7 +85,7 @@ async def test_close_is_idempotent_and_blocks_further_calls() -> None:
 async def test_the_async_context_manager_closes_on_exit() -> None:
     """``async with`` releases the client, so ``__aexit__`` really awaits."""
 
-    client = make_async_client()
+    client = make_client()
     _stub(client, {"id": 1, "name": "x"})
     async with client as entered:
         assert entered is client
@@ -103,7 +103,7 @@ async def test_concurrent_tasks_contend_the_auth_lock_without_deadlocking() -> N
     is the only way to observe that.
     """
 
-    client = make_async_client()
+    client = make_client()
     calls = _stub(client, {"id": 1, "name": "x"})
     # Force every task through the token-acquisition path.
     client._auth.access_token = None
@@ -176,7 +176,7 @@ async def test_network_faults_are_translated_on_the_async_path() -> None:
     expression is a distinct mistake the sync test cannot detect.
     """
 
-    client = make_async_client()
+    client = make_client()
     _stub(client, {})
 
     async def _boom(method: str, url: str, **kwargs: Any) -> _Response:
@@ -196,7 +196,7 @@ async def test_network_faults_are_translated_on_the_async_path() -> None:
 async def test_timeouts_narrow_on_the_async_path() -> None:
     """A timeout narrows to ``GlpiTimeoutError`` when awaited too."""
 
-    client = make_async_client()
+    client = make_client()
     _stub(client, {})
 
     async def _slow(method: str, url: str, **kwargs: Any) -> _Response:
@@ -219,7 +219,7 @@ async def test_the_paginating_generator_is_an_async_generator() -> None:
     in either shows up only when the generator is actually driven.
     """
 
-    client = make_async_client()
+    client = make_client()
     _stub(client, [{"id": 1, "name": "one"}])
     try:
         pages = []
