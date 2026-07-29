@@ -1,7 +1,7 @@
 """Unit tests for :mod:`glpi_python_client._sync.clients.commons._http`.
 
 The tests cover the small request and response helper utilities used by the
-asynchronous transport and the per-endpoint mixins.
+transport and the per-endpoint mixins.
 """
 
 from __future__ import annotations

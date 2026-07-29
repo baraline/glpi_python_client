@@ -60,7 +60,14 @@ SYNC_DIR = PACKAGE / "_sync"
 #: the lock without deadlocking" has no sync twin worth generating -- the
 #: sync side asserts that ``gather`` preserves order and evaluates in
 #: sequence, which is a different claim about a different primitive.
-HAND_WRITTEN = {"_concurrency.py", "test_concurrency.py"}
+#:
+#: Entries are paths relative to each tree's root, not bare filenames. A
+#: bare name would exempt *any* file so called at *any* depth, and the
+#: omission would be invisible: the scratch tree and ``_sync/`` would agree
+#: on its absence, so ``--check`` would stay green while a whole module
+#: silently had no twin. Colocated tests make that collision plausible --
+#: generic names like ``test_concurrency.py`` now recur per package.
+HAND_WRITTEN = {"_concurrency.py", "tests/test_concurrency.py"}
 
 #: Token substitutions beyond unasync's defaults.
 #:
@@ -116,7 +123,10 @@ def _source_files() -> list[pathlib.Path]:
     return sorted(
         path
         for path in ASYNC_DIR.rglob("*.py")
-        if path.name not in HAND_WRITTEN and "__pycache__" not in path.parts
+        if (
+            path.relative_to(ASYNC_DIR).as_posix() not in HAND_WRITTEN
+            and "__pycache__" not in path.parts
+        )
     )
 
 
@@ -154,11 +164,10 @@ def _generate(into: pathlib.Path) -> None:
     # and demand their deletion. Generating in place leaves them untouched.
     if into == SYNC_DIR:
         return
-    for name in sorted(HAND_WRITTEN):
-        for existing in SYNC_DIR.rglob(name):
-            target = into / existing.relative_to(SYNC_DIR)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(existing, target)
+    for rel in sorted(HAND_WRITTEN):
+        target = into / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SYNC_DIR / rel, target)
 
 
 def _relative_sync_files(root: pathlib.Path) -> dict[pathlib.Path, str]:

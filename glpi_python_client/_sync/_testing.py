@@ -1,13 +1,14 @@
 """In-memory client factory and transport stubs for this tree's unit tests.
 
-This module exists once, here, and unasync generates its twin under
-``_sync/``. ``AsyncGlpiClient`` is already a substitution key, so the
-generated copy returns a ``GlpiClient`` and the factory is spelled
-``make_client`` on both sides -- call sites in the source and in the
-generated twin read identically. The same holds for the two recorder
-classes: each replaces a client's four transport helpers with stubs that
-capture the call and hand back a fixed response, so a mixin test can
-assert the endpoint, verb and serialised body without any HTTP plumbing.
+One of a generated pair: the module is written once and
+``unasync_build.py`` transforms it into its twin in the other tree.
+``AsyncGlpiClient`` is already a substitution key, so each copy returns
+the client of the tree it lands in while the factory stays spelled
+``make_client`` on both sides -- call sites read identically wherever
+they are. The same holds for the two recorder classes: each replaces a
+client's four transport helpers with stubs that capture the call and hand
+back a fixed response, so a mixin test can assert the endpoint, verb and
+serialised body without any HTTP plumbing.
 
 It lives beside the tree rather than in ``glpi_python_client.testing``
 because that module is a published downstream helper whose factories must

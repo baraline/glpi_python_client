@@ -79,19 +79,33 @@ def test_the_ast_walk_finds_a_known_raise_site() -> None:
 
     sites = _raise_sites()
     assert sites, "the raise-site walk found nothing -- it is broken"
+    # A root one level too shallow finds nothing and fails loudly above. A
+    # root one level too deep would still satisfy the endswith below, just
+    # with an extra leading segment -- so pin the root itself.
+    assert _PACKAGE_ROOT.name == "glpi_python_client", (
+        f"_PACKAGE_ROOT resolved to {_PACKAGE_ROOT}, not the package root"
+    )
     # clients/commons/_transport.py raises a deliberately-exempt
     # RuntimeError (decision D3) that this migration never touches, making
     # it a stable landmark to confirm the walk actually inspects source.
-    transport_sites = [
-        site
+    transport_modules = {
+        site[0]
         for site in sites
         if site[0].endswith("clients/commons/_transport.py")
         and site[2] == "RuntimeError"
-    ]
-    assert transport_sites, (
+    }
+    # Both trees, named exactly: _transport.py is generated, so the twin is
+    # as much a landmark as the source. Exact paths rather than a suffix
+    # test, so a root resolved one level too deep -- which would prefix
+    # every path with "glpi_python_client/" and still satisfy endswith --
+    # fails here instead of passing quietly.
+    assert transport_modules == {
+        "_async/clients/commons/_transport.py",
+        "_sync/clients/commons/_transport.py",
+    }, (
         "the raise-site walk did not find the known RuntimeError raise in "
-        "clients/commons/_transport.py -- it is not actually walking the "
-        "package"
+        "both copies of clients/commons/_transport.py -- it is not actually "
+        f"walking the package. Found: {sorted(transport_modules)}"
     )
 
 

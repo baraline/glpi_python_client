@@ -47,6 +47,14 @@ def test_glpi_client_async_context_manager() -> None:
     with make_client() as c:
         assert c._session is not None
     assert c._closed is True
+    # Closing must be observable, not just recorded on a private flag:
+    # every transport helper goes through _ensure_open, so the first one
+    # reached after the block has to refuse. Match the guard's own message,
+    # not the bare word "closed" -- with the guard disabled the call still
+    # raises RuntimeError, but from httpx ("Cannot send a request, as the
+    # client has been closed."), so the looser pattern passes either way.
+    with pytest.raises(RuntimeError, match="GLPI client is closed"):
+        c._ensure_token()
 
 
 def test_glpi_client_rejects_invalid_credentials() -> None:

@@ -214,7 +214,8 @@ def test_the_generated_tree_never_names_the_async_one() -> None:
     offenders = [
         f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}: {line.strip()}"
         for path in sorted(_SYNC_DIR.rglob("*.py"))
-        if "__pycache__" not in path.parts and path.name not in hand_written
+        if "__pycache__" not in path.parts
+        and path.relative_to(_SYNC_DIR).as_posix() not in hand_written
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
         if _BARE_ASYNC_MENTION.search(line)
     ]

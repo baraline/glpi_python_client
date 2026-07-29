@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The unit test suite was published inside the wheel and the sdist.** Both
+  artefacts carried 56 test modules, so every install shipped the project's
+  own tests into the consuming environment. `[tool.hatch.build] exclude` now
+  drops `tests/` and `conftest.py`, taking the wheel from 180 entries to 126
+  and the sdist from 204 to 150. Nothing a downstream consumer imports was
+  removed: `glpi_python_client.testing` — the documented factories, fixtures
+  and fake responses — still ships in full, and the package now imports
+  cleanly in an environment with no `pytest` installed.
+
 - **A `Major` priority ticket made the whole search fail.** GLPI's priority
   scale has six levels; the published contract advertises five, and
   `GlpiPriority` followed the contract. Since `GetTicket.priority` is typed
