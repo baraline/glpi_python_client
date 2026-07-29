@@ -11,6 +11,7 @@ mutual-exclusion primitive rather than a no-op stand-in.
 from __future__ import annotations
 
 import threading
+import time
 
 from glpi_python_client._sync._concurrency import Lock, gather
 
@@ -38,7 +39,17 @@ def test_the_lock_is_a_real_threading_primitive() -> None:
 
 
 def test_the_lock_serialises_concurrent_threads() -> None:
-    """Two threads cannot hold the lock at once."""
+    """Two threads cannot hold the lock at once.
+
+    The critical section holds briefly (``time.sleep``, not a bare
+    increment) so that if the lock did not exclude, several of the eight
+    threads would genuinely overlap inside it. Without that hold this test
+    passes even against a no-op stand-in: the body is so short that the GIL
+    and thread-startup scheduling alone keep the eight runs from ever
+    actually overlapping, so a broken lock and a real one are
+    indistinguishable. Confirmed empirically: a no-op lock fails this test
+    on every trial once the hold is added, and never fails without it.
+    """
 
     lock = Lock()
     overlaps: list[int] = []
@@ -49,6 +60,7 @@ def test_the_lock_serialises_concurrent_threads() -> None:
         with lock:
             inside += 1
             overlaps.append(inside)
+            time.sleep(0.02)
             inside -= 1
 
     threads = [threading.Thread(target=_worker) for _ in range(8)]
