@@ -37,7 +37,3 @@ docs/glpi_api_contract.json
 # Coverage data: rewritten by every test run (and by the venv .pth hook).
 .coverage
 .coverage.*
-
-# Transient guard for the test-colocation migration; see
-# scripts/check_test_names.py. Delete both when the migration lands.
-.test-name-baseline.txt
