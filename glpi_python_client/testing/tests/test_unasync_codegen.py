@@ -56,12 +56,28 @@ _INTENTIONAL_RENAMES = {
 
 
 def _build_module() -> object:
-    """Import ``unasync_build`` from the repository root."""
+    """Import ``unasync_build`` from the repository root.
+
+    Inserting ``_REPO_ROOT`` is not enough to prove the import came from
+    there: pytest already puts the real repository root on ``sys.path``
+    when it walks up past this package, and a previous test may have left
+    the module in ``sys.modules``. Either route resolves the import even
+    when ``_REPO_ROOT`` points somewhere else entirely, so every guard
+    below would keep passing against a root that no longer exists. Check
+    where the module actually came from instead of assuming.
+    """
 
     sys.path.insert(0, str(_REPO_ROOT))
     try:
         import unasync_build
 
+        origin = getattr(unasync_build, "__file__", None)
+        expected = _REPO_ROOT / "unasync_build.py"
+        assert origin is not None, "unasync_build has no __file__ to verify"
+        assert pathlib.Path(origin).resolve() == expected, (
+            f"unasync_build was imported from {origin}, not {expected}: "
+            "_REPO_ROOT does not point at the repository root"
+        )
         return unasync_build
     finally:
         sys.path.remove(str(_REPO_ROOT))
