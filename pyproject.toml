@@ -145,8 +145,9 @@ omit = [
     # Coverage is measured on the generated tree, which the suite exercises
     # directly, and the correspondence between the two is enforced
     # separately: unasync_build.py --check proves the trees match, mypy
-    # strict checks both, and tests/test_async_surface.py exercises the
-    # async surface at runtime -- including the paths that exist only there.
+    # strict checks both, and _async/tests/test_concurrency.py (and its
+    # _sync twin) exercise the async surface at runtime -- including the
+    # paths that exist only there.
     "glpi_python_client/_async/*",
 ]
 
