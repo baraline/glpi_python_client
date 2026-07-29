@@ -30,7 +30,7 @@ import pytest
 
 from glpi_python_client import AsyncGlpiClient, GlpiClient
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _SKILLS_DIR = _REPO_ROOT / "skills"
 
 # ``skills/`` ships in the sdist but not in the wheel, so an installed

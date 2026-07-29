@@ -31,7 +31,7 @@ unasync = pytest.importorskip(
     reason="unasync is a dev-only dependency; codegen guards need it installed",
 )
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _BUILD_SCRIPT = _REPO_ROOT / "unasync_build.py"
 _ASYNC_DIR = _REPO_ROOT / "glpi_python_client" / "_async"
 _SYNC_DIR = _REPO_ROOT / "glpi_python_client" / "_sync"

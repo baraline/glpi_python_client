@@ -19,7 +19,7 @@ import importlib
 import pathlib
 import re
 
-_REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 _PACKAGE = _REPO_ROOT / "glpi_python_client"
 
 #: A qualified reference to this package: the root name plus at least one
