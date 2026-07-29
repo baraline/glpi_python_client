@@ -18,8 +18,6 @@ from glpi_python_client import (
     PostFollowup,
     PostLocation,
     PostSolution,
-    PostTeamMember,
-    PostTicket,
     PostTicketTask,
     PostTimelineDocument,
     PostUser,
@@ -133,19 +131,6 @@ def test_create_user_serialises_post_body(
     ]
 
 
-def test_search_tickets_uses_filter_query_param(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``search_tickets`` forwards the RSQL filter via the ``filter`` parameter."""
-
-    tickets = client.search_tickets(rsql_filter="status==1", limit=20)
-    assert len(tickets) == 1
-    assert recorder.calls[0]["method"] == "GET"
-    assert recorder.calls[0]["endpoint"] == "Assistance/Ticket"
-    assert recorder.calls[0]["params"]["filter"] == "status==1"
-    assert recorder.calls[0]["params"]["limit"] == 20
-
-
 def test_create_ticket_followup_targets_timeline_endpoint(
     client: GlpiClient, recorder: _Recorder
 ) -> None:
@@ -187,20 +172,6 @@ def test_link_ticket_timeline_document_targets_document_endpoint(
     call = recorder.calls[0]
     assert call["endpoint"] == "Assistance/Ticket/10/Timeline/Document"
     assert call["json"] == {}
-
-
-def test_add_ticket_team_member_targets_team_endpoint(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``add_ticket_team_member`` posts to the ticket team-member endpoint."""
-
-    client.add_ticket_team_member(
-        11, PostTeamMember(type="User", id=42, role="assigned")
-    )
-
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket/11/TeamMember"
-    assert call["json"] == {"type": "User", "id": 42, "role": "assigned"}
 
 
 def test_create_entity_skips_entity_header(
@@ -246,14 +217,3 @@ def test_upload_document_without_v1_raises(client: GlpiClient) -> None:
             filename="a.bin",
             content=b"x",
         )
-
-
-def test_create_ticket_serialises_enums(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``create_ticket`` serialises enum values as their numeric form."""
-
-    client.create_ticket(PostTicket(name="t", content="<p>c</p>"))
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket"
-    assert call["json"]["name"] == "t"

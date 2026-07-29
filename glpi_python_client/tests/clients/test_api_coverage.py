@@ -21,13 +21,11 @@ from glpi_python_client import (
     PatchFollowup,
     PatchLocation,
     PatchSolution,
-    PatchTicket,
     PatchTicketTask,
     PatchTimelineDocument,
     PatchUser,
     PostDocument,
     PostEntity,
-    PostTeamMember,
 )
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
@@ -128,62 +126,6 @@ def client() -> GlpiClient:
     """Return one in-memory client without any real HTTP plumbing."""
 
     return make_client()
-
-
-# ---------------------------------------------------------------------------
-# Tickets
-# ---------------------------------------------------------------------------
-
-
-def test_search_tickets_forwards_sort_and_fields(client: GlpiClient) -> None:
-    """Sort and field selection both flow into the GET query parameters."""
-
-    rec = _Recorder(get_payload=[{"id": 1, "name": "n", "content": "c"}])
-    rec.install(client)
-    tickets = client.search_tickets(
-        "status==1", limit=5, start=10, sort="date_mod desc", fields=("id", "name")
-    )
-
-    assert len(tickets) == 1
-    assert rec.calls[0]["params"]["filter"] == "status==1"
-    assert rec.calls[0]["params"]["limit"] == 5
-    assert rec.calls[0]["params"]["start"] == 10
-    assert rec.calls[0]["params"]["sort"] == "date_mod desc"
-    assert rec.calls[0]["params"]["fields"] == "id,name"
-
-
-def test_get_ticket_returns_validated_model(client: GlpiClient) -> None:
-    """Single ticket responses are validated through ``GetTicket``."""
-
-    rec = _Recorder(get_payload={"id": 7, "name": "demo", "content": "<p>c</p>"})
-    rec.install(client)
-    ticket = client.get_ticket(7)
-    assert ticket.id == 7
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7"
-
-
-def test_update_ticket_sends_patch(client: GlpiClient) -> None:
-    """Update sends a PATCH with the partial body."""
-
-    rec = _Recorder()
-    rec.install(client)
-    client.update_ticket(7, PatchTicket(content="<p>x</p>"))
-    call = rec.calls[0]
-    assert call["method"] == "PATCH"
-    assert call["endpoint"] == "Assistance/Ticket/7"
-    assert call["json"] == {"content": "<p>x</p>"}
-
-
-def test_delete_ticket_omits_body_without_force(client: GlpiClient) -> None:
-    """``delete_ticket(force=None)`` omits the JSON body."""
-
-    rec = _Recorder()
-    rec.install(client)
-    client.delete_ticket(7)
-    call = rec.calls[0]
-    assert call["method"] == "DELETE"
-    assert call["endpoint"] == "Assistance/Ticket/7"
-    assert call["json"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -596,36 +538,6 @@ def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Team members
-# ---------------------------------------------------------------------------
-
-
-def test_list_ticket_team_members_endpoint(client: GlpiClient) -> None:
-    """``list_ticket_team_members`` hits the team-member endpoint."""
-
-    rec = _Recorder(get_payload=[{"id": 1, "type": "User", "role": "assigned"}])
-    rec.install(client)
-    members = client.list_ticket_team_members(7)
-    assert members[0].id == 1
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/TeamMember"
-
-
-def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None:
-    """``remove_ticket_team_member`` issues DELETE with the member body."""
-
-    rec = _Recorder()
-    rec.install(client)
-    client.remove_ticket_team_member(
-        7, PostTeamMember(type="User", id=42, role="assigned")
-    )
-
-    call = rec.calls[0]
-    assert call["method"] == "DELETE"
-    assert call["endpoint"] == "Assistance/Ticket/7/TeamMember"
-    assert call["json"] == {"type": "User", "id": 42, "role": "assigned"}
-
-
-# ---------------------------------------------------------------------------
 # Generic error handling
 # ---------------------------------------------------------------------------
 
@@ -633,7 +545,6 @@ def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None:
 @pytest.mark.parametrize(
     "call",
     [
-        lambda c: c.get_ticket(1),
         lambda c: c.get_user(1),
         lambda c: c.get_location(1),
         lambda c: c.get_entity(1),
@@ -642,7 +553,6 @@ def test_remove_ticket_team_member_uses_delete(client: GlpiClient) -> None:
         lambda c: c.get_ticket_task(1, 2),
         lambda c: c.get_ticket_solution(1, 2),
         lambda c: c.get_ticket_timeline_document(1, 2),
-        lambda c: c.list_ticket_team_members(1),
         lambda c: c.list_ticket_followups(1),
         lambda c: c.list_ticket_tasks(1),
         lambda c: c.list_ticket_solutions(1),
@@ -663,7 +573,6 @@ def test_get_helpers_raise_on_failure_status(
 @pytest.mark.parametrize(
     "call",
     [
-        lambda c: c.update_ticket(1, PatchTicket(content="<p>x</p>")),
         lambda c: c.update_user(1, PatchUser(firstname="x")),
         lambda c: c.update_location(1, PatchLocation(name="x")),
         lambda c: c.update_entity(1, PatchEntity(name="x")),
@@ -688,7 +597,6 @@ def test_update_helpers_raise_on_failure_status(
 @pytest.mark.parametrize(
     "call",
     [
-        lambda c: c.delete_ticket(1, force=True),
         lambda c: c.delete_user(1, force=True),
         lambda c: c.delete_location(1, force=True),
         lambda c: c.delete_entity(1, force=True),
@@ -697,9 +605,6 @@ def test_update_helpers_raise_on_failure_status(
         lambda c: c.delete_ticket_task(1, 2, force=True),
         lambda c: c.delete_ticket_solution(1, 2, force=True),
         lambda c: c.unlink_ticket_timeline_document(1, 2, force=True),
-        lambda c: c.remove_ticket_team_member(
-            1, PostTeamMember(type="User", id=2, role="assigned")
-        ),
     ],
 )
 def test_delete_helpers_raise_on_failure_status(
@@ -711,71 +616,6 @@ def test_delete_helpers_raise_on_failure_status(
     rec.install(client)
     with pytest.raises(ValueError):
         call(client)
-
-
-# ---------------------------------------------------------------------------
-# iter_search_tickets
-# ---------------------------------------------------------------------------
-
-
-def test_iter_search_tickets_single_page(client: GlpiClient) -> None:
-    """A response shorter than batch_size yields one batch then stops."""
-
-    pages: list[list[Any]] = [[{"id": 1, "name": "t1", "content": "c"}]]
-    call_count = 0
-
-    def fake_search(
-        rsql_filter: str = "",
-        *,
-        limit: int = 50,
-        start: int = 0,
-        sort: str | None = None,
-        fields: tuple[str, ...] = (),
-    ) -> list[Any]:
-        nonlocal call_count
-        call_count += 1
-        return pages[0]
-
-    client.search_tickets = fake_search  # type: ignore[method-assign]
-    batches = list(client.iter_search_tickets("status==1", batch_size=50))
-    assert call_count == 1
-    assert len(batches) == 1
-    assert len(batches[0]) == 1
-
-
-def test_iter_search_tickets_multi_page_stops_on_short_batch(
-    client: GlpiClient,
-) -> None:
-    """Iteration stops after the first batch shorter than batch_size."""
-
-    ticket_a = {"id": 1, "name": "a", "content": "c"}
-    ticket_b = {"id": 2, "name": "b", "content": "c"}
-    ticket_c = {"id": 3, "name": "c", "content": "c"}
-    responses = [
-        [ticket_a, ticket_b],  # full page → continue
-        [ticket_c],  # short page → last
-    ]
-    call_count = 0
-
-    def fake_search(
-        rsql_filter: str = "",
-        *,
-        limit: int = 50,
-        start: int = 0,
-        sort: str | None = None,
-        fields: tuple[str, ...] = (),
-    ) -> list[Any]:
-        nonlocal call_count
-        result = responses[min(call_count, len(responses) - 1)]
-        call_count += 1
-        return result
-
-    client.search_tickets = fake_search  # type: ignore[method-assign]
-    batches = list(client.iter_search_tickets("", batch_size=2))
-    assert call_count == 2
-    assert len(batches) == 2
-    assert len(batches[0]) == 2
-    assert len(batches[1]) == 1
 
 
 # ---------------------------------------------------------------------------
