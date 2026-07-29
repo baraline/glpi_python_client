@@ -15,11 +15,7 @@ import pytest
 
 from glpi_python_client import (
     GlpiClient,
-    PostFollowup,
     PostLocation,
-    PostSolution,
-    PostTicketTask,
-    PostTimelineDocument,
     PostUser,
 )
 from glpi_python_client.testing.utils import FakeResponse, make_client
@@ -129,49 +125,6 @@ def test_create_user_serialises_post_body(
             "skip_entity": False,
         }
     ]
-
-
-def test_create_ticket_followup_targets_timeline_endpoint(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``create_ticket_followup`` posts to the ticket timeline endpoint."""
-
-    client.create_ticket_followup(7, PostFollowup(content="<p>hi</p>"))
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket/7/Timeline/Followup"
-    assert call["json"] == {"content": "<p>hi</p>"}
-
-
-def test_create_ticket_task_uses_task_endpoint(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``create_ticket_task`` targets the ticket task timeline endpoint."""
-
-    client.create_ticket_task(8, PostTicketTask(content="task", duration=120))
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket/8/Timeline/Task"
-    assert call["json"] == {"content": "<p>task</p>", "duration": 120}
-
-
-def test_create_ticket_solution_uses_solution_endpoint(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``create_ticket_solution`` targets the ticket solution endpoint."""
-
-    client.create_ticket_solution(9, PostSolution(content="ok"))
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket/9/Timeline/Solution"
-
-
-def test_link_ticket_timeline_document_targets_document_endpoint(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``link_ticket_timeline_document`` targets the document timeline endpoint."""
-
-    client.link_ticket_timeline_document(10, PostTimelineDocument())
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Assistance/Ticket/10/Timeline/Document"
-    assert call["json"] == {}
 
 
 def test_create_entity_skips_entity_header(

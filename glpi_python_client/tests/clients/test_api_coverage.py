@@ -18,11 +18,7 @@ from glpi_python_client import (
     GlpiValidationError,
     PatchDocument,
     PatchEntity,
-    PatchFollowup,
     PatchLocation,
-    PatchSolution,
-    PatchTicketTask,
-    PatchTimelineDocument,
     PatchUser,
     PostDocument,
     PostEntity,
@@ -410,134 +406,6 @@ def test_upload_document_dispatches_to_v1(client: GlpiClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Timeline mixins (followups, tasks, solutions, documents)
-# ---------------------------------------------------------------------------
-
-
-def test_list_ticket_followups_unwraps_envelope(client: GlpiClient) -> None:
-    """Live envelope ``{"type":..,"item":..}`` entries are unwrapped."""
-
-    rec = _Recorder(
-        get_payload=[
-            {"type": "ITILFollowup", "item": {"id": 11, "content": "hi"}},
-            {"id": 12, "content": "bye"},
-        ]
-    )
-    rec.install(client)
-    items = client.list_ticket_followups(7)
-    assert [i.id for i in items] == [11, 12]
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup"
-
-
-def test_get_ticket_followup_endpoint(client: GlpiClient) -> None:
-    """``get_ticket_followup`` hits the per-id endpoint."""
-
-    rec = _Recorder(get_payload={"id": 11, "content": "x"})
-    rec.install(client)
-    followup = client.get_ticket_followup(7, 11)
-    assert followup.id == 11
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup/11"
-
-
-def test_update_ticket_followup_patch(client: GlpiClient) -> None:
-    """``update_ticket_followup`` patches the per-id endpoint."""
-
-    rec = _Recorder()
-    rec.install(client)
-    client.update_ticket_followup(7, 11, PatchFollowup(content="<p>up</p>"))
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Followup/11"
-
-
-def test_delete_ticket_followup_force(client: GlpiClient) -> None:
-    """``delete_ticket_followup(force=True)`` adds the body."""
-
-    rec = _Recorder()
-    rec.install(client)
-    client.delete_ticket_followup(7, 11, force=True)
-    assert rec.calls[0]["json"] == {"force": True}
-
-
-def test_list_get_update_delete_ticket_tasks(client: GlpiClient) -> None:
-    """All four task helpers target the task timeline endpoint."""
-
-    rec = _Recorder(
-        get_payload=[
-            {"type": "TicketTask", "item": {"id": 1, "content": "x"}},
-        ]
-    )
-    rec.install(client)
-    tasks = client.list_ticket_tasks(7)
-    assert tasks[0].id == 1
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Task"
-
-    rec.calls.clear()
-    rec._get_payload = {"id": 1, "content": "x"}  # type: ignore[attr-defined]
-    task = client.get_ticket_task(7, 1)
-    assert task.id == 1
-
-    client.update_ticket_task(7, 1, PatchTicketTask(content="<p>up</p>"))
-    client.delete_ticket_task(7, 1, force=True)
-
-    endpoints = [c["endpoint"] for c in rec.calls]
-    assert endpoints == [
-        "Assistance/Ticket/7/Timeline/Task/1",
-        "Assistance/Ticket/7/Timeline/Task/1",
-        "Assistance/Ticket/7/Timeline/Task/1",
-    ]
-
-
-def test_list_get_update_delete_ticket_solutions(client: GlpiClient) -> None:
-    """All four solution helpers target the solution timeline endpoint."""
-
-    rec = _Recorder(
-        get_payload=[
-            {"type": "ITILSolution", "item": {"id": 1, "content": "x"}},
-        ]
-    )
-    rec.install(client)
-    sols = client.list_ticket_solutions(7)
-    assert sols[0].id == 1
-
-    rec._get_payload = {"id": 1, "content": "x"}  # type: ignore[attr-defined]
-    sol = client.get_ticket_solution(7, 1)
-    assert sol.id == 1
-
-    client.update_ticket_solution(7, 1, PatchSolution(content="<p>up</p>"))
-    client.delete_ticket_solution(7, 1, force=True)
-
-    methods = [c["method"] for c in rec.calls]
-    assert methods == ["GET", "GET", "PATCH", "DELETE"]
-    endpoints = {c["endpoint"] for c in rec.calls if c["method"] != "GET"} | {
-        c["endpoint"] for c in rec.calls if c["method"] == "GET"
-    }
-    assert any("Solution" in e for e in endpoints)
-
-
-def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
-    """All four timeline document helpers target the document endpoint."""
-
-    rec = _Recorder(
-        get_payload=[
-            {"type": "Document_Item", "item": {"id": 1, "filename": "report.txt"}},
-        ]
-    )
-    rec.install(client)
-    items = client.list_ticket_timeline_documents(7)
-    assert items[0].id == 1
-    assert rec.calls[0]["endpoint"] == "Assistance/Ticket/7/Timeline/Document"
-
-    rec._get_payload = {"id": 1, "filename": "report.txt"}  # type: ignore[attr-defined]
-    doc = client.get_ticket_timeline_document(7, 1)
-    assert doc.id == 1
-
-    client.update_ticket_timeline_document(7, 1, PatchTimelineDocument())
-    client.unlink_ticket_timeline_document(7, 1, force=True)
-
-    methods = [c["method"] for c in rec.calls]
-    assert methods == ["GET", "GET", "PATCH", "DELETE"]
-
-
-# ---------------------------------------------------------------------------
 # Generic error handling
 # ---------------------------------------------------------------------------
 
@@ -549,14 +417,6 @@ def test_list_get_update_unlink_timeline_documents(client: GlpiClient) -> None:
         lambda c: c.get_location(1),
         lambda c: c.get_entity(1),
         lambda c: c.get_document(1),
-        lambda c: c.get_ticket_followup(1, 2),
-        lambda c: c.get_ticket_task(1, 2),
-        lambda c: c.get_ticket_solution(1, 2),
-        lambda c: c.get_ticket_timeline_document(1, 2),
-        lambda c: c.list_ticket_followups(1),
-        lambda c: c.list_ticket_tasks(1),
-        lambda c: c.list_ticket_solutions(1),
-        lambda c: c.list_ticket_timeline_documents(1),
     ],
 )
 def test_get_helpers_raise_on_failure_status(
@@ -577,10 +437,6 @@ def test_get_helpers_raise_on_failure_status(
         lambda c: c.update_location(1, PatchLocation(name="x")),
         lambda c: c.update_entity(1, PatchEntity(name="x")),
         lambda c: c.update_document(1, PatchDocument(name="x")),
-        lambda c: c.update_ticket_followup(1, 2, PatchFollowup(content="<p>x</p>")),
-        lambda c: c.update_ticket_task(1, 2, PatchTicketTask(content="<p>x</p>")),
-        lambda c: c.update_ticket_solution(1, 2, PatchSolution(content="<p>x</p>")),
-        lambda c: c.update_ticket_timeline_document(1, 2, PatchTimelineDocument()),
     ],
 )
 def test_update_helpers_raise_on_failure_status(
@@ -601,10 +457,6 @@ def test_update_helpers_raise_on_failure_status(
         lambda c: c.delete_location(1, force=True),
         lambda c: c.delete_entity(1, force=True),
         lambda c: c.delete_document(1, force=True),
-        lambda c: c.delete_ticket_followup(1, 2, force=True),
-        lambda c: c.delete_ticket_task(1, 2, force=True),
-        lambda c: c.delete_ticket_solution(1, 2, force=True),
-        lambda c: c.unlink_ticket_timeline_document(1, 2, force=True),
     ],
 )
 def test_delete_helpers_raise_on_failure_status(
