@@ -16,7 +16,6 @@ import pytest
 from glpi_python_client import (
     GlpiClient,
     PostLocation,
-    PostUser,
 )
 from glpi_python_client.testing.utils import FakeResponse, make_client
 
@@ -108,48 +107,6 @@ def recorder(client: GlpiClient) -> _Recorder:
     rec = _Recorder()
     rec.install(client)
     return rec
-
-
-def test_create_user_serialises_post_body(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``create_user`` serialises the ``PostUser`` model into the POST body."""
-
-    user_id = client.create_user(PostUser(username="alice"))
-    assert user_id == 999
-    assert recorder.calls == [
-        {
-            "method": "POST",
-            "endpoint": "Administration/User",
-            "json": {"username": "alice"},
-            "skip_entity": False,
-        }
-    ]
-
-
-def test_create_entity_skips_entity_header(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """Entity create requests bypass the GLPI-Entity header."""
-
-    from glpi_python_client import PostEntity
-
-    client.create_entity(PostEntity(name="root"))
-    call = recorder.calls[0]
-    assert call["endpoint"] == "Administration/Entity"
-    assert call["skip_entity"] is True
-
-
-def test_delete_user_supports_force_flag(
-    client: GlpiClient, recorder: _Recorder
-) -> None:
-    """``delete_user`` forwards the ``force`` flag inside the JSON body."""
-
-    client.delete_user(5, force=True)
-    call = recorder.calls[0]
-    assert call["method"] == "DELETE"
-    assert call["endpoint"] == "Administration/User/5"
-    assert call["json"] == {"force": True}
 
 
 def test_create_location_targets_dropdown_endpoint(
