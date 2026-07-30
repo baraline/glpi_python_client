@@ -104,7 +104,7 @@ from glpi_python_client.models import (
     TicketMarkdownOptions,
 )
 
-__version__ = "0.3.4"
+__version__ = "0.4.0"
 
 __all__ = [
     "AsyncGlpiClient",
