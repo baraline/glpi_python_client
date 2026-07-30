@@ -43,7 +43,7 @@ class SessionFactory(Protocol):
 
 @dataclass(frozen=True)
 class ClientResources:
-    """Runtime resources owned by one async ``GlpiClient`` instance.
+    """Runtime resources owned by one client instance.
 
     The bundle keeps shared HTTP session, token manager, and optional v1
     upload session tied together so the client can release them as a unit.
@@ -85,8 +85,9 @@ def build_http_session(*, verify_ssl: bool) -> httpx.AsyncClient:
 
     Returns
     -------
-    httpx.AsyncClient
-        A client configured for the requested SSL policy.
+    httpx.Client | httpx.AsyncClient
+        A client configured for the requested SSL policy -- the httpx
+        client matching this surface, as named in the signature.
     """
 
     return httpx.AsyncClient(
@@ -111,7 +112,7 @@ def build_client_resources(
     v1_app_token: str | None,
     session_factory: SessionFactory | None = None,
 ) -> ClientResources:
-    """Build the shared resources required by one async client instance.
+    """Build the shared resources required by one client instance.
 
     The helper validates the API URL, configures SSL behaviour, builds the
     OAuth token manager, and optionally instantiates the legacy v1 session

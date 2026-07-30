@@ -7,6 +7,7 @@ factories so unit tests can share realistic test data without repeating setup.
 from __future__ import annotations
 
 from glpi_python_client.testing.utils import (
+    DEFAULT_CLIENT_CONFIG,
     FakeResponse,
     SearchResponse,
     TicketResponse,
@@ -15,6 +16,7 @@ from glpi_python_client.testing.utils import (
 )
 
 __all__ = [
+    "DEFAULT_CLIENT_CONFIG",
     "FakeResponse",
     "SearchResponse",
     "TicketResponse",

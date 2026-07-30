@@ -10,7 +10,12 @@ from typing import Any
 
 from glpi_python_client import AsyncGlpiClient, GlpiClient
 
-_DEFAULT_CLIENT_CONFIG: dict[str, object] = {
+#: Base constructor keywords shared by every in-memory test client.
+#:
+#: Exposed so the per-tree ``_testing`` twins can build a client for their
+#: own surface without duplicating the configuration, and so downstream
+#: suites can override one field without restating the rest.
+DEFAULT_CLIENT_CONFIG: dict[str, object] = {
     "glpi_api_url": "https://glpi.example.test/api.php/",
     "client_id": "client-id",
     "client_secret": "client-secret",
@@ -112,7 +117,7 @@ def make_client(**overrides: object) -> GlpiClient:
     configuration needed by most tests.
     """
 
-    config = dict(_DEFAULT_CLIENT_CONFIG)
+    config = dict(DEFAULT_CLIENT_CONFIG)
     config.update(overrides)
     return GlpiClient(**config)  # type: ignore[arg-type]
 
@@ -125,6 +130,6 @@ def make_async_client(**overrides: object) -> AsyncGlpiClient:
     surface (and its bridge) without duplicating the base configuration.
     """
 
-    config = dict(_DEFAULT_CLIENT_CONFIG)
+    config = dict(DEFAULT_CLIENT_CONFIG)
     config.update(overrides)
     return AsyncGlpiClient(**config)  # type: ignore[arg-type]

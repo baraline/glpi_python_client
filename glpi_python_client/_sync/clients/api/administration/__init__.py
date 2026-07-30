@@ -1,8 +1,8 @@
 """GLPI ``/Administration`` mixins for the GLPI client.
 
-The submodules expose the user and entity mixins used by
-:class:`glpi_python_client.GlpiClient` and
-:class:`glpi_python_client.AsyncGlpiClient`.
+The submodules expose the user and entity mixins used by this tree's
+client -- :class:`glpi_python_client.AsyncGlpiClient` on the async
+surface, :class:`glpi_python_client.GlpiClient` on the generated one.
 """
 
 from __future__ import annotations

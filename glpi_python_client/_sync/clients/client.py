@@ -105,7 +105,7 @@ class GlpiClient(
 
         Returns
         -------
-        AsyncGlpiClient
+        Self
             The client itself, suitable for chaining method calls.
         """
 

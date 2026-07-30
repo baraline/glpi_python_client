@@ -111,6 +111,25 @@ jobs:
       - name: Check the generated sync tree is up to date
         run: python unasync_build.py --check
 
+      # The unit suite lives inside the package directory, so a lost
+      # exclusion pattern silently republishes it. Assert the built wheel,
+      # not just the config that is supposed to produce it.
+      - name: Build the wheel and assert it ships no tests
+        run: |
+          python -m build --wheel --outdir dist_check .
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          wheel = sorted(glob.glob("dist_check/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          shipped = [n for n in names if "/tests/" in n or n.endswith("conftest.py")]
+          if shipped:
+              sys.exit("wheel ships test files:\n  " + "\n  ".join(shipped))
+          if "glpi_python_client/testing/utils.py" not in names:
+              sys.exit("wheel is missing the documented testing helpers")
+          print(f"wheel is clean: {len(names)} entries, no tests")
+          PY
+
       - name: Build documentation
         run: python -m sphinx -W --keep-going -b html docs docs/_build/html
 

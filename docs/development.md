@@ -85,7 +85,9 @@ python -m pytest
   ticket descriptions, followups, tasks, and solutions.
 - `glpi_python_client.testing` exposes `make_client` and
   `make_async_client` factories that produce in-memory clients with no
-  real HTTP plumbing for downstream test suites.
+  real HTTP plumbing for downstream test suites, plus the shared
+  `DEFAULT_CLIENT_CONFIG` and the fake response classes. Its `tests/`
+  subpackage holds this repository's own cross-cutting suites.
 - `docs` contains the Read the Docs/Sphinx documentation source.
 - `skills` contains contributor-facing Agent Skills for repository
   workflows. The source distribution includes them for source consumers
@@ -111,20 +113,33 @@ python -m pytest
    pagination logic in the focused
    `glpi_python_client._async.clients.commons` helper module named for that
    responsibility.
-4. Add unit tests under `glpi_python_client/tests/**` for payload
-   serialization, response parsing, and client behaviour. They exercise
-   the generated sync client, which shares its statements with the async
-   one.
+4. Add unit tests in the `tests/` package beside the module you changed —
+   `_async/clients/api/assistance/tests/test_ticket.py` for a change to
+   `_async/clients/api/assistance/_ticket.py`. Write them as `async def`,
+   then run `python unasync_build.py` and commit both trees. The
+   generated twins exercise the sync client, so one source covers both
+   surfaces.
 
-   Two suites cover what that cannot reach.
-   `glpi_python_client/tests/test_unasync_codegen.py` holds the
+   Import the client factory from `glpi_python_client._async._testing`,
+   not from `glpi_python_client.testing`: the former is generated, so it
+   returns an `AsyncGlpiClient` in the source and a `GlpiClient` in the
+   twin. The latter is published API and always returns what its name
+   says.
+
+   Any stub replacing an awaited internal must be a named `async def`, not
+   a `lambda` — unasync cannot rewrite a lambda into a coroutine function.
+
+   Two suites cover what colocated tests cannot reach.
+   `glpi_python_client/testing/tests/test_unasync_codegen.py` holds the
    invariants the CI diff gate is blind to — a token collision is
    deterministic, so regeneration reproduces it and the diff stays clean.
-   `glpi_python_client/tests/test_async_surface.py` runs the async client
-   for real: that a method actually awaits, that contending tasks do not
-   deadlock on the auth lock, and that `gather` genuinely overlaps its
-   arguments. Add to it whenever a change is only observable once
-   `async`/`await` are real.
+   `glpi_python_client/_async/tests/test_concurrency.py` and its `_sync`
+   twin cover what codegen cannot: that a method actually awaits, that
+   contending tasks do not deadlock on the auth lock, that `gather`
+   genuinely overlaps its arguments on the async side, and that the sync
+   twin's own lock excludes and its sequential `gather` preserves order.
+   Add to it whenever a change is only observable once `async`/`await`
+   are real.
 5. Document the new workflow in `docs/user_guide.rst` or the README.
 
 Keep organization-specific defaults outside the package core.

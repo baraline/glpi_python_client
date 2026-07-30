@@ -8,8 +8,8 @@ contract-aligned CRUD helpers in
 
 Each helper is written once. The fan-out points call ``gather`` from
 :mod:`glpi_python_client._sync._concurrency`, which runs them
-concurrently here and sequentially in the generated tree -- so there is
-no second copy of this logic to keep in step.
+concurrently on the async surface and sequentially on the generated one
+-- so there is no second copy of this logic to keep in step.
 """
 
 from __future__ import annotations
