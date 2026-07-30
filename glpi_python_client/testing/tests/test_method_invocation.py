@@ -238,6 +238,7 @@ def _build_call_args(method: Any) -> dict[str, Any] | None:
 
 
 SYNC_METHODS = _public_methods(GlpiClient)
+ASYNC_METHODS = _public_methods(AsyncGlpiClient)
 
 
 def test_the_public_surface_has_not_silently_shrunk() -> None:
@@ -302,26 +303,50 @@ def test_every_public_method_reaches_the_transport(method_name: str) -> None:
         client.close()
 
 
-@pytest.mark.parametrize("method_name", ["get_ticket", "search_tickets", "get_user"])
+@pytest.mark.parametrize("method_name", ASYNC_METHODS)
 def test_async_methods_reach_the_transport(method_name: str) -> None:
-    """A representative async slice dispatches through the same seam.
+    """Each public async method dispatches an HTTP call.
 
-    The bridge (and, after the codegen step, the generated async tree) must
-    reach the transport exactly as the sync client does.
+    This mirrors the sync sweep rather than sampling it. Coverage is
+    measured on the ``_async`` tree, because that is the tree a person
+    edits -- so the async surface has to be driven as thoroughly as the
+    generated one, or the report credits the sync twin for work the source
+    never did. Sampling three methods here left five statements in
+    ``_async/`` covered only by their sync counterparts.
     """
 
-    async def _run() -> list[str]:
+    async def _run() -> list[str] | None:
         client = make_async_client()
         calls = _install_stub(client)
         try:
             method = getattr(client, method_name)
-            kwargs = _build_call_args(method) or {}
+            kwargs = _build_call_args(method)
+            if kwargs is None:
+                return None
+
             try:
-                await method(**kwargs)
+                result = method(**kwargs)
+                # Async generators dispatch nothing until they are driven.
+                if inspect.isasyncgen(result):
+                    async for _ in result:
+                        break
+                else:
+                    await result
+            except (TypeError, NotImplementedError) as exc:
+                pytest.fail(f"{method_name} is not callable as declared: {exc!r}")
             except Exception:
+                # As above: a payload-shape error still proves it dispatched.
                 pass
             return calls
         finally:
             await client.close()
 
-    assert asyncio.run(_run()), f"{method_name} made no HTTP call on the async client"
+    calls = asyncio.run(_run())
+    if calls is None:
+        pytest.skip(f"{method_name}: arguments could not be synthesized")
+    if method_name in _NO_TRANSPORT:
+        return
+    assert calls, (
+        f"{method_name} made no HTTP call on the async client. Either it is "
+        f"not wired to the transport, or it belongs in _NO_TRANSPORT."
+    )

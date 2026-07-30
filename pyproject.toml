@@ -143,17 +143,19 @@ omit = [
     # The first pattern already covers testing/tests/, so this is belt and
     # braces against that line being reintroduced.
     "glpi_python_client/testing/tests/*",
-    # The async tree is the hand-written source; the sync tree is generated
-    # from it by a 1:1 token transform that only strips async/await. Every
-    # statement therefore exists in both, so measuring both would count the
-    # same logic twice and let real gaps hide behind a doubled denominator.
-    # Coverage is measured on the generated tree, which the suite exercises
-    # directly, and the correspondence between the two is enforced
-    # separately: unasync_build.py --check proves the trees match, mypy
-    # strict checks both, and _async/tests/test_concurrency.py (and its
-    # _sync twin) exercise the async surface at runtime -- including the
-    # paths that exist only there.
-    "glpi_python_client/_async/*",
+    # The sync tree is generated from the async one by a 1:1 token transform
+    # that only strips async/await, so every statement exists in both.
+    # Measuring both would count the same logic twice and let real gaps hide
+    # behind a doubled denominator.
+    #
+    # Measure the async tree: it is the one a person edits, so it is the one
+    # a coverage report should be about. An uncovered line there is a line
+    # nobody wrote a test for; an uncovered line in _sync/ is an artefact of
+    # which surface a test happened to run on. Both trees are exercised --
+    # the client suites are generated in step with the code -- and the
+    # correspondence is enforced separately: unasync_build.py --check proves
+    # the trees match and mypy strict checks both.
+    "glpi_python_client/_sync/*",
 ]
 
 [tool.coverage.report]
