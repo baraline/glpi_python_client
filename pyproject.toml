@@ -137,7 +137,12 @@ branch = false
 source = ["glpi_python_client"]
 omit = [
     "*/tests/*",
-    "glpi_python_client/testing/*",
+    # Only the suites, not the helpers. `glpi_python_client/testing/*` used
+    # to sit here, which silently excluded utils.py and fixtures.py too --
+    # published API that downstream test suites import, measured by nothing.
+    # The first pattern already covers testing/tests/, so this is belt and
+    # braces against that line being reintroduced.
+    "glpi_python_client/testing/tests/*",
     # The async tree is the hand-written source; the sync tree is generated
     # from it by a 1:1 token transform that only strips async/await. Every
     # statement therefore exists in both, so measuring both would count the

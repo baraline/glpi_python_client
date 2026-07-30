@@ -108,8 +108,9 @@ class GLPITokenManager:
     password : str | None, optional
         Password for the password grant flow. Provide it together with
         ``username``.
-    session : httpx.AsyncClient | None, optional
-        Existing HTTP client to reuse.
+    session : httpx.Client | httpx.AsyncClient | None, optional
+        Existing HTTP client to reuse. Each surface takes the httpx client
+        that matches it; the signature names the one in force here.
     auth_token_refresh : int | None, optional
         Maximum token age in seconds before a refresh is attempted. ``None``
         disables interval-based refreshes.

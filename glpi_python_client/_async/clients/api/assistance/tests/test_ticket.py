@@ -216,3 +216,58 @@ async def test_iter_search_tickets_multi_page_stops_on_short_batch(
     assert len(batches) == 2
     assert len(batches[0]) == 2
     assert len(batches[1]) == 1
+
+
+async def test_iter_search_tickets_forwards_pagination_and_query_options(
+    client: Any,
+) -> None:
+    """Each page advances ``start`` and repeats the caller's query options.
+
+    The sibling tests above count pages and stub the search away, so they
+    pass whatever the generator sends. This one records every call: it is
+    the only thing pinning the offset arithmetic and the per-page
+    forwarding of ``filter``, ``sort`` and ``fields``.
+    """
+
+    ticket = {"id": 1, "name": "a", "content": "c"}
+    responses = [[ticket, ticket], [ticket, ticket], [ticket]]
+    calls: list[dict[str, Any]] = []
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        fields: tuple[str, ...] = (),
+    ) -> list[Any]:
+        calls.append(
+            {
+                "rsql_filter": rsql_filter,
+                "limit": limit,
+                "start": start,
+                "sort": sort,
+                "fields": fields,
+            }
+        )
+        return responses[len(calls) - 1]
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+    batches = [
+        batch
+        async for batch in client.iter_search_tickets(
+            "status==1", batch_size=2, sort="id:desc", fields=("id", "name")
+        )
+    ]
+
+    assert len(batches) == 3
+    # One full page per step. A generator that failed to advance the offset
+    # would re-request page zero forever against a real server.
+    assert [call["start"] for call in calls] == [0, 2, 4]
+    assert [call["limit"] for call in calls] == [2, 2, 2]
+    # Every page repeats the caller's options. Forwarding them only on the
+    # first request would silently change the sort order and widen the
+    # field set from page two onwards.
+    assert all(call["rsql_filter"] == "status==1" for call in calls)
+    assert all(call["sort"] == "id:desc" for call in calls)
+    assert all(call["fields"] == ("id", "name") for call in calls)

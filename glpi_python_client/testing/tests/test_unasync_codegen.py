@@ -225,6 +225,70 @@ def test_the_generated_tree_never_names_the_async_one() -> None:
     )
 
 
+#: Lines under ``_sync/`` allowed to spell an async-only name.
+#:
+#: Each one is deliberately *contrastive*: it describes both surfaces at
+#: once, so it stays true whichever tree a reader is in. Matched on the
+#: stripped line so it survives the line moving, but not the sentence
+#: being reworded -- a reword is exactly when the claim needs re-checking.
+_CONTRASTIVE_LINES = frozenset(
+    {
+        "``AsyncGlpiClient`` is already a substitution key, so each copy returns",
+        "async surface -- an ``httpx.AsyncClient`` has no synchronous close, and a",
+        "session : httpx.Client | httpx.AsyncClient | None, optional",
+        ":class:`~glpi_python_client.AsyncGlpiClient` use.",
+        "``__aenter__``/``__aexit__``) stay on the concrete subclasses because",
+        "client -- :class:`glpi_python_client.AsyncGlpiClient` on the async",
+        "httpx.Client | httpx.AsyncClient",
+        "# surface: an ``httpx.AsyncClient`` has no synchronous close, and this",
+    }
+)
+
+
+def test_the_generated_tree_never_spells_an_async_only_name() -> None:
+    """No module under ``_sync/`` uses a substitution key un-rewritten.
+
+    The sibling guard above covers ``_async``. This covers the other
+    fifteen keys -- ``AsyncGlpiClient``, ``httpx.AsyncClient``,
+    ``__aenter__``, ``aclose`` and the rest -- for the same reason and
+    against the same blind spot: substitution only fires when a string
+    literal's *entire* content is a key, so a name inside a multi-sentence
+    docstring passes through untouched and the generated tree documents
+    itself in terms that are false there.
+
+    This is not hypothetical. Five such docstrings shipped before this
+    guard existed, two of them rendering into the published API reference:
+    ``__enter__`` was documented as returning ``AsyncGlpiClient``, and a
+    ``httpx.Client`` parameter was documented as ``httpx.AsyncClient``.
+
+    Naming an async spelling is legitimate when the sentence names *both*
+    surfaces, which several do -- see :data:`_CONTRASTIVE_LINES`. Adding a
+    line there is a claim that it reads correctly from either tree.
+    """
+
+    build = _build_module()
+    hand_written: set[str] = build.HAND_WRITTEN  # type: ignore[attr-defined]
+    keys = _substitution_keys() - {"_async"}
+    patterns = [
+        (key, re.compile(rf"(?<![\w]){re.escape(key)}(?![\w])")) for key in keys
+    ]
+
+    offenders = [
+        f"{path.relative_to(_REPO_ROOT).as_posix()}:{lineno}: [{key}] {stripped}"
+        for path in sorted(_SYNC_DIR.rglob("*.py"))
+        if "__pycache__" not in path.parts
+        and path.relative_to(_SYNC_DIR).as_posix() not in hand_written
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if (stripped := line.strip()) not in _CONTRASTIVE_LINES
+        for key, pattern in patterns
+        if pattern.search(line)
+    ]
+    assert offenders == [], (
+        "the generated sync tree spells a name that only exists on the "
+        "async surface:\n" + "\n".join(offenders)
+    )
+
+
 def _async_generator_names() -> set[str]:
     """Return the name of every ``async def`` in ``_async/`` that yields."""
 
