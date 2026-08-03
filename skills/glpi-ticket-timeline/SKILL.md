@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, and network access to the GLPI v2 API."
 metadata:
   package: glpi-python-client
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # GLPI Ticket Timeline
@@ -52,21 +52,34 @@ solution_id = await client.create_ticket_solution(
 )
 ```
 
-Link an existing GLPI document to the ticket timeline:
+Attach a document to the ticket timeline. Note `PostTimelineDocument` exposes only `timeline_position` (every other `Document_Item` field is read-only on the contract) and the POST URL carries only the ticket id, so `link_ticket_timeline_document` has no slot in which to name *which* existing document to link -- use it to set a link's timeline position, not to choose a document. To put a file on a ticket, upload it with `upload_document(..., ticket_id=...)`, which creates the document and the ticket link in one call and requires `v1_base_url` + `v1_user_token` on the client (it raises `RuntimeError` otherwise):
 
 ```python
-from glpi_python_client import PostTimelineDocument
+from pathlib import Path
 
-link_id = await client.link_ticket_timeline_document(
+from glpi_python_client import GlpiTimelinePosition, PatchTimelineDocument
+
+path = Path("diagnostic.png")
+await client.upload_document(
+    filename=path.name,
+    content=path.read_bytes(),
+    mime_type="image/png",
+    ticket_id=321,
+)
+
+# Reposition an existing timeline link (document_link_id comes from
+# list_ticket_timeline_documents, whose entries are GetDocument records):
+await client.update_ticket_timeline_document(
     321,
-    PostTimelineDocument(),
+    654,
+    PatchTimelineDocument(timeline_position=GlpiTimelinePosition.LEFT),
 )
 ```
 
 ## Gotchas
 
-- The live GLPI v2 server returns each timeline list entry wrapped in `{"type": ..., "item": {...}}` even though the OpenAPI contract documents a flat array. The client unwraps that envelope transparently for the four `list_*` helpers; you receive plain `Get<Entity>` instances.
+- The live GLPI v2 server returns each timeline list entry wrapped in `{"type": ..., "item": {...}}` even though the OpenAPI contract documents a flat array. The client unwraps that envelope transparently for the four `list_*` helpers; you receive plain `Get<Entity>` instances. For the document family that entity is `GetDocument` -- the full `/Management/Document` record with `filename`, `mime`, `filepath`, `sha1sum` -- and not `GetTimelineDocument`, which is exported from the package root but is never returned by any client method. `get_ticket_timeline_document` returns `GetDocument` for the same reason. The other three are `list_ticket_followups` -> `GetFollowup`, `list_ticket_tasks` -> `GetTicketTask`, `list_ticket_solutions` -> `GetSolution`.
 - `create_*` methods return new identifiers as plain `int`. `update_*` and `delete_*`/`unlink_*` return `None`.
-- Timeline content fields accept GLPI HTML directly.
+- Timeline `content` fields are Markdown on the Python side, not HTML. `PostFollowup`/`PostTicketTask`/`PostSolution` render Markdown to GLPI's HTML on serialisation, and `GetFollowup`/`GetTicketTask`/`GetSolution` convert the server's HTML back to Markdown on validation -- so `record.content` is always Markdown (`GetFollowup(content="<p>Hello <strong>world</strong></p>").content == "Hello **world**"`). Authoring raw HTML is not an error but is round-tripped through the Markdown converter and can be reshaped; write Markdown.
 - Extra server fields (e.g. plugin keys) flow into `record.extra_payload` rather than raising.
 - `delete_ticket_*` and `unlink_ticket_timeline_document` accept a keyword-only `force` parameter; pass `force=True` to permanently delete.

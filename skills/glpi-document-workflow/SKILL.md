@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and v1 credentials configured on the client for binary uploads."
 metadata:
   package: glpi-python-client
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # GLPI Document Workflow
@@ -68,5 +68,5 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 - `upload_document` requires a non-empty `filename`. On the async client the multipart POST is awaited like any other call, so the event loop is not blocked.
 - `download_document_content` returns `bytes` and raises on non-200 responses.
 - `mime_type` defaults to `application/octet-stream` when omitted on `upload_document`.
-- All methods are async; always `await` them.
+- The snippets above use `AsyncGlpiClient`, so every call is awaited. The same methods on the synchronous `GlpiClient` are plain blocking calls -- drop the `await`.
 - The `delete_document(force=True)` flag permanently deletes; omit (or `False`) to move to the trash.

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to manage ticket teams."
 metadata:
   package: glpi-python-client
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # GLPI Team Members
@@ -58,5 +58,5 @@ await client.remove_ticket_team_member(
 
 - The OpenAPI contract marks `PostTeamMember.id` as read-only, but the live GLPI server requires it on the `POST` body. The client honours the live behaviour and exposes `id` as a writable field; this is a deliberate "behaviour wins over the contract" decision.
 - The server returns extra fields such as `display_name`, `firstname`, `realname`, and `href` on `GetTeamMember`. These flow into `member.extra_payload`.
-- All methods are async; always `await` them.
-- If the user provides a name rather than an ID, look the user or group up first with `search_users` (or the equivalent group search) and confirm the ID before changing membership.
+- The three methods are coroutines on `AsyncGlpiClient` and must be awaited; on the synchronous `GlpiClient` they are ordinary blocking methods with identical signatures (`_sync/` is generated from `_async/`, so the two surfaces cannot drift). Do not `await` the synchronous client.
+- If the user provides a name rather than an ID, resolve it first with `await client.search_users(rsql_filter)` (or page through `client.iter_search_users(...)`) and confirm the ID before changing membership. The client exposes **no group search endpoint** — a `type="Group"` member's `id` has to come from elsewhere (a known id, or the GLPI UI); `search_users` only covers `type="User"`.

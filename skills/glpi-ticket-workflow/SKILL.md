@@ -5,13 +5,13 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
 metadata:
   package: glpi-python-client
-  version: "0.4.0"
+  version: "0.4.1"
 ---
 
 # GLPI Ticket Workflow
 > The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
-Use this skill for ticket reads and writes through the public client. Tickets live under `/Assistance/Ticket` on the GLPI v2 API and are exposed by five methods, present on both `GlpiClient` and `AsyncGlpiClient` with identical signatures: `search_tickets`, `get_ticket`, `create_ticket`, `update_ticket`, and `delete_ticket`.
+Use this skill for ticket reads and writes through the public client. Tickets live under `/Assistance/Ticket` on the GLPI v2 API and are exposed by six methods, present on both `GlpiClient` and `AsyncGlpiClient` with identical signatures: `search_tickets`, `iter_search_tickets`, `get_ticket`, `create_ticket`, `update_ticket`, and `delete_ticket`.
 
 ## Procedure
 
@@ -27,7 +27,7 @@ Use this skill for ticket reads and writes through the public client. Tickets li
 Search open tickets:
 
 ```python
-tickets = await client.search_tickets("status==1", limit=20)
+tickets = await client.search_tickets("is_deleted==false;status==1", limit=20)  # v2 search returns trashed tickets unless `is_deleted` is pinned
 ```
 
 Create a ticket. Content fields accept Markdown and are converted to GLPI's HTML transport format transparently:
@@ -69,8 +69,8 @@ ticket = PostTicket(
 
 ## Gotchas
 
-- All ticket methods are async; always `await` them.
-- `search_tickets` accepts a raw RSQL filter string; pagination is via `limit` and `start`. There is no batch iterator.
+- On `AsyncGlpiClient` every ticket method is a coroutine and must be awaited; on `GlpiClient` the same methods are ordinary blocking calls and must not be awaited. `iter_search_tickets` is the exception to the shape: it is an async generator on `AsyncGlpiClient` (`async for`) and a plain generator on `GlpiClient` (`for`), so it is iterated, not awaited, on either surface.
+- `search_tickets` accepts a raw RSQL filter string; pagination is via the keyword-only `limit` and `start` (it also takes `sort` and `fields`). To walk a whole result set use the batch iterator `iter_search_tickets(rsql_filter, batch_size=50, sort=..., fields=...)`, which advances `start` itself and yields one `list[GetTicket]` page per step, stopping when a page comes back shorter than `batch_size` — `async for batch in client.iter_search_tickets(...)` on `AsyncGlpiClient`, `for batch in client.iter_search_tickets(...)` on `GlpiClient`.
 - `create_ticket` returns the new ticket ID. `update_ticket` and `delete_ticket` return `None`.
 - The GLPI server is the authoritative validator. Extra keys returned by the server flow into `ticket.extra_payload` rather than raising. Caller-provided `extra_payload` keys win on conflicts.
 - Read-only fields such as `status` are intentionally absent from `PostTicket`/`PatchTicket`; the server controls those transitions.
