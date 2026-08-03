@@ -52,7 +52,7 @@ solution_id = await client.create_ticket_solution(
 )
 ```
 
-Attach a document to the ticket timeline. Note `PostTimelineDocument` exposes only `timeline_position` (every other `Document_Item` field is read-only on the contract) and the POST URL carries only the ticket id, so `link_ticket_timeline_document` has no slot in which to name *which* existing document to link -- use it to set a link's timeline position, not to choose a document. To put a file on a ticket, upload it with `upload_document(..., ticket_id=...)`, which creates the document and the ticket link in one call and requires `v1_base_url` + `v1_user_token` on the client (it raises `RuntimeError` otherwise):
+Attach a document to the ticket timeline. Note `PostTimelineDocument` exposes only one typed field, `timeline_position` (every other `Document_Item` field is read-only on the contract), and the POST URL carries only the ticket id -- so there is no *typed* slot naming which existing document to link. `extra_payload` is merged into the request body verbatim, so `PostTimelineDocument(extra_payload={"documents_id": 654})` does put a document id on the wire; whether the server honours it is untested here. The supported way to put a file on a ticket is `upload_document(..., ticket_id=...)`, which creates the document and the ticket link in one call and requires `v1_base_url` + `v1_user_token` on the client (it raises `RuntimeError` otherwise):
 
 ```python
 from pathlib import Path

@@ -1,6 +1,6 @@
 ---
 name: glpi-client-setup
-description: "Create and configure the synchronous glpi_python_client.GlpiClient or the asynchronous glpi_python_client.AsyncGlpiClient, including from_env, OAuth credential pairs, entity/profile headers, SSL settings, and the optional legacy v1 document-upload session. Use before calling GLPI APIs or when the user asks how to connect to GLPI with glpi_python_client."
+description: "Create and configure the synchronous glpi_python_client.GlpiClient or the asynchronous glpi_python_client.AsyncGlpiClient, including from_env, OAuth credential pairs, entity/profile headers, SSL settings, and the optional legacy v1 session (v1_base_url / v1_user_token) that backs document uploads, the Fields plugin helpers, KB category writes and actor-based statistics. Use before calling GLPI APIs, when configuring the v1 session for any of those features, or when the user asks how to connect to GLPI with glpi_python_client."
 license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
 metadata:
@@ -181,17 +181,24 @@ with GlpiClient.from_env(
   Fields plugin helpers, KB category writes and actor-based statistics.
 - Closing the client matters because it owns one or two HTTP sessions
   plus an OAuth token manager. Prefer the context-manager form.
-- Every failure the library raises derives from `GlpiError`, exported
-  from the package root. Construction raises `GlpiValidationError` for a
-  missing `glpi_api_url`, a half-supplied credential pair, or a
-  `v1_base_url` without a `v1_user_token`; calls raise `GlpiAuthError`
-  (401/403), `GlpiNotFoundError` (404), `GlpiServerError` (persistent
-  5xx), `GlpiTransportError`/`GlpiTimeoutError` (network fault) or
+- Every **API** failure the library raises derives from `GlpiError`,
+  exported from the package root. Construction raises
+  `GlpiValidationError` for a missing `glpi_api_url`, a half-supplied
+  credential pair, or a `v1_base_url` without a `v1_user_token`; calls
+  raise `GlpiAuthError` (401/403), `GlpiNotFoundError` (404),
+  `GlpiServerError` (persistent 5xx),
+  `GlpiTransportError`/`GlpiTimeoutError` (network fault) or
   `GlpiProtocolError` (unusable 2xx body). Do not catch `requests`
   exceptions — `requests` is not a dependency — and do not catch
   `tenacity.RetryError`; the retry decorators re-raise the real error.
-  Using a closed client, or a v1-backed call on a client built without
-  `v1_base_url`, still raises plain `RuntimeError`.
+- A small set of raise sites is deliberately **outside** that hierarchy,
+  so `except GlpiError:` will not catch them. Plain `RuntimeError`:
+  using a closed client; a v1-backed call on a client built without
+  `v1_base_url`; and a `create_kb_article` whose category fallback
+  failed *after* the article was already created (the article exists,
+  its categories were not applied). Plain `TypeError`: an environment
+  value that is neither a string nor the expected scalar when `from_env`
+  parses an integer or boolean setting.
 - Concurrent callers cannot stampede the token endpoint: the client
   holds a lock around OAuth acquisition, so it is safe to launch a
   fan-out on `AsyncGlpiClient` before the token has ever been fetched.
