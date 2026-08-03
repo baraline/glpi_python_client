@@ -35,7 +35,7 @@ exclude = [
 
 [project]
 name = "glpi-python-client"
-version = "0.4.1"
+version = "0.4.2"
 description = "A typed Python client for GLPI ITSM APIs."
 readme = "README.md"
 requires-python = ">=3.10"
