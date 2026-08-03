@@ -184,3 +184,73 @@ def test_no_skill_describes_the_retired_thread_pool_bridge() -> None:
         "these skills describe machinery that no longer exists:\n"
         + "\n".join(offenders)
     )
+
+
+#: Public client methods deliberately left out of ``skills/``, each with the
+#: reason. Empty on purpose: every method the client exposes is documented
+#: somewhere, and an entry here is a decision someone has to justify rather
+#: than a place to park undone work.
+_UNDOCUMENTED: dict[str, str] = {}
+
+
+def _public_methods() -> set[str]:
+    """Every public callable on the client surface."""
+
+    return {
+        name
+        for name in dir(GlpiClient)
+        if not name.startswith("_") and callable(getattr(GlpiClient, name, None))
+    }
+
+
+def _documented() -> str:
+    """Every skill document concatenated, for a whole-word name search."""
+
+    return "\n".join(path.read_text(encoding="utf-8-sig") for path in _skill_files())
+
+
+def test_every_public_method_is_named_by_some_skill() -> None:
+    """A method no skill mentions is a method no agent will ever call.
+
+    The other checks in this module all validate what the skills *say*.
+    None of them asks what the skills *omit*, which is how the knowledge
+    base and plugin-fields families -- twenty-five public methods between
+    them -- shipped across two releases with no documentation anywhere
+    and a fully green suite.
+
+    Matched on a word boundary rather than a substring, so documenting
+    ``get_ticket_task`` does not silently satisfy ``get_ticket``.
+    """
+
+    prose = _documented()
+    missing = sorted(
+        name
+        for name in _public_methods()
+        if name not in _UNDOCUMENTED and not re.search(rf"\b{re.escape(name)}\b", prose)
+    )
+    assert missing == [], (
+        "these public client methods are named by no skill -- document them, "
+        "or add them to _UNDOCUMENTED with a reason:\n" + "\n".join(missing)
+    )
+
+
+def test_the_undocumented_allowlist_has_no_dead_entries() -> None:
+    """An allowlist outliving the method it excused hides the next gap."""
+
+    dead = sorted(_UNDOCUMENTED.keys() - _public_methods())
+    assert dead == [], (
+        "these _UNDOCUMENTED entries name methods that no longer exist:\n"
+        + "\n".join(dead)
+    )
+
+
+def test_the_coverage_scan_discriminates() -> None:
+    """Positive control: the word boundary is load-bearing, so prove it.
+
+    Without this, a regex that quietly stopped matching would leave the
+    coverage check passing forever while reading nothing.
+    """
+
+    assert not re.search(r"\bget_ticket\b", "see get_ticket_task above")
+    assert re.search(r"\bget_ticket\b", "call get_ticket(321) now")
+    assert len(_public_methods()) > 50, "client surface looks wrong -- API moved?"
