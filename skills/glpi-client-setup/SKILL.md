@@ -10,6 +10,12 @@ metadata:
 
 # GLPI Client Setup
 
+> Unlike the other skills in this package, the snippets below are not written
+> against one client and translated for the other: `with GlpiClient(...)` and
+> `async with AsyncGlpiClient(...)` examples both appear directly, side by
+> side, because choosing between the two surfaces is what this skill is for.
+> Read each example as written for the client it names.
+
 The package exposes two clients with identical endpoint surfaces:
 
 - `glpi_python_client.GlpiClient` — synchronous, blocking client. Use it from

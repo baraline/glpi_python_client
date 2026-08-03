@@ -10,11 +10,13 @@ These skills are source-tree project material. They are included in source distr
 | --- | --- | --- |
 | `glpi-client-setup` | Build and configure an authenticated client | `GlpiClient`, `AsyncGlpiClient`, `.from_env()` |
 | `glpi-ticket-workflow` | Search, fetch, create, update, or delete tickets | `GetTicket`, `PostTicket`, `PatchTicket`, `DeleteTicket` |
-| `glpi-ticket-timeline` | Read timeline records or write followups, tasks, solutions, and document links | `PostFollowup`, `PostTicketTask`, `PostSolution`, `PostTimelineDocument` (plus matching Get/Patch/Delete) |
+| `glpi-ticket-timeline` | Read timeline records or write followups, tasks, solutions, and document links | `PostFollowup`, `PostTicketTask`, `PostSolution`, `PostTimelineDocument` (plus matching Get/Patch/Delete for followups/tasks/solutions; document reads return `GetDocument`, not a `GetTimelineDocument`) |
 | `glpi-document-workflow` | Manage document metadata, upload binary content, download binaries | `GetDocument`, `PostDocument`, `PatchDocument`, `DeleteDocument` |
 | `glpi-user-location-provisioning` | Search and provision users, locations, and entities | `GetUser`, `PostUser`, `GetLocation`, `PostLocation`, `GetEntity`, `PostEntity` |
 | `glpi-reporting-and-context` | Aggregate ticket statistics, aggregate task durations, or load one ticket context bundle | `GlpiClient`, `GlpiTicketContext`, public enums |
 | `glpi-team-members` | List, add, or remove ticket team members | `GetTeamMember`, `PostTeamMember` |
+| `glpi-knowledge-base` | Search, read, or write KB articles, categories, comments, and revisions | `GetKBArticle`, `PostKBArticle`, `GetKBCategory`, `GetKBArticleComment`, `GetKBArticleRevision` |
+| `glpi-plugin-fields` | Discover and read/write Fields-plugin custom fields | `GetPluginFieldsContainer`, `GetPluginFieldsField`, `GetPluginFieldsValueRow` |
 
 ## Sync and async
 
