@@ -25,6 +25,6 @@ The package ships two clients with identical endpoint surfaces:
 - `GlpiClient` — synchronous. `with GlpiClient(...) as client`, no `await`.
 - `AsyncGlpiClient` — asynchronous, performing real non-blocking I/O. `async with AsyncGlpiClient(...) as client`, `await` every method.
 
-Neither wraps the other: the async tree is hand-written and the synchronous one is generated from it by `unasync_build.py`, so the two cannot drift apart. The snippets in each skill are written against `AsyncGlpiClient`; every skill opens with a note on how to read them for the synchronous client.
+Neither wraps the other: the async tree is hand-written and the synchronous one is generated from it by `unasync_build.py`, so the two cannot drift apart. Every skill opens with a note telling you how to read its snippets across the two surfaces. For eight of the nine that note says the same thing -- the snippets are written against `AsyncGlpiClient`, so drop the `await` and the `async` for `GlpiClient`. `glpi-client-setup` is the exception and says so in its own note: choosing between the two clients is what that skill is *for*, so it shows both directly, side by side, and neither surface is a translation of the other.
 
 When fanning out concurrently on the async client, bound the fan-out with an `asyncio.Semaphore` — see `glpi-client-setup`. An unbounded fan-out is slower, not faster.

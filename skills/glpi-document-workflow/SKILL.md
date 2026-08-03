@@ -25,7 +25,7 @@ The `GLPIV1Session` class is no longer part of the public surface; the v1 sessio
 6. Delete with `await client.delete_document(document_id, force=True|False|None)`.
 7. Download bytes with `content = await client.download_document_content(document_id)`.
 8. Upload bytes with `await client.upload_document(filename=..., content=..., mime_type=..., ticket_id=..., entity_id=...)`.
-9. To attach an existing GLPI document to a ticket timeline, use `link_ticket_timeline_document` from the timeline skill.
+9. To put a file on a ticket timeline, use `upload_document(..., ticket_id=...)` -- it creates the document *and* the ticket link in one call. `link_ticket_timeline_document` from the timeline skill cannot be told **which** existing document to link: `PostTimelineDocument` declares only `extra_payload` and `timeline_position`, and the POST URL carries only the ticket id, so there is no typed slot for a document id. See the timeline skill for the `extra_payload` escape hatch and its caveat.
 
 ## Examples
 
@@ -64,6 +64,7 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 
 ## Gotchas
 
+- **`search_documents` swallows 4xx and returns `[]`.** This is a library-wide contract, not a document peculiarity: `_resource_list` checks the response status only when the caller passes a `failure_message`, and none of the seven `search_*` helpers (`search_documents`, `search_tickets`, `search_users`, `search_locations`, `search_entities`, `search_kb_articles`, `search_kb_categories`) passes one -- a GLPI error body is not a JSON list, so it is coerced to `[]`. A malformed RSQL filter, a 403 on `/Management/Document`, a missing route and "no such document" all look identical. `get_document`, `download_document_content` and every `list_*` helper do pass a `failure_message` and raise `GlpiStatusError` (narrowed to `GlpiAuthError` / `GlpiNotFoundError` / `GlpiServerError`) normally. So never conclude from an empty `search_documents` that a file is not on the server and re-upload it -- that is how duplicate documents get created; corroborate with a call that raises first.
 - `upload_document` raises `RuntimeError` when the v1 session is not configured. Pass `v1_base_url` and `v1_user_token` to the client constructor or `from_env`.
 - `upload_document` requires a non-empty `filename`. On the async client the multipart POST is awaited like any other call, so the event loop is not blocked.
 - `download_document_content` returns `bytes` and raises on non-200 responses.
