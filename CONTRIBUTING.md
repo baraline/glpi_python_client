@@ -38,7 +38,7 @@ python -m sphinx -W --keep-going -b html docs docs/_build/html
 
 ## GitHub Actions
 
-- `.github/workflows/ci.yml` runs tests for Python 3.10 through 3.13 on pull
+- `.github/workflows/ci.yml` runs tests for Python 3.10 through 3.14 on pull
   requests and pushes to `main`.
 - The same workflow runs `ruff`, `mypy`, and a warning-free Sphinx build on
   Python 3.12.

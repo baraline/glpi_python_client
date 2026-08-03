@@ -92,7 +92,7 @@ GitHub Actions and Read the Docs
 The repository ships with two GitHub Actions workflows:
 
 * ``.github/workflows/ci.yml`` runs on pull requests and pushes to ``main``.
-   It executes ``pytest`` on Python 3.10 through 3.13, then runs ``ruff``,
+   It executes ``pytest`` on Python 3.10 through 3.14, then runs ``ruff``,
    ``mypy``, and the Sphinx build on Python 3.12.
 * ``.github/workflows/release.yml`` runs on published GitHub releases. It
    repeats the quality checks, builds the source and wheel distributions,
