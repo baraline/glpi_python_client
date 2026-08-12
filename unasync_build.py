@@ -96,6 +96,14 @@ TOKEN_REPLACEMENTS = {
     "AsyncHTTPTransport": "HTTPTransport",
     "aclose": "close",
     "aread": "read",
+    # httpx spells the streaming body readers with an ``a`` prefix and
+    # defines both surfaces' versions on one ``Response`` class. Left
+    # un-rewritten, the generated tree calls ``aiter_bytes`` on a sync
+    # response and fails at *iteration* with "'async_generator' object is
+    # not iterable" -- not with an AttributeError at the call, which is why
+    # this is easy to miss. ``aiter_text``/``aiter_lines``/``aiter_raw``
+    # are equally un-rewritten and would each need an entry here.
+    "aiter_bytes": "iter_bytes",
 }
 
 

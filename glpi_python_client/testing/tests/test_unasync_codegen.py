@@ -52,6 +52,8 @@ _INTENTIONAL_RENAMES = {
     "AsyncHTTPTransport",
     "aclose",
     "aread",
+    # httpx's streaming body reader, called by the document stream helper.
+    "aiter_bytes",
 }
 
 

@@ -266,6 +266,55 @@ class DocumentMixin(TransportMixin):
         )
         return response.content
 
+    def stream_document_content(
+        self,
+        document_id: GlpiId,
+        *,
+        chunk_size: int = 65536,
+    ) -> Iterator[bytes]:
+        """Stream the binary payload of one GLPI document in chunks.
+
+        Use this instead of :meth:`download_document_content` when the file
+        may be large: that method holds the whole body in memory before
+        returning, so a 500 MB attachment costs 500 MB of process memory
+        even if the caller only writes it straight to disk.
+
+        Parameters
+        ----------
+        document_id : GlpiId
+            Numeric identifier of the document whose binary content is
+            requested.
+        chunk_size : int, optional
+            Bytes requested per chunk (defaults to 64 KiB).
+
+        Yields
+        ------
+        bytes
+            Successive chunks of the document body. The final chunk may be
+            shorter than ``chunk_size``.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+
+        Examples
+        --------
+        Writing a document to disk without buffering it::
+
+            with open("attachment.pdf", "wb") as handle:
+                async for chunk in client.stream_document_content(42):
+                    handle.write(chunk)
+        """
+
+        for chunk in self._stream_request(
+            f"{DOCUMENT_ENDPOINT}/{document_id}/Download",
+            chunk_size=chunk_size,
+            skip_entity=True,
+            failure_message=f"Failed to download document {document_id}",
+        ):
+            yield chunk
+
     def upload_document(
         self,
         *,

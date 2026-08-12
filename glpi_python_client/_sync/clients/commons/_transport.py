@@ -25,7 +25,7 @@ mutated afterwards.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Iterator, Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
@@ -191,6 +191,65 @@ class TransportMixin:
             return self._session.request(method.upper(), url, **kwargs)
         except httpx.HTTPError as exc:
             raise transport_error_from(exc, method=method, url=url) from exc
+
+    def _stream_request(
+        self,
+        endpoint: str,
+        *,
+        chunk_size: int,
+        skip_entity: bool = False,
+        failure_message: str,
+    ) -> Iterator[bytes]:
+        """Stream one authenticated GLPI ``GET`` body in chunks.
+
+        The non-streaming helpers materialise the whole body before the
+        caller sees any of it, which is fine for JSON and wrong for a
+        document that may be hundreds of megabytes.
+
+        Two details differ from the buffered path and both are load-bearing.
+        The status has to be checked *inside* the context manager, and the
+        body read first: the error helpers format the response text, and
+        reading text off an unread stream raises rather than reporting the
+        status. And no retry decorator belongs here -- tenacity does not
+        wrap an async generator, so a decorator would silently degrade to
+        the sync path instead of failing loudly.
+
+        Raises
+        ------
+        GlpiStatusError
+            When the response status is not 200.
+        GlpiTransportError
+            When the request never produced a response.
+        """
+
+        self._ensure_token()
+        access_token = require_access_token(self._auth.access_token)
+        url = build_request_url(self.glpi_api_url, endpoint)
+        headers = build_request_headers(
+            access_token=access_token,
+            language=self.language,
+            glpi_entity=self.glpi_entity,
+            glpi_profile=self.glpi_profile,
+            entity_recursive=self.entity_recursive,
+            include_content_type=False,
+            skip_entity=skip_entity,
+        )
+
+        try:
+            with self._session.stream(
+                "GET", url, headers=headers, timeout=30
+            ) as response:
+                if response.status_code != 200:
+                    response.read()
+                    ensure_response_status(
+                        response,
+                        success_statuses=(200,),
+                        failure_message=failure_message,
+                    )
+                for chunk in response.iter_bytes(chunk_size):
+                    yield chunk
+        except httpx.HTTPError as exc:
+            raise transport_error_from(exc, method="get", url=url) from exc
 
     def _execute_request(
         self,
