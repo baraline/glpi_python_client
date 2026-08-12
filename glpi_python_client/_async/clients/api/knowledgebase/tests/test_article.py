@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ from glpi_python_client import (
     PatchKBArticle,
     PostKBArticle,
 )
-from glpi_python_client._async._testing import FailingTransportRecorder
+from glpi_python_client._async._testing import (
+    FailingTransportRecorder,
+    TransportRecorder,
+)
 from glpi_python_client.testing.utils import FakeResponse
 
 
@@ -429,3 +433,35 @@ async def test_iter_search_kb_articles_yields_nothing_when_empty(client: Any) ->
     client.search_kb_articles = fake_search  # type: ignore[method-assign]
 
     assert [batch async for batch in client.iter_search_kb_articles()] == []
+
+
+async def test_get_kb_article_localises_the_naive_revision_date(client: Any) -> None:
+    """A KB article's revision dates come back comparable with its own.
+
+    This is the shape GLPI 11 actually sends, measured on a live instance:
+    the article's own timestamps carry an offset and the nested revision
+    dates do not. Before the server timezone was threaded through, sorting
+    an article's history against the article itself raised
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``.
+    """
+
+    rec = TransportRecorder(
+        get_payload={
+            "id": 1,
+            "name": "article",
+            "date_creation": "2018-04-06T17:38:15+02:00",
+            "revisions": [{"id": 9, "date": "2018-04-06 17:39:44"}],
+        }
+    )
+    rec.install(client)
+
+    article = await client.get_kb_article(1)
+
+    assert article.revisions is not None
+    revision_date = article.revisions[0].date
+    assert revision_date is not None
+    assert revision_date.tzinfo is not None
+    # The comparison itself is the regression: it used to raise.
+    assert article.date_creation is not None
+    assert revision_date > article.date_creation
+    assert revision_date - article.date_creation == timedelta(seconds=89)

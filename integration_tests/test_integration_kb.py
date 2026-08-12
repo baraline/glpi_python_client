@@ -45,6 +45,7 @@ def client(live_config: _LiveGlpiConfig) -> Iterator[GlpiClient]:
 
     glpi_client = GlpiClient(
         glpi_api_url=live_config.api_url,
+        server_timezone=live_config.server_timezone,
         client_id=live_config.client_id,
         client_secret=live_config.client_secret,
         username=live_config.username,

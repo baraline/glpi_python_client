@@ -74,6 +74,13 @@ dependencies = [
     # 3354ms without it, 1304ms with. `pip check` reports no broken
     # requirements either way, so this pin is the only thing holding the fix.
     "sniffio>=1.3",
+    # Required because `server_timezone` takes an IANA zone name, and a name
+    # is what makes DST correct -- a fixed offset would be wrong for half the
+    # year against an instance that emits both +01:00 and +02:00. Windows
+    # ships no system tz database, so `zoneinfo` finds nothing there while
+    # Linux reads /usr/share/zoneinfo: without this pin the client works in
+    # CI and raises ZoneInfoNotFoundError on a developer machine.
+    "tzdata>=2024.1; platform_system == 'Windows'",
     "tenacity>=8.2",
     "typing-extensions>=4.7; python_version < '3.11'",
 ]

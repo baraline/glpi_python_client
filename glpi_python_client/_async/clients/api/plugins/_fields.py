@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from glpi_python_client._async.clients.commons._payloads import model_from_payload
 from glpi_python_client._async.clients.commons._transport import TransportMixin
 from glpi_python_client._errors import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.models.api_schema.plugins import (
@@ -147,7 +148,12 @@ class PluginFieldsMixin(TransportMixin):
             failure_message="Failed to list PluginFieldsContainer",
         )
         rows = payload if isinstance(payload, list) else []
-        containers = [GetPluginFieldsContainer.model_validate(row) for row in rows]
+        containers = [
+            model_from_payload(
+                GetPluginFieldsContainer, row, server_timezone=self.server_timezone
+            )
+            for row in rows
+        ]
         if itemtype is None:
             return containers
         return [c for c in containers if _container_targets_itemtype(c, itemtype)]
@@ -179,7 +185,12 @@ class PluginFieldsMixin(TransportMixin):
             failure_message="Failed to list PluginFieldsField",
         )
         rows = payload if isinstance(payload, list) else []
-        fields = [GetPluginFieldsField.model_validate(row) for row in rows]
+        fields = [
+            model_from_payload(
+                GetPluginFieldsField, row, server_timezone=self.server_timezone
+            )
+            for row in rows
+        ]
         if container_id is None:
             return fields
         return [f for f in fields if f.plugin_fields_containers_id == container_id]
@@ -219,7 +230,12 @@ class PluginFieldsMixin(TransportMixin):
             failure_message=f"Failed to list {endpoint}",
         )
         rows = payload if isinstance(payload, list) else []
-        return [GetPluginFieldsValueRow.model_validate(row) for row in rows]
+        return [
+            model_from_payload(
+                GetPluginFieldsValueRow, row, server_timezone=self.server_timezone
+            )
+            for row in rows
+        ]
 
     async def create_item_plugin_field_row(
         self,

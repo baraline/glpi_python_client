@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator, Callable
+from datetime import tzinfo
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
@@ -108,6 +109,7 @@ class TransportMixin:
     glpi_entity: int | None
     glpi_profile: int | None
     language: str
+    server_timezone: tzinfo
 
     def _ensure_open(self) -> None:
         """Raise when the client has already been closed.
@@ -450,7 +452,10 @@ class TransportMixin:
             if unwrap_envelope
             else list_payload_items(payload)
         )
-        return [model_from_payload(model, item) for item in items]
+        return [
+            model_from_payload(model, item, server_timezone=self.server_timezone)
+            for item in items
+        ]
 
     def _resource_get(
         self,
@@ -486,7 +491,9 @@ class TransportMixin:
             success_statuses=(200, 206),
             failure_message=failure_message,
         )
-        return model_from_payload(model, response.json())
+        return model_from_payload(
+            model, response.json(), server_timezone=self.server_timezone
+        )
 
     def _resource_create(
         self,

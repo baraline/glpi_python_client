@@ -16,9 +16,18 @@ provided explicitly by callers still take precedence on serialisation.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
+
+#: Validation-context key carrying the GLPI server's timezone.
+#:
+#: Set by ``model_from_payload`` in the client's ``commons._payloads``
+#: module from the client's ``server_timezone``. Absent when a model is built
+#: outside the client, which is deliberate -- see
+#: :meth:`GlpiModel._localise_naive_datetimes`.
+SERVER_TIMEZONE_CONTEXT_KEY = "server_timezone"
 
 
 class GlpiModel(BaseModel):
@@ -59,3 +68,47 @@ class GlpiModel(BaseModel):
                 merged.update(existing_extras)
             data["extra_payload"] = merged
         return data
+
+    @model_validator(mode="after")
+    def _localise_naive_datetimes(self, info: ValidationInfo) -> GlpiModel:
+        """Stamp the server's timezone onto timestamps that arrived without one.
+
+        GLPI 11 sends most timestamps with the correct historical offset --
+        measured on a live instance, 19 of the 20 datetime fields across
+        every resource, and the same article carries ``+02:00`` in summer
+        and ``+01:00`` in winter. ``KBArticle.revisions[].date`` is the
+        exception and arrives bare, so one response can hold both kinds and
+        comparing them raises ``TypeError``. This closes that gap.
+
+        Two rules make it safe:
+
+        * **An offset already on the wire wins.** GLPI's own offset follows
+          DST; a single configured zone does not, so overwriting would
+          corrupt half the year.
+        * **No context means no guess.** A model built outside the client
+          keeps its naive values. Stamping an arbitrary offset on an unknown
+          timestamp would convert a loud ``TypeError`` into a quietly wrong
+          answer, which is strictly worse.
+
+        The stamped values are written onto a copy rather than assigned in
+        place, because a ``mode="after"`` validator receives the instance
+        itself -- and ``model_validate`` accepts an existing model, so
+        mutating would reach back into an object the caller still holds.
+        """
+
+        context = info.context
+        if not isinstance(context, dict):
+            return self
+        tzinfo = context.get(SERVER_TIMEZONE_CONTEXT_KEY)
+        if tzinfo is None:
+            return self
+
+        localised = {
+            name: value.replace(tzinfo=tzinfo)
+            for name in type(self).model_fields
+            if isinstance(value := getattr(self, name, None), datetime)
+            and value.tzinfo is None
+        }
+        if not localised:
+            return self
+        return self.model_copy(update=localised)

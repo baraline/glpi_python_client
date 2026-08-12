@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import tzinfo
 from typing import TYPE_CHECKING, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -183,6 +185,63 @@ def build_client_resources(
     )
 
 
+def resolve_server_timezone(value: object) -> tzinfo:
+    """Resolve the configured GLPI server timezone into a ``tzinfo``.
+
+    The timezone is **required** and has no default. GLPI does not
+    advertise it anywhere in the API, so only the operator knows it, and
+    every candidate default is wrong somewhere: guessing UTC against a
+    Europe/Paris instance shifts every naive timestamp by one or two hours
+    *without raising*, which is worse than the ``TypeError`` a naive value
+    produces on comparison.
+
+    An IANA name is preferred over a fixed offset because a fixed offset
+    cannot follow DST, and a single GLPI instance demonstrably emits both
+    ``+01:00`` and ``+02:00`` depending on the date.
+
+    Parameters
+    ----------
+    value : object
+        An IANA zone name (``"Europe/Paris"``) or a ``tzinfo`` instance.
+
+    Returns
+    -------
+    tzinfo
+        The resolved timezone.
+
+    Raises
+    ------
+    GlpiValidationError
+        When the value is missing, blank, not a string or ``tzinfo``, or
+        names a zone the system database does not know.
+    """
+
+    if isinstance(value, tzinfo):
+        return value
+    if value is None:
+        raise GlpiValidationError(
+            "server_timezone is required: GLPI does not advertise its own "
+            "timezone, so it has to be declared (e.g. 'Europe/Paris', or "
+            "GLPI_SERVER_TIMEZONE in the environment)."
+        )
+    if not isinstance(value, str):
+        raise GlpiValidationError(
+            f"server_timezone must be an IANA name or a tzinfo; got {value!r}"
+        )
+    name = value.strip()
+    if not name:
+        raise GlpiValidationError(
+            "server_timezone is empty: set it to an IANA name (e.g. 'Europe/Paris')."
+        )
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise GlpiValidationError(
+            f"Unknown server_timezone {name!r}. Use an IANA zone name such as "
+            "'Europe/Paris' or 'UTC'."
+        ) from exc
+
+
 def parse_optional_env_int(value: object) -> int | None:
     """Parse one optional integer from an environment-style value.
 
@@ -248,6 +307,7 @@ def build_client_env_config(
 
     config: dict[str, object] = {
         "glpi_api_url": env.get(f"{prefix}API_URL"),
+        "server_timezone": env.get(f"{prefix}SERVER_TIMEZONE"),
         "client_id": env.get(f"{prefix}CLIENT_ID"),
         "client_secret": env.get(f"{prefix}CLIENT_SECRET"),
         "username": env.get(f"{prefix}USERNAME"),
@@ -313,5 +373,6 @@ __all__ = [
     "normalize_client_api_url",
     "parse_optional_env_bool",
     "parse_optional_env_int",
+    "resolve_server_timezone",
     "validate_v1_document_config",
 ]

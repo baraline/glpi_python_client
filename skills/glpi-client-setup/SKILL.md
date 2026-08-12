@@ -85,6 +85,7 @@ call `client.close()` (or `await client.close()`) when finished.
 - `GLPI_CLIENT_ID` and `GLPI_CLIENT_SECRET`
 - `GLPI_USERNAME` and `GLPI_PASSWORD`
 - `GLPI_ENTITY`, `GLPI_PROFILE`, `GLPI_ENTITY_RECURSIVE`
+- `GLPI_SERVER_TIMEZONE` -- **required**. IANA name of the GLPI server's timezone (e.g. `Europe/Paris`). GLPI does not advertise it, and it is needed to interpret the timestamps the server sends without an offset -- there is no default, because guessing UTC against a Europe/Paris instance shifts those values silently.
 - `GLPI_LANGUAGE`, `GLPI_VERIFY_SSL`, `GLPI_AUTH_TOKEN_REFRESH`
 - `GLPI_V1_BASE_URL`, `GLPI_V1_USER_TOKEN`, `GLPI_V1_APP_TOKEN`
 

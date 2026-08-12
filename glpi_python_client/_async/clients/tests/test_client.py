@@ -21,6 +21,7 @@ async def test_glpi_client_from_env_uses_overrides_and_defaults(
         "GLPI_API_URL": "https://glpi.example.test/api.php/v2",
         "GLPI_USERNAME": "u",
         "GLPI_PASSWORD": "p",
+        "GLPI_SERVER_TIMEZONE": "Europe/Paris",
     }
     client = AsyncGlpiClient.from_env(env=env)
     try:
@@ -34,6 +35,7 @@ async def test_glpi_client_close_is_idempotent() -> None:
 
     client = AsyncGlpiClient(
         glpi_api_url="https://glpi.example.test/api.php/v2",
+        server_timezone="Europe/Paris",
         username="u",
         password="p",
     )
@@ -61,7 +63,10 @@ async def test_glpi_client_rejects_invalid_credentials() -> None:
     """Constructor refuses to build a client with no usable credentials."""
 
     with pytest.raises(ValueError):
-        AsyncGlpiClient(glpi_api_url="https://glpi.example.test/api.php/v2")
+        AsyncGlpiClient(
+            glpi_api_url="https://glpi.example.test/api.php/v2",
+            server_timezone="Europe/Paris",
+        )
 
 
 async def test_glpi_client_v1_session_built_when_configured() -> None:
@@ -69,6 +74,7 @@ async def test_glpi_client_v1_session_built_when_configured() -> None:
 
     client = AsyncGlpiClient(
         glpi_api_url="https://glpi.example.test/api.php/v2",
+        server_timezone="Europe/Paris",
         username="u",
         password="p",
         v1_base_url="https://glpi.example.test/apirest.php",
@@ -87,6 +93,7 @@ async def test_glpi_client_rejects_partial_v1_config() -> None:
     with pytest.raises(ValueError, match="v1_base_url and v1_user_token"):
         AsyncGlpiClient(
             glpi_api_url="https://glpi.example.test/api.php/v2",
+            server_timezone="Europe/Paris",
             username="u",
             password="p",
             v1_base_url="https://glpi.example.test/apirest.php",
@@ -101,6 +108,7 @@ async def test_environ_default_is_used_when_env_argument_omitted(
     monkeypatch.setenv("GLPI_API_URL", "https://from-environ.example/api.php/v2")
     monkeypatch.setenv("GLPI_USERNAME", "u")
     monkeypatch.setenv("GLPI_PASSWORD", "p")
+    monkeypatch.setenv("GLPI_SERVER_TIMEZONE", "Europe/Paris")
     client = AsyncGlpiClient.from_env()
     try:
         assert client.glpi_api_url.endswith("/api.php/v2")
@@ -113,6 +121,7 @@ async def test_async_transport_ensure_open_blocks_after_close() -> None:
 
     client = AsyncGlpiClient(
         glpi_api_url="https://glpi.example.test/api.php/v2",
+        server_timezone="Europe/Paris",
         username="u",
         password="p",
     )
@@ -149,6 +158,7 @@ async def test_glpi_client_init_failure_creates_no_session(
     with pytest.raises(ValueError):
         AsyncGlpiClient(
             glpi_api_url="https://glpi.example.test/api.php/v2",
+            server_timezone="Europe/Paris",
             client_id="only-id-no-secret",
         )
     assert constructed == [], "a transport session was built for a rejected config"

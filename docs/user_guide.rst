@@ -134,6 +134,11 @@ build the client for you:
 * ``GLPI_CLIENT_ID`` and ``GLPI_CLIENT_SECRET``
 * ``GLPI_USERNAME`` and ``GLPI_PASSWORD``
 * ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``
+* ``GLPI_SERVER_TIMEZONE`` -- **required**. IANA name of the timezone the
+  GLPI server runs in (e.g. ``Europe/Paris``). GLPI does not advertise it,
+  and it is needed to interpret the timestamps the server sends without an
+  offset. There is no default: guessing UTC against a Europe/Paris instance
+  shifts those values by an hour or two and never raises.
 * ``GLPI_LANGUAGE``, ``GLPI_VERIFY_SSL``
 * ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``
 

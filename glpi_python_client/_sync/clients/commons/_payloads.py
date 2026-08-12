@@ -7,9 +7,13 @@ again, while honouring the per-model ``extra_payload`` escape hatch.
 
 from __future__ import annotations
 
+from datetime import tzinfo
 from typing import TypeVar
 
-from glpi_python_client.models._base import GlpiModel
+from glpi_python_client.models._base import (
+    SERVER_TIMEZONE_CONTEXT_KEY,
+    GlpiModel,
+)
 
 ModelT = TypeVar("ModelT", bound=GlpiModel)
 
@@ -36,14 +40,31 @@ def model_to_payload(model: GlpiModel) -> dict[str, object]:
     return body
 
 
-def model_from_payload(model_class: type[ModelT], payload: object) -> ModelT:
+def model_from_payload(
+    model_class: type[ModelT],
+    payload: object,
+    *,
+    server_timezone: tzinfo | None = None,
+) -> ModelT:
     """Validate one raw GLPI payload into the requested ``GlpiModel`` class.
 
-    The helper is a thin wrapper around ``model_validate`` that keeps the
-    mixin call sites concise and consistent with :func:`model_to_payload`.
+    The helper wraps ``model_validate`` so the mixin call sites stay concise
+    and consistent with :func:`model_to_payload`, and so the server timezone
+    is threaded through one place instead of forty field declarations.
+
+    ``server_timezone`` is passed as a Pydantic validation context, which
+    reaches nested submodels as well as the top-level one -- necessary
+    because the timestamps GLPI sends without an offset are nested
+    (``KBArticle.revisions[].date``). ``None`` supplies no context at all,
+    so naive values stay naive rather than being stamped with a guess.
     """
 
-    return model_class.model_validate(payload)
+    context = (
+        {SERVER_TIMEZONE_CONTEXT_KEY: server_timezone}
+        if server_timezone is not None
+        else None
+    )
+    return model_class.model_validate(payload, context=context)
 
 
 __all__ = ["model_from_payload", "model_to_payload"]

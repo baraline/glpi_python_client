@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed (breaking)
 
+- **`server_timezone` is now a required client argument** (`GLPI_SERVER_TIMEZONE`
+  for `from_env`). It takes an IANA zone name — `"Europe/Paris"` — or a
+  `tzinfo`.
+
+  GLPI 11 sends most timestamps with the correct historical offset, but not
+  all of them. Measured against a live instance: 19 of the 20 datetime fields
+  across every resource are offset-bearing, and `KBArticle.revisions[].date`
+  is not. One response therefore carries both kinds, and comparing them raises
+  `TypeError: can't compare offset-naive and offset-aware datetimes` — sorting
+  an article's revision history against the article's own dates was enough to
+  trigger it.
+
+  There is deliberately **no default**. Every candidate is wrong somewhere:
+  against a Europe/Paris instance, assuming UTC shifts the affected timestamps
+  by one or two hours *and stops raising*, turning a loud failure into a quiet
+  wrong answer. An IANA name is preferred over a fixed offset because a name
+  follows DST — the same instance emits both `+01:00` and `+02:00`.
+
+  An offset already on the wire always wins over the configured zone, and a
+  model built outside the client (no validation context) keeps its naive values
+  rather than being stamped with a guess.
+
+  Adds `tzdata` as a dependency on Windows, which ships no system timezone
+  database; without it `zoneinfo` resolves on Linux CI and raises on a
+  developer machine.
+
 - **Search endpoints now raise on a 4xx instead of returning `[]`.** The seven
   `search_*` helpers passed no `failure_message` to `_resource_list`, which
   skipped the status check entirely, so a 400, 401, 403 or 404 came back as an
