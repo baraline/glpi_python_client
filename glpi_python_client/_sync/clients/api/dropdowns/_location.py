@@ -7,6 +7,8 @@ models.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from glpi_python_client._sync.clients.commons._constants import (
     LOCATION_ENDPOINT,
     GlpiId,
@@ -51,6 +53,57 @@ class LocationMixin(TransportMixin):
         if rsql_filter:
             params["filter"] = rsql_filter
         return self._resource_list(LOCATION_ENDPOINT, GetLocation, params=params)
+
+    def iter_search_locations(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+    ) -> Iterator[list[GetLocation]]:
+        """Yield successive pages of GLPI locations until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_locations`
+            call.
+
+        Notes
+        -----
+        A 4xx response is swallowed by the underlying search helper, which
+        returns ``[]``. Because iteration stops on a page shorter than
+        ``batch_size``, a 4xx on the first page ends the walk having yielded
+        nothing -- indistinguishable from a filter that matched nothing.
+        Check the caller's permissions and entity scope before reading an
+        empty walk as an empty result set. 5xx still raises.
+
+        Yields
+        ------
+        list[GetLocation]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_locations(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_location(self, location_id: GlpiId) -> GetLocation:
         """Fetch one GLPI location by identifier.

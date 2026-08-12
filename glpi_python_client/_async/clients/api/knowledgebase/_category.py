@@ -7,6 +7,8 @@ GLPI knowledge base category resource using the contract-aligned
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 from glpi_python_client._async.clients.commons._constants import (
     KB_CATEGORY_ENDPOINT,
     GlpiId,
@@ -64,6 +66,66 @@ class KBCategoryMixin(TransportMixin):
         return await self._resource_list(
             KB_CATEGORY_ENDPOINT, GetKBCategory, params=params
         )
+
+    async def iter_search_kb_categories(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> AsyncIterator[list[GetKBCategory]]:
+        """Yield successive pages of GLPI knowledge base categories until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_kb_categories`
+            call.
+        sort : str | None, optional
+            ``sort`` query parameter forwarded as-is to each page request.
+        language : str | None, optional
+            GLPI language code forwarded to each page request to select
+            a translated view.
+
+        Notes
+        -----
+        A 4xx response is swallowed by the underlying search helper, which
+        returns ``[]``. Because iteration stops on a page shorter than
+        ``batch_size``, a 4xx on the first page ends the walk having yielded
+        nothing -- indistinguishable from a filter that matched nothing.
+        Check the caller's permissions and entity scope before reading an
+        empty walk as an empty result set. 5xx still raises.
+
+        Yields
+        ------
+        list[GetKBCategory]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = await self.search_kb_categories(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                sort=sort,
+                language=language,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     async def get_kb_category(self, category_id: GlpiId) -> GetKBCategory:
         """Fetch one knowledge base category by identifier.

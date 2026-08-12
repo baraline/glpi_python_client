@@ -8,7 +8,7 @@ Markdown through GLPI's HTML wire format transparently.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 from glpi_python_client._sync.clients.commons._constants import (
     KB_ARTICLE_ENDPOINT,
@@ -71,6 +71,66 @@ class KBArticleMixin(TransportMixin):
         return self._resource_list(
             KB_ARTICLE_ENDPOINT, GetKBArticle, params=params
         )
+
+    def iter_search_kb_articles(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> Iterator[list[GetKBArticle]]:
+        """Yield successive pages of GLPI knowledge base articles until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_kb_articles`
+            call.
+        sort : str | None, optional
+            ``sort`` query parameter forwarded as-is to each page request.
+        language : str | None, optional
+            GLPI language code forwarded to each page request to select
+            a translated view.
+
+        Notes
+        -----
+        A 4xx response is swallowed by the underlying search helper, which
+        returns ``[]``. Because iteration stops on a page shorter than
+        ``batch_size``, a 4xx on the first page ends the walk having yielded
+        nothing -- indistinguishable from a filter that matched nothing.
+        Check the caller's permissions and entity scope before reading an
+        empty walk as an empty result set. 5xx still raises.
+
+        Yields
+        ------
+        list[GetKBArticle]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_kb_articles(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                sort=sort,
+                language=language,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_kb_article(self, article_id: GlpiId) -> GetKBArticle:
         """Fetch one knowledge base article by identifier.

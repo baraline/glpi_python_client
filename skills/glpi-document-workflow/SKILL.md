@@ -18,7 +18,7 @@ The `GLPIV1Session` class is no longer part of the public surface; the v1 sessio
 ## Procedure
 
 1. Create a `GlpiClient`. For uploads, also pass `v1_base_url` and `v1_user_token` (and optionally `v1_app_token`).
-2. Search documents with `await client.search_documents(rsql_filter, limit=..., start=...)`.
+2. Search documents with `await client.search_documents(rsql_filter, limit=..., start=...)`, or walk every page with `async for batch in client.iter_search_documents(rsql_filter, batch_size=50)`.
 3. Fetch one document's metadata with `await client.get_document(document_id)`.
 4. Create a metadata-only record with `PostDocument(...)` and `await client.create_document(document)`. The method returns the new ID.
 5. Update with `PatchDocument(...)` and `await client.update_document(document_id, document)`.

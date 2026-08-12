@@ -8,6 +8,7 @@ the v2 API does not advertise a binary upload endpoint in the contract.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 
 from glpi_python_client._async.clients.commons._constants import (
     DOCUMENT_ENDPOINT,
@@ -62,6 +63,57 @@ class DocumentMixin(TransportMixin):
         return await self._resource_list(
             DOCUMENT_ENDPOINT, GetDocument, params=params, skip_entity=True
         )
+
+    async def iter_search_documents(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+    ) -> AsyncIterator[list[GetDocument]]:
+        """Yield successive pages of GLPI documents until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_documents`
+            call.
+
+        Notes
+        -----
+        A 4xx response is swallowed by the underlying search helper, which
+        returns ``[]``. Because iteration stops on a page shorter than
+        ``batch_size``, a 4xx on the first page ends the walk having yielded
+        nothing -- indistinguishable from a filter that matched nothing.
+        Check the caller's permissions and entity scope before reading an
+        empty walk as an empty result set. 5xx still raises.
+
+        Yields
+        ------
+        list[GetDocument]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = await self.search_documents(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     async def get_document(self, document_id: GlpiId) -> GetDocument:
         """Fetch one GLPI document by identifier.
