@@ -357,6 +357,21 @@ class TransportMixin:
             When provided, response status is checked with this message;
             search-style endpoints that tolerate empty results pass
             ``None``.
+
+            Passing ``None`` means a **4xx is swallowed**: the status is
+            logged and this returns ``[]``, so a 400, 401, 403 or 404 is
+            indistinguishable from a search that legitimately matched
+            nothing. 5xx still raises
+            :class:`~glpi_python_client.GlpiServerError`, from
+            :func:`~glpi_python_client._async.clients.commons._http.finalize_request_response`.
+
+            That is deliberate (0.4.0 plan-1, decision D2) rather than an
+            oversight, and it is load-bearing for the seven tolerant
+            search call sites. It is worth knowing about because it does
+            not compose well: the batch iterators stop when a page comes
+            back shorter than ``batch_size``, so a 403 on the first page
+            ends iteration having yielded nothing at all, and the caller
+            sees a successful empty walk.
         success_statuses : tuple[int, ...], optional
             HTTP status codes considered successful when
             ``failure_message`` is set.
