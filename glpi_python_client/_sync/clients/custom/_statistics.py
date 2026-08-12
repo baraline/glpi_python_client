@@ -382,10 +382,12 @@ class StatisticsMixin(TransportMixin):
             entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
-            entities = self.search_entities(  # type: ignore[attr-defined]
-                rsql_filter=name_filter,
-                limit=200,
-            )
+            entities = []
+            for entity_batch in self.iter_search_entities(  # type: ignore[attr-defined]
+                name_filter,
+                batch_size=200,
+            ):
+                entities.extend(entity_batch)
             if not entities:
                 return {"entities": {}}
             entity_filter = rsql_any_filter(
@@ -399,10 +401,16 @@ class StatisticsMixin(TransportMixin):
             _LIVE_TICKETS,
             extra_filter,
         )
-        tickets: list[GetTicket] = self.search_tickets(  # type: ignore[attr-defined]
-            rsql_filter=query or "",
-            limit=200,
-        )
+        # Paged rather than fetched in one call. A single ``search_tickets``
+        # returns one page and nothing else, so any corpus larger than the
+        # page size was silently truncated and the helper reported a
+        # plausible number that was really just the page size.
+        tickets: list[GetTicket] = []
+        for batch in self.iter_search_tickets(  # type: ignore[attr-defined]
+            query or "",
+            batch_size=200,
+        ):
+            tickets.extend(batch)
         return _summarize_tickets(tickets)
 
     def get_task_statistics(
@@ -526,10 +534,12 @@ class StatisticsMixin(TransportMixin):
             entity_filter = f"entity.id=={entity_id}"
         elif entity_name is not None:
             name_filter = rsql_contains_filter("name", entity_name) or ""
-            entities = self.search_entities(  # type: ignore[attr-defined]
-                rsql_filter=name_filter,
-                limit=200,
-            )
+            entities = []
+            for entity_batch in self.iter_search_entities(  # type: ignore[attr-defined]
+                name_filter,
+                batch_size=200,
+            ):
+                entities.extend(entity_batch)
             if not entities:
                 return TaskDurationsResult(
                     start_date=start.isoformat(),
@@ -714,10 +724,12 @@ class StatisticsMixin(TransportMixin):
                 rsql_contains_filter("firstname", firstname) if firstname else None,
             ]
             user_rsql = rsql_all_filter(*name_parts) or ""
-            matched_users = self.search_users(  # type: ignore[attr-defined]
-                rsql_filter=user_rsql,
-                limit=200,
-            )
+            matched_users = []
+            for user_batch in self.iter_search_users(  # type: ignore[attr-defined]
+                user_rsql,
+                batch_size=200,
+            ):
+                matched_users.extend(user_batch)
             if not matched_users:
                 raise GlpiValidationError("No users matched the supplied criteria")
             resolved_user_ids = [u.id for u in matched_users if u.id is not None]
