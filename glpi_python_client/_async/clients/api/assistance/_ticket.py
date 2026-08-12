@@ -49,7 +49,11 @@ class TicketMixin(TransportMixin):
         start : int, optional
             Zero-based offset of the first record returned.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is, e.g. ``"date_mod desc"``.
+            ``sort`` query parameter, spelled ``field`` or ``field:direction``
+            (e.g. ``"date_mod:desc"``). Measured against GLPI 11: a space
+            before the direction answers **HTTP 400** ("Invalid property for
+            sorting"), a bare ``field`` sorts *ascending*, and a separate
+            ``order`` parameter is ignored.
         fields : tuple[str, ...], optional
             Restricted set of contract field names to request. Empty
             tuple lets the GLPI server pick its default field set.
@@ -94,7 +98,9 @@ class TicketMixin(TransportMixin):
             the ``limit`` parameter on each underlying
             :meth:`search_tickets` call.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is to each page request.
+            ``sort`` query parameter forwarded to each page request,
+            spelled ``field`` or ``field:direction`` (e.g. ``"date_mod:desc"``).
+            A space before the direction answers HTTP 400.
         fields : tuple[str, ...], optional
             Restricted set of contract field names to request.
 

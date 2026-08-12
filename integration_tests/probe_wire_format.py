@@ -166,8 +166,15 @@ def main() -> None:
     _check_reachable(base)
 
     with httpx.Client(verify=False, follow_redirects=True, timeout=30) as client:
-        headers = {
-            "Authorization": f"Bearer {_token(client, config)}",
+        token = _token(client, config)
+        # A GET must NOT advertise a JSON content type. GLPI sees the header,
+        # tries to parse the (absent) body, and answers 400 "Contenu du JSON
+        # invalide" -- an error about the request body on a request that has
+        # none. The library avoids this with its `include_content_type` flag,
+        # which is False for GET; the two header sets here mirror that.
+        read_headers = {"Authorization": f"Bearer {token}"}
+        write_headers = {
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
 
@@ -179,7 +186,7 @@ def main() -> None:
             ("User", "/Administration/User?limit=1"),
             ("KBArticle", "/Knowledgebase/Article?limit=1"),
         ):
-            response = client.get(f"{base}{path}", headers=headers)
+            response = client.get(f"{base}{path}", headers=read_headers)
             if response.status_code >= 400:
                 print(f"  {label}: HTTP {response.status_code} -- skipped")
                 continue
@@ -193,7 +200,7 @@ def main() -> None:
         try:
             response = client.post(
                 f"{base}/Assistance/Ticket",
-                headers=headers,
+                headers=write_headers,
                 json={
                     "name": "py_glpi wire-format probe (safe to delete)",
                     "content": "<p>Automated probe. Deleted immediately.</p>",
@@ -226,9 +233,16 @@ def main() -> None:
                     )
         finally:
             if created_id:
-                cleanup = client.delete(
+                # `client.delete(...)` rejects `json=` -- httpx exposes a body
+                # only on `request()`, because DELETE-with-a-body is unusual.
+                # GLPI needs one for `force`, so this must not be "simplified"
+                # back to the convenience method; the library's own
+                # `_delete_request` goes through `session.request` for the
+                # same reason.
+                cleanup = client.request(
+                    "DELETE",
                     f"{base}/Assistance/Ticket/{created_id}",
-                    headers=headers,
+                    headers=write_headers,
                     json={"force": True},
                 )
                 print()

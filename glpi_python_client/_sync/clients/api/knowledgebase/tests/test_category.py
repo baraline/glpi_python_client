@@ -73,7 +73,7 @@ def test_search_kb_categories_forwards_filter_and_language(client: Any) -> None:
     rec = _Recorder(get_payload=[{"id": 1, "name": "Network"}])
     rec.install(client)
     result = client.search_kb_categories(
-        "name==Network", limit=5, start=2, sort="name asc", language="fr_FR"
+        "name==Network", limit=5, start=2, sort="name:asc", language="fr_FR"
     )
     assert result[0].id == 1
     call = rec.calls[0]
@@ -81,7 +81,7 @@ def test_search_kb_categories_forwards_filter_and_language(client: Any) -> None:
     assert call["params"]["filter"] == "name==Network"
     assert call["params"]["limit"] == 5
     assert call["params"]["start"] == 2
-    assert call["params"]["sort"] == "name asc"
+    assert call["params"]["sort"] == "name:asc"
     assert call["params"]["language"] == "fr_FR"
 
 

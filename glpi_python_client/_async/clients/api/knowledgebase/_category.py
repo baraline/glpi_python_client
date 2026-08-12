@@ -45,7 +45,11 @@ class KBCategoryMixin(TransportMixin):
         start : int, optional
             Zero-based offset of the first record returned.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is, e.g. ``"name asc"``.
+            ``sort`` query parameter, spelled ``field`` or ``field:direction``
+            (e.g. ``"name:asc"``). Measured against GLPI 11: a space
+            before the direction answers **HTTP 400** ("Invalid property for
+            sorting"), a bare ``field`` sorts *ascending*, and a separate
+            ``order`` parameter is ignored.
         language : str | None, optional
             GLPI language code forwarded as the ``language`` query
             parameter to select a translated view.
@@ -91,7 +95,9 @@ class KBCategoryMixin(TransportMixin):
             ``limit`` parameter on each underlying :meth:`search_kb_categories`
             call.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is to each page request.
+            ``sort`` query parameter forwarded to each page request,
+            spelled ``field`` or ``field:direction`` (e.g. ``"date_mod:desc"``).
+            A space before the direction answers HTTP 400.
         language : str | None, optional
             GLPI language code forwarded to each page request to select
             a translated view.

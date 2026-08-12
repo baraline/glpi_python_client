@@ -111,7 +111,7 @@ async def test_search_kb_articles_forwards_params(client: Any) -> None:
     rec = _Recorder(get_payload=[{"id": 1, "name": "Reset", "content": "<p>c</p>"}])
     rec.install(client)
     result = await client.search_kb_articles(
-        "is_faq==1", limit=3, start=1, sort="date_mod desc", language="en_GB"
+        "is_faq==1", limit=3, start=1, sort="date_mod:desc", language="en_GB"
     )
     assert result[0].id == 1
     call = rec.calls[0]
@@ -119,7 +119,7 @@ async def test_search_kb_articles_forwards_params(client: Any) -> None:
     assert call["params"]["filter"] == "is_faq==1"
     assert call["params"]["limit"] == 3
     assert call["params"]["start"] == 1
-    assert call["params"]["sort"] == "date_mod desc"
+    assert call["params"]["sort"] == "date_mod:desc"
     assert call["params"]["language"] == "en_GB"
 
 
@@ -374,13 +374,13 @@ async def test_iter_search_kb_articles_yields_every_page(client: Any) -> None:
     batches = [
         batch
         async for batch in client.iter_search_kb_articles(
-            "name==x", batch_size=3, sort="name asc"
+            "name==x", batch_size=3, sort="name:asc"
         )
     ]
 
     assert starts == [0, 3]
     assert [len(b) for b in batches] == [3, 1]
-    assert forwarded["sort"] == "name asc"
+    assert forwarded["sort"] == "name:asc"
 
 
 async def test_iter_search_kb_articles_stops_on_a_single_short_page(
