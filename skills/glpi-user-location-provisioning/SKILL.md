@@ -17,6 +17,7 @@ Users live under `/Administration/User`, entities under `/Administration/Entity`
 
 1. Create a `GlpiClient` with the correct entity/profile scope.
 2. Search before creating duplicates: `search_users(rsql_filter, limit=..., start=..., skip_entity=False)`, `search_locations(rsql_filter, limit=..., start=...)`, `search_entities(rsql_filter, limit=..., start=...)`. Scope matters here: `search_users` and `search_locations` are narrowed by the client's `GLPI-Entity` / `GLPI-Profile` headers, so pass `skip_entity=True` to `search_users` (the only one of the three `search_*` helpers that has the flag — `iter_search_users` takes it too) to look across every entity the caller can see before deciding a user does not exist; `search_entities` always bypasses those headers.
+   To resolve a person by e-mail use `await client.find_user_by_email("a@b.test")`, which returns `GetUser | None` and defaults to `skip_entity=True` for the reason just given.
 3. Fetch one record with `get_user(user_id)`, `get_location(location_id)`, or `get_entity(entity_id)`.
 4. Create with `create_user(PostUser(...))`, `create_location(PostLocation(...))`, or `create_entity(PostEntity(...))`. Each returns the new ID.
 5. Update with `update_user(user_id, PatchUser(...))`, `update_location(location_id, PatchLocation(...))`, or `update_entity(entity_id, PatchEntity(...))`.

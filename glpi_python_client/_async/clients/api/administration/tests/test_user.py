@@ -192,3 +192,158 @@ async def test_iter_search_users_multi_page_stops_on_short_batch(
     batches = [batch async for batch in client.iter_search_users("", batch_size=2)]
     assert call_count == 2
     assert sum(len(b) for b in batches) == 3
+
+
+async def test_find_user_by_email_matches_a_nested_email_entry(client: Any) -> None:
+    """The address is matched inside the ``emails`` array, not on a top field."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        if start:
+            return []
+        return [
+            GetUser.model_validate(
+                {"id": 1, "username": "alice", "emails": [{"email": "alice@x.test"}]}
+            ),
+            GetUser.model_validate(
+                {"id": 2, "username": "bob", "emails": [{"email": "bob@x.test"}]}
+            ),
+        ]
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    found = await client.find_user_by_email("bob@x.test")
+
+    assert found is not None
+    assert found.id == 2
+
+
+async def test_find_user_by_email_is_case_insensitive(client: Any) -> None:
+    """Addresses are compared case-insensitively, as mail systems treat them."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        if start:
+            return []
+        return [
+            GetUser.model_validate(
+                {"id": 1, "username": "alice", "emails": [{"email": "Alice@X.test"}]}
+            )
+        ]
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    found = await client.find_user_by_email("  ALICE@x.TEST ")
+
+    assert found is not None
+    assert found.id == 1
+
+
+async def test_find_user_by_email_returns_none_when_absent(client: Any) -> None:
+    """No match is ``None`` rather than an arbitrary first user."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        if start:
+            return []
+        return [
+            GetUser.model_validate(
+                {"id": 1, "username": "alice", "emails": [{"email": "alice@x.test"}]}
+            )
+        ]
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    assert await client.find_user_by_email("nobody@x.test") is None
+
+
+async def test_find_user_by_email_scans_past_the_first_page(client: Any) -> None:
+    """The match may live on any page, so the scan pages until it finds one."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    pages = [
+        [GetUser.model_validate({"id": i, "username": f"u{i}"}) for i in range(1, 3)],
+        [
+            GetUser.model_validate(
+                {"id": 9, "username": "zoe", "emails": [{"email": "zoe@x.test"}]}
+            ),
+        ],
+    ]
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    found = await client.find_user_by_email("zoe@x.test", batch_size=2)
+
+    assert found is not None
+    assert found.id == 9
+
+
+async def test_find_user_by_email_stops_at_the_matching_page(client: Any) -> None:
+    """The scan stops as soon as it matches instead of walking the directory."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    starts: list[int] = []
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        starts.append(start)
+        return [
+            GetUser.model_validate(
+                {"id": 1, "username": "alice", "emails": [{"email": "alice@x.test"}]}
+            )
+        ] * limit
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    await client.find_user_by_email("alice@x.test", batch_size=2)
+
+    assert starts == [0]
+
+
+async def test_find_user_by_email_scans_every_entity_by_default(client: Any) -> None:
+    """The scan spans entities, or a match outside the header scope is missed."""
+
+    from glpi_python_client.models.api_schema.administration._user import GetUser
+
+    seen: dict[str, Any] = {}
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetUser]:
+        seen.update(kwargs)
+        seen["filter"] = rsql_filter
+        return []
+
+    client.search_users = fake_search  # type: ignore[method-assign]
+
+    await client.find_user_by_email("alice@x.test", rsql_filter="is_active==true")
+
+    assert seen["skip_entity"] is True
+    assert seen["filter"] == "is_active==true"
+
+
+async def test_find_user_by_email_rejects_a_blank_address(client: Any) -> None:
+    """A blank address would scan the whole directory and match nothing."""
+
+    from glpi_python_client import GlpiValidationError
+
+    with pytest.raises(GlpiValidationError):
+        await client.find_user_by_email("   ")
