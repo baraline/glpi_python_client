@@ -33,6 +33,7 @@ from glpi_python_client.models.api_schema.enums import (
     GlpiPriority,
     GlpiTicketType,
 )
+from glpi_python_client.rsql import created_between
 
 #: The GLPI v2 ticket search includes soft-deleted ("trashed") tickets by
 #: default, while the v1 search excludes them. Every aggregation here is
@@ -393,8 +394,7 @@ class StatisticsMixin(TransportMixin):
             entity_filter = rsql_any_filter(
                 *(f"entity.id=={e.id}" for e in entities if e.id is not None)
             )
-        date_filter = f"date_creation=ge={start.isoformat()};"
-        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
+        date_filter = created_between(start, end)
         query = rsql_all_filter(
             date_filter,
             entity_filter,
@@ -526,8 +526,7 @@ class StatisticsMixin(TransportMixin):
             end_date=end_date,
             default_days=default_days,
         )
-        date_filter = f"date_creation=ge={start.isoformat()};"
-        date_filter += f"date_creation=le={end.isoformat()} 23:59:59"
+        date_filter = created_between(start, end)
 
         entity_filter: str | None = None
         if entity_id is not None:
@@ -743,8 +742,7 @@ class StatisticsMixin(TransportMixin):
                 if u.id is not None
             }
 
-        date_range = f"date_creation=ge={start.isoformat()};"
-        date_range += f"date_creation=le={end.isoformat()} 23:59:59"
+        date_range = created_between(start, end)
 
         # The date window is resolved once for every user rather than once
         # per user per role. Previously each user drove two full pagings of
