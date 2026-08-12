@@ -58,3 +58,53 @@ def test_from_transport_leaves_caller_markdown_untouched() -> None:
     markdown = "The printer is **offline** and 5 * 3 = 15."
 
     assert GlpiContentConverter.from_transport(markdown) == markdown
+
+
+def test_fenced_code_block_survives_the_round_trip() -> None:
+    """A fence stays a fence. Pasted logs are the common case for this."""
+
+    markdown = "```\nblock\n```"
+
+    assert (
+        GlpiContentConverter.from_transport(GlpiContentConverter.to_transport(markdown))
+        == markdown
+    )
+
+
+def test_fenced_code_block_renders_as_a_pre_block() -> None:
+    """Outbound, a fence becomes ``<pre><code>`` rather than inline code.
+
+    Inline ``<code>`` is what collapsed a multi-line log into one line in the
+    GLPI web UI, and what a read-modify-write then wrote back as inline code.
+    """
+
+    assert GlpiContentConverter.to_transport("```\nblock\n```") == (
+        "<pre><code>block\n</code></pre>"
+    )
+
+
+def test_table_survives_the_round_trip() -> None:
+    """A Markdown table stays a table instead of degrading to text."""
+
+    rendered = GlpiContentConverter.from_transport(
+        GlpiContentConverter.to_transport("| a | b |\n| - | - |\n| 1 | 2 |")
+    )
+
+    assert rendered == "| a | b |\n| --- | --- |\n| 1 | 2 |"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        ("<p>snake_case name</p>", "snake_case name"),
+        ("<p>5 * 3 = 15</p>", "5 * 3 = 15"),
+    ],
+)
+def test_incoming_text_is_not_backslash_escaped(html: str, expected: str) -> None:
+    """Underscores and asterisks in prose stay readable.
+
+    Escaping them turns ``snake_case`` into ``snake\_case`` on every read,
+    and the backslash accumulates across read-modify-write cycles.
+    """
+
+    assert GlpiContentConverter.from_transport(html) == expected

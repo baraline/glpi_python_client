@@ -32,6 +32,21 @@ _HTML_ELEMENTS = frozenset(
     """.split()
 )
 
+#: python-markdown extensions applied when rendering outbound content.
+#:
+#: ``fenced_code`` and ``tables`` are here because without them the two
+#: constructs do not survive at all. A fence rendered without
+#: ``fenced_code`` becomes inline ``<code>``, which the GLPI web UI shows
+#: as one run-on line and which a later read writes back as inline code --
+#: so a pasted log degrades a little more on every edit. A table without
+#: ``tables`` renders as literal pipe characters.
+#:
+#: A language tag is still lost: ``markdownify`` drops the
+#: ``class="language-python"`` that ``fenced_code`` emits, so ```` ```python ````
+#: comes back as a bare fence. That is a limitation of the pair of
+#: libraries, not something an extension list can fix.
+_MARKDOWN_EXTENSIONS = ["nl2br", "sane_lists", "fenced_code", "tables"]
+
 #: One candidate tag: ``<`` or ``</`` immediately followed by a name.
 #:
 #: The ``<`` must abut the name, matching what an HTML parser accepts. That
@@ -91,6 +106,8 @@ class GlpiContentConverter:
             heading_style="ATX",
             bullets="-",
             strip=["script", "style"],
+            escape_underscores=False,
+            escape_asterisks=False,
         )
         return str(markdown).strip()
 
@@ -107,7 +124,7 @@ class GlpiContentConverter:
             return ""
         html = markdown_to_html(
             markdown,
-            extensions=["nl2br", "sane_lists"],
+            extensions=_MARKDOWN_EXTENSIONS,
             output_format="html5",
         )
         return str(html).strip()
