@@ -101,15 +101,6 @@ class KBArticleMixin(TransportMixin):
             GLPI language code forwarded to each page request to select
             a translated view.
 
-        Notes
-        -----
-        A 4xx response is swallowed by the underlying search helper, which
-        returns ``[]``. Because iteration stops on a page shorter than
-        ``batch_size``, a 4xx on the first page ends the walk having yielded
-        nothing -- indistinguishable from a filter that matched nothing.
-        Check the caller's permissions and entity scope before reading an
-        empty walk as an empty result set. 5xx still raises.
-
         Yields
         ------
         list[GetKBArticle]

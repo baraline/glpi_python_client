@@ -413,24 +413,9 @@ class TransportMixin:
         skip_entity : bool, optional
             When ``True`` the ``GLPI-Entity`` header is omitted.
         failure_message : str | None, optional
-            When provided, response status is checked with this message;
-            search-style endpoints that tolerate empty results pass
-            ``None``.
-
-            Passing ``None`` means a **4xx is swallowed**: the status is
-            logged and this returns ``[]``, so a 400, 401, 403 or 404 is
-            indistinguishable from a search that legitimately matched
-            nothing. 5xx still raises
-            :class:`~glpi_python_client.GlpiServerError`, from
-            :func:`~glpi_python_client._sync.clients.commons._http.finalize_request_response`.
-
-            That is deliberate (0.4.0 plan-1, decision D2) rather than an
-            oversight, and it is load-bearing for the seven tolerant
-            search call sites. It is worth knowing about because it does
-            not compose well: the batch iterators stop when a page comes
-            back shorter than ``batch_size``, so a 403 on the first page
-            ends iteration having yielded nothing at all, and the caller
-            sees a successful empty walk.
+            Message embedded in the raised ``GlpiStatusError``. ``None``
+            derives one from the endpoint; the status is checked either
+            way.
         success_statuses : tuple[int, ...], optional
             HTTP status codes considered successful when
             ``failure_message`` is set.
@@ -447,12 +432,18 @@ class TransportMixin:
         response = self._get_request(
             endpoint, params=params, skip_entity=skip_entity
         )
-        if failure_message is not None:
-            ensure_response_status(
-                response,
-                success_statuses=success_statuses,
-                failure_message=failure_message,
-            )
+        # The status is checked on every list call, search included. It used
+        # not to be, and a refused search then came back as ``[]``: a 403 was
+        # indistinguishable from a filter that matched nothing. It composed
+        # badly with the batch iterators, which stop on a page shorter than
+        # ``batch_size`` -- so a 403 on page one ended the walk having
+        # yielded nothing and the caller saw a successful empty result. An
+        # empty list now means the server said the result set is empty.
+        ensure_response_status(
+            response,
+            success_statuses=success_statuses,
+            failure_message=failure_message or f"Failed to list {endpoint}",
+        )
         payload = response.json()
         items = (
             unwrap_timeline_items(payload)

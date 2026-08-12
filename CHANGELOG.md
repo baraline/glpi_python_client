@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed (breaking)
+
+- **Search endpoints now raise on a 4xx instead of returning `[]`.** The seven
+  `search_*` helpers passed no `failure_message` to `_resource_list`, which
+  skipped the status check entirely, so a 400, 401, 403 or 404 came back as an
+  empty list — indistinguishable from a filter that legitimately matched
+  nothing. (5xx already raised.) It composed badly with the batch iterators:
+  they stop on a page shorter than `batch_size`, so a 403 on the first page
+  ended the walk having yielded nothing and the caller saw a *successful*
+  empty result. This reverses decision D2 of the 0.4.0 error work, which chose
+  tolerance deliberately; the silent-empty failure mode has proved worse than
+  the exception. An empty list now means the server said the result set is
+  empty. **Callers that relied on `[]` after a permission error must catch
+  `GlpiStatusError`.**
+
 ### Fixed
 
 - **The unit test suite was published inside the wheel and the sdist.** Both
@@ -151,6 +166,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ValueError`, so `except ValueError` still catches it.
 
 ### Added
+
+- **`glpi_python_client.rsql`** — public date builders for the v2 filter
+  grammar: `created_between`, `date_window` and `changed_since`, all exported
+  from the package root. The end-of-day detail on a window's upper bound is
+  easy to get wrong and impossible to notice, since GLPI answers a malformed
+  filter by ignoring it and returning the whole table.
+
+- **`find_user_by_email(email)`** — resolves a person by address. It scans,
+  because GLPI exposes addresses as the nested array `User.emails` and the v2
+  filter engine cannot join a nested array. Narrow it with `rsql_filter` and
+  cache the id; do not hand-roll an RSQL e-mail filter.
+
+- **`stream_document_content(document_id, chunk_size=...)`** — yields a
+  document body in chunks instead of buffering it whole, as
+  `download_document_content` does. Upload still buffers.
+
+- **Batch iterators for the four resources that lacked one**:
+  `iter_search_kb_articles`, `iter_search_kb_categories`,
+  `iter_search_documents` and `iter_search_locations`.
 
 - `glpi_python_client/clients/tests/test_async_selfcall_guard.py`: a
   structural AST guard that fails the suite if any public method on

@@ -25,6 +25,7 @@ from glpi_python_client import (
     AsyncGlpiClient,
     GlpiError,
     GlpiServerError,
+    GlpiStatusError,
     GlpiTimeoutError,
     GlpiTransportError,
 )
@@ -330,18 +331,54 @@ async def test_4xx_is_not_retried_by_the_transport(
     assert response.status_code == 404
 
 
-async def test_tolerant_search_still_returns_empty_on_4xx(retry_client: Any) -> None:
-    """Search endpoints that pass no ``failure_message`` still swallow a 4xx.
+@pytest.mark.parametrize("status", [400, 401, 403, 404])
+async def test_search_raises_on_4xx_instead_of_returning_empty(
+    retry_client: Any, status: int
+) -> None:
+    """A refused search is an error, not an empty result set.
 
-    Guards the 7 tolerant ``_resource_list`` call sites against the 4xx raise
-    being moved into ``finalize_request_response``.
+    Search endpoints pass no ``failure_message``, and that used to mean the
+    status went unchecked: a 403 came back as ``[]``, indistinguishable from
+    a filter that matched nothing. It composed badly with the batch
+    iterators, which stop on a short page -- so a 403 on page one ended the
+    walk having yielded nothing and the caller saw a successful empty
+    result.
     """
 
     async def _send(method: str, url: str, **kw: Any) -> FakeResponse:
-        return FakeResponse(status_code=400, payload=[], text="[]")
+        return FakeResponse(status_code=status, payload=[], text="[]")
 
     retry_client._send_request = _send  # type: ignore[method-assign]
+
+    with pytest.raises(GlpiStatusError):
+        await retry_client.search_tickets()
+
+
+async def test_search_still_returns_empty_on_a_genuine_empty_result(
+    retry_client: Any,
+) -> None:
+    """A 200 carrying an empty list is still an ordinary empty result."""
+
+    async def _send(method: str, url: str, **kw: Any) -> FakeResponse:
+        return FakeResponse(status_code=200, payload=[], text="[]")
+
+    retry_client._send_request = _send  # type: ignore[method-assign]
+
     assert await retry_client.search_tickets() == []
+
+
+async def test_iterators_surface_a_4xx_instead_of_ending_silently(
+    retry_client: Any,
+) -> None:
+    """The iterator raises rather than yielding nothing and looking finished."""
+
+    async def _send(method: str, url: str, **kw: Any) -> FakeResponse:
+        return FakeResponse(status_code=403, payload=[], text="[]")
+
+    retry_client._send_request = _send  # type: ignore[method-assign]
+
+    with pytest.raises(GlpiStatusError):
+        [batch async for batch in retry_client.iter_search_tickets()]
 
 
 @pytest.mark.parametrize("method_name", _RETRIED_METHODS)
