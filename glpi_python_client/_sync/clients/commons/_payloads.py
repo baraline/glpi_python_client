@@ -21,9 +21,16 @@ def model_to_payload(model: GlpiModel) -> dict[str, object]:
     excluded from the dump, and any user-provided ``extra_payload`` keys are
     merged on top so callers can inject contract-validated extras the
     package does not yet model.
+
+    The dump runs in JSON mode. The returned mapping is handed to the HTTP
+    library as a JSON body, and its encoder is :func:`json.dumps`, which
+    cannot represent a ``datetime`` -- python mode leaves those as live
+    objects and every write of a date field then fails at the encoder, past
+    the point any transport stub can see. JSON mode renders them as ISO-8601
+    strings instead, so what the model validated is what GLPI receives.
     """
 
-    body = model.model_dump(exclude_none=True, exclude={"extra_payload"})
+    body = model.model_dump(mode="json", exclude_none=True, exclude={"extra_payload"})
     if model.extra_payload:
         body.update(model.extra_payload)
     return body
