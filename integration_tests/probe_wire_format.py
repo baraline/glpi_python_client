@@ -33,9 +33,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -79,6 +81,34 @@ def _load() -> dict[str, str]:
     if missing:
         sys.exit("missing credentials: " + ", ".join(missing))
     return config
+
+
+def _check_reachable(api_url: str) -> None:
+    """Exit with a diagnosis when the API host does not resolve.
+
+    The GLPI instance lives on an internal ``.local`` name, so running this
+    off the corporate VPN fails during DNS with a forty-line httpx traceback
+    ending in ``getaddrinfo failed`` -- which looks like a bug in the probe
+    rather than a missing network. Checking first turns that into one line.
+    """
+
+    host = urlparse(api_url).hostname
+    if not host:
+        sys.exit(f"glpi_api_url is not a URL: {api_url!r}")
+    try:
+        socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        try:
+            socket.getaddrinfo("github.com", None)
+        except socket.gaierror:
+            sys.exit(f"cannot resolve {host} -- and public DNS is down too.")
+        sys.exit(
+            f"cannot resolve {host}.\n"
+            "Public DNS works, so this is name resolution for the internal "
+            "domain: connect to the corporate VPN and run this again.\n"
+            "(The integration suite cannot reach the instance either while "
+            "this fails.)"
+        )
 
 
 def _token(client: httpx.Client, config: dict[str, str]) -> str:
@@ -133,6 +163,7 @@ def main() -> None:
 
     config = _load()
     base = config["api_url"].rstrip("/")
+    _check_reachable(base)
 
     with httpx.Client(verify=False, follow_redirects=True, timeout=30) as client:
         headers = {
