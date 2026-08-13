@@ -105,7 +105,7 @@ def test_get_ticket_statistics_aggregates_by_entity_status_priority_type(
     captured: dict[str, Any] = {}
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return [
@@ -154,7 +154,7 @@ def test_get_ticket_statistics_default_window_uses_today(
     captured: dict[str, Any] = {}
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return []
@@ -267,7 +267,7 @@ def test_get_ticket_statistics_entity_id_filter(client: Any) -> None:
     captured: dict[str, Any] = {}
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return []
@@ -299,7 +299,7 @@ def test_get_ticket_statistics_entity_name_resolution(client: Any) -> None:
         return [GetEntity(id=3, name="Acme"), GetEntity(id=4, name="Acme Sub")]
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured_tickets["filter"] = rsql_filter
         return []
@@ -344,7 +344,7 @@ def test_get_ticket_statistics_extra_filter_appended(client: Any) -> None:
     captured: dict[str, Any] = {}
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return []
@@ -367,7 +367,7 @@ def test_get_ticket_statistics_default_days_window(client: Any) -> None:
     captured: dict[str, Any] = {}
 
     def fake_search(
-        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
     ) -> list[GetTicket]:
         captured["filter"] = rsql_filter
         return []
@@ -784,3 +784,102 @@ def test_get_task_durations_uses_per_ticket_path_below_threshold(
 
     assert result["task_count"] == 0
     assert calls == [[1]]
+
+
+def test_get_ticket_statistics_counts_beyond_one_page(client: Any) -> None:
+    """Aggregates cover every matching ticket, not just the first page.
+
+    A single ``search_tickets`` call returns one page and nothing else, so a
+    corpus larger than the page size was silently truncated: the helper
+    reported a plausible number that happened to be the page size. The stub
+    answers a full page followed by a short one, which is the only shape that
+    tells a paging walk apart from a single request.
+    """
+
+    pages = [[_ticket() for _ in range(200)], [_ticket() for _ in range(30)]]
+    calls: list[int] = []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetTicket]:
+        calls.append(start)
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+
+    result = client.get_ticket_statistics(default_days=7)
+
+    assert calls == [0, 200]
+    assert result["entities"]["1"]["total"] == 230
+
+
+def test_get_ticket_statistics_resolves_entities_beyond_one_page(
+    client: Any,
+) -> None:
+    """Entity-name resolution walks every page of matches.
+
+    A name prefix shared by many entities matches more than one page. A
+    single ``search_entities`` call drops the rest, so tickets belonging to
+    the unlisted entities vanish from the aggregate with no error.
+    """
+
+    from glpi_python_client.models.api_schema.administration._entity import GetEntity
+
+    pages = [
+        [GetEntity(id=i, name="Acme") for i in range(1, 201)],
+        [GetEntity(id=201, name="Acme Sub")],
+    ]
+    captured_tickets: dict[str, Any] = {}
+
+    def fake_search_entities(
+        rsql_filter: str = "", *, limit: int = 200, start: int = 0, **kwargs: Any
+    ) -> list[GetEntity]:
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetTicket]:
+        captured_tickets["filter"] = rsql_filter
+        return []
+
+    client.search_entities = fake_search_entities  # type: ignore[method-assign]
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+
+    client.get_ticket_statistics(default_days=7, entity_name="Acme")
+
+    assert "entity.id==201" in captured_tickets["filter"]
+
+
+def test_get_task_durations_resolves_entities_beyond_one_page(
+    client: Any,
+) -> None:
+    """``get_task_durations`` pages entity-name resolution the same way."""
+
+    from glpi_python_client.models.api_schema.administration._entity import GetEntity
+
+    pages = [
+        [GetEntity(id=i, name="Acme") for i in range(1, 201)],
+        [GetEntity(id=201, name="Acme Sub")],
+    ]
+    captured_tickets: dict[str, Any] = {}
+
+    def fake_search_entities(
+        rsql_filter: str = "", *, limit: int = 200, start: int = 0, **kwargs: Any
+    ) -> list[GetEntity]:
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0, **kwargs: Any
+    ) -> list[GetTicket]:
+        captured_tickets["filter"] = rsql_filter
+        return []
+
+    client.search_entities = fake_search_entities  # type: ignore[method-assign]
+    client.search_tickets = fake_search  # type: ignore[method-assign]
+
+    client.get_task_durations(default_days=7, entity_name="Acme")
+
+    assert "entity.id==201" in captured_tickets["filter"]

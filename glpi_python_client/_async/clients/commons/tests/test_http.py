@@ -195,3 +195,52 @@ def test_4xx_raises_a_typed_status_error_from_ensure_response_status() -> None:
     assert excinfo.value.status_code == 404
     assert isinstance(excinfo.value, ValueError)
     assert str(excinfo.value) == "Failed to fetch ticket 1: 404 nope"
+
+
+def test_require_response_int_accepts_a_numeric_string_id() -> None:
+    """A quoted identifier is still an identifier.
+
+    GLPI is PHP-backed and PHP-backed APIs commonly render integers as
+    strings. Rejecting one is a protocol error raised over a usable value.
+    """
+
+    response = FakeResponse(payload={"id": "4242"})
+
+    assert require_response_int(response, keys=("id",), missing_message="x") == 4242
+
+
+def test_require_response_int_ignores_a_non_numeric_string_id() -> None:
+    """A string that is not a number is not silently coerced."""
+
+    response = FakeResponse(payload={"id": "not-a-number"})
+
+    with pytest.raises(GlpiProtocolError):
+        require_response_int(response, keys=("id",), missing_message="x")
+
+
+def test_require_response_int_reads_a_nested_data_envelope() -> None:
+    """An id wrapped in a ``data`` envelope is found rather than refused."""
+
+    response = FakeResponse(payload={"data": {"id": 4242}})
+
+    assert require_response_int(response, keys=("id",), missing_message="x") == 4242
+
+
+def test_require_response_int_falls_back_to_the_location_header() -> None:
+    """A 201 whose id lives only in ``Location`` still yields the id.
+
+    A create that answers with an empty body and a resource URL is a normal
+    REST shape; without this the client raises a protocol error on a request
+    that succeeded, and the caller loses the id of a record that now exists.
+    """
+
+    response = FakeResponse(
+        status_code=201,
+        payload=None,
+        content=b"",
+        headers={
+            "Location": "https://glpi.example.test/api.php/v2/Assistance/Ticket/4242"
+        },
+    )
+
+    assert require_response_int(response, keys=("id",), missing_message="x") == 4242

@@ -21,6 +21,7 @@ DEFAULT_CLIENT_CONFIG: dict[str, object] = {
     "client_secret": "client-secret",
     "username": "api-user",
     "password": "api-password",
+    "server_timezone": "Europe/Paris",
 }
 
 

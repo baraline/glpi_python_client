@@ -4,6 +4,30 @@ The high-level client uses these helpers to build safe text-search filters
 for GLPI endpoints that accept RSQL-like query expressions. All functions
 return ``None`` when the supplied input is empty so callers can compose
 filters without sprinkling conditional blocks at every call site.
+
+Two properties of the v2 filter engine shape everything here, and both
+fail *open*:
+
+* **An unrecognised filter field is ignored, not rejected.** The query
+  then returns the entire unfiltered table with a 200. A typo in a field
+  name does not raise -- it succeeds and answers with far too many rows,
+  which is why a filter that returns results is not evidence the filter
+  was applied. When validating a new expression against a live instance,
+  check that it returns *fewer* rows than the unfiltered baseline.
+* **``;`` (AND) binds tighter than ``,`` (OR)**, so an unparenthesised
+  OR group silently drops every preceding AND clause for all but its
+  first alternative. See :func:`rsql_any_filter`, which exists for that
+  reason and carries the measured numbers.
+
+Nested *object* subfields can be joined (``status.id==1``,
+``entity.id==3``). Nested *arrays* cannot: ``Ticket.team`` answers HTTP
+500 for its contract-declared subfields and is silently ignored for every
+other spelling, so actor selection has to go through the v1 search engine.
+The same is expected of ``User.emails``.
+
+Date windows live on the public surface instead, in
+:mod:`glpi_python_client.rsql`, because their grammar has an end-of-day
+detail that is easy to get wrong and impossible to notice.
 """
 
 from __future__ import annotations

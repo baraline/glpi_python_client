@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, get_type_hints
+from typing import Any, ClassVar, get_type_hints
 
 import pytest
 
@@ -167,6 +169,46 @@ def _install_stub(client: GlpiClient | AsyncGlpiClient) -> list[str]:
         return _stub_response_for(method, url)
 
     client._session.request = _arequest if is_async else _request  # type: ignore[method-assign,union-attr,assignment]
+
+    # Streaming does NOT route through ``session.request`` on either
+    # surface, so stubbing that seam alone leaves ``session.stream`` on the
+    # real transport -- and the "made no HTTP call" assertion below then
+    # fails while the test tries to open a socket to the fake host. The two
+    # context managers are written out by hand because this file is not
+    # unasync-generated.
+    class _StubStream:
+        status_code = 200
+        headers: ClassVar[dict[str, str]] = {}
+        url = "https://glpi.example.test/stub"
+        text = ""
+
+        def read(self) -> bytes:
+            return b""
+
+        async def aread(self) -> bytes:
+            return b""
+
+        def iter_bytes(self, chunk_size: int | None = None) -> Iterator[bytes]:
+            yield b"stub"
+
+        async def aiter_bytes(
+            self, chunk_size: int | None = None
+        ) -> AsyncIterator[bytes]:
+            yield b"stub"
+
+    @contextmanager
+    def _stream(method: str, url: str, **kwargs: Any) -> Iterator[_StubStream]:
+        calls.append(f"{method} {url}")
+        yield _StubStream()
+
+    @asynccontextmanager
+    async def _astream(
+        method: str, url: str, **kwargs: Any
+    ) -> AsyncIterator[_StubStream]:
+        calls.append(f"{method} {url}")
+        yield _StubStream()
+
+    client._session.stream = _astream if is_async else _stream  # type: ignore[method-assign,union-attr,assignment]
     # Pretend a valid, non-expiring token is already held so no OAuth round
     # trip happens and the call log contains only endpoint traffic.
     client._auth.access_token = "stub-token"

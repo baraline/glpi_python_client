@@ -310,6 +310,45 @@ def response_json_mapping(response: httpx.Response) -> Mapping[str, object]:
     return result if isinstance(result, Mapping) else {}
 
 
+def coerce_response_int(value: object) -> int | None:
+    """Return ``value`` as an ``int`` when it plainly denotes one.
+
+    Native integers pass through. A string is accepted when it parses
+    cleanly, because GLPI is PHP-backed and PHP-backed APIs routinely
+    render integers as strings; refusing one would be a protocol error
+    raised over a perfectly usable identifier. ``bool`` is rejected even
+    though it is an ``int`` subclass in Python, and floats are rejected
+    because a fractional identifier is a sign of a misread payload rather
+    than a value to round.
+    """
+
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def response_id_from_location(response: httpx.Response) -> int | None:
+    """Return the trailing identifier of the response ``Location`` header.
+
+    A create that answers with an empty body and the URL of the new
+    resource is an ordinary REST shape. Reading the last path segment
+    recovers the identifier instead of failing a request that succeeded.
+    Returns ``None`` when there is no header or its tail is not numeric.
+    """
+
+    location = response.headers.get("Location") or response.headers.get("location")
+    if not location:
+        return None
+    return coerce_response_int(location.rstrip("/").rsplit("/", 1)[-1])
+
+
 def require_response_int(
     response: httpx.Response,
     *,
@@ -322,17 +361,35 @@ def require_response_int(
     set of keys. Callers list the candidate keys explicitly so the
     behaviour stays predictable.
 
+    Three shapes beyond a plain top-level integer are accepted, because
+    each is a response the server considers successful and each cost the
+    caller the identifier of a record that already exists: a numeric
+    string, an id nested one level under ``data``, and an empty body
+    whose ``Location`` header names the new resource. Top-level keys are
+    probed before nested ones, and the header is consulted last.
+
     Raises
     ------
     GlpiProtocolError
-        When none of ``keys`` maps to an integer value in the response.
+        When no candidate key and no ``Location`` header yields an
+        identifier.
     """
 
     result = response_json_mapping(response)
-    for key in keys:
-        value = result.get(key)
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
+    candidates: list[Mapping[str, object]] = [result]
+    nested = result.get("data")
+    if isinstance(nested, Mapping):
+        candidates.append(nested)
+
+    for mapping in candidates:
+        for key in keys:
+            found = coerce_response_int(mapping.get(key))
+            if found is not None:
+                return found
+
+    from_location = response_id_from_location(response)
+    if from_location is not None:
+        return from_location
     raise GlpiProtocolError(missing_message)
 
 
@@ -380,6 +437,7 @@ def unwrap_timeline_items(payload: object) -> list[dict[str, object]]:
 __all__ = [
     "build_request_headers",
     "build_request_url",
+    "coerce_response_int",
     "ensure_response_status",
     "finalize_request_response",
     "list_payload_items",
@@ -387,6 +445,7 @@ __all__ = [
     "request_params",
     "require_access_token",
     "require_response_int",
+    "response_id_from_location",
     "response_json_mapping",
     "response_json_or_empty",
     "transport_error_from",

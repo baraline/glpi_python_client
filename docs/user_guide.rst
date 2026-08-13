@@ -68,6 +68,7 @@ pair. The OAuth password grant accepts either ``client_id`` /
 
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
+       server_timezone="Europe/Paris",
        client_id="oauth-client-id",
        client_secret="oauth-client-secret",
        username="api-user",
@@ -92,6 +93,7 @@ The asynchronous client takes the same arguments and is used inside an
    async def main() -> None:
        async with AsyncGlpiClient(
            glpi_api_url="https://glpi.example.com/api.php/v2",
+           server_timezone="Europe/Paris",
            client_id="oauth-client-id",
            client_secret="oauth-client-secret",
            username="api-user",
@@ -134,6 +136,11 @@ build the client for you:
 * ``GLPI_CLIENT_ID`` and ``GLPI_CLIENT_SECRET``
 * ``GLPI_USERNAME`` and ``GLPI_PASSWORD``
 * ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``
+* ``GLPI_SERVER_TIMEZONE`` -- **required**. IANA name of the timezone the
+  GLPI server runs in (e.g. ``Europe/Paris``). GLPI does not advertise it,
+  and it is needed to interpret the timestamps the server sends without an
+  offset. There is no default: guessing UTC against a Europe/Paris instance
+  shifts those values by an hour or two and never raises.
 * ``GLPI_LANGUAGE``, ``GLPI_VERIFY_SSL``
 * ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``
 
@@ -628,6 +635,9 @@ so the client sets it through a legacy fallback — see
 Example output::
 
    ['Networking']
+   42 Reset a Wi-Fi controller
+   42 Reset a Wi-Fi controller
+   1 revision(s)
 
 Assigning categories
 ^^^^^^^^^^^^^^^^^^^^^
@@ -659,9 +669,6 @@ article's full category set; passing an empty list clears every category.
    # Or set them explicitly at any time.
    client.set_kb_article_categories(article_id, [14])  # replace the full set
    client.set_kb_article_categories(article_id, [])    # clear all
-   42 Reset a Wi-Fi controller
-   42 Reset a Wi-Fi controller
-   1 revision(s)
 
 Enums
 ~~~~~
@@ -710,10 +717,11 @@ internal container and field names:
 
 .. code-block:: python
 
-    from glpi_python_client import GlpiClient
+   from glpi_python_client import GlpiClient
 
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
+       server_timezone="Europe/Paris",
        client_id="oauth-client-id",
        client_secret="oauth-client-secret",
        username="api-user",

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
 metadata:
   package: glpi-python-client
-  version: "0.4.1"
+  version: "0.4.3"
 ---
 
 # GLPI Client Setup
@@ -85,6 +85,7 @@ call `client.close()` (or `await client.close()`) when finished.
 - `GLPI_CLIENT_ID` and `GLPI_CLIENT_SECRET`
 - `GLPI_USERNAME` and `GLPI_PASSWORD`
 - `GLPI_ENTITY`, `GLPI_PROFILE`, `GLPI_ENTITY_RECURSIVE`
+- `GLPI_SERVER_TIMEZONE` -- **required**. IANA name of the GLPI server's timezone (e.g. `Europe/Paris`). GLPI does not advertise it, and it is needed to interpret the timestamps the server sends without an offset -- there is no default, because guessing UTC against a Europe/Paris instance shifts those values silently.
 - `GLPI_LANGUAGE`, `GLPI_VERIFY_SSL`, `GLPI_AUTH_TOKEN_REFRESH`
 - `GLPI_V1_BASE_URL`, `GLPI_V1_USER_TOKEN`, `GLPI_V1_APP_TOKEN`
 
@@ -101,6 +102,7 @@ from glpi_python_client import GlpiClient
 def main() -> None:
     with GlpiClient(
         glpi_api_url="https://glpi.example.com/api.php/v2",
+        server_timezone="Europe/Paris",
         client_id="oauth-client-id",
         client_secret="oauth-client-secret",
         username="api-user",
@@ -125,6 +127,7 @@ from glpi_python_client import AsyncGlpiClient
 async def main() -> None:
     async with AsyncGlpiClient(
         glpi_api_url="https://glpi.example.com/api.php/v2",
+        server_timezone="Europe/Paris",
         client_id="oauth-client-id",
         client_secret="oauth-client-secret",
         username="api-user",

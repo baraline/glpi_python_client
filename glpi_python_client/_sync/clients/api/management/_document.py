@@ -8,6 +8,7 @@ the v2 API does not advertise a binary upload endpoint in the contract.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 
 from glpi_python_client._sync.clients.commons._constants import (
     DOCUMENT_ENDPOINT,
@@ -62,6 +63,48 @@ class DocumentMixin(TransportMixin):
         return self._resource_list(
             DOCUMENT_ENDPOINT, GetDocument, params=params, skip_entity=True
         )
+
+    def iter_search_documents(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+    ) -> Iterator[list[GetDocument]]:
+        """Yield successive pages of GLPI documents until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_documents`
+            call.
+
+        Yields
+        ------
+        list[GetDocument]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_documents(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_document(self, document_id: GlpiId) -> GetDocument:
         """Fetch one GLPI document by identifier.
@@ -213,6 +256,55 @@ class DocumentMixin(TransportMixin):
             failure_message=f"Failed to download document {document_id}",
         )
         return response.content
+
+    def stream_document_content(
+        self,
+        document_id: GlpiId,
+        *,
+        chunk_size: int = 65536,
+    ) -> Iterator[bytes]:
+        """Stream the binary payload of one GLPI document in chunks.
+
+        Use this instead of :meth:`download_document_content` when the file
+        may be large: that method holds the whole body in memory before
+        returning, so a 500 MB attachment costs 500 MB of process memory
+        even if the caller only writes it straight to disk.
+
+        Parameters
+        ----------
+        document_id : GlpiId
+            Numeric identifier of the document whose binary content is
+            requested.
+        chunk_size : int, optional
+            Bytes requested per chunk (defaults to 64 KiB).
+
+        Yields
+        ------
+        bytes
+            Successive chunks of the document body. The final chunk may be
+            shorter than ``chunk_size``.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+
+        Examples
+        --------
+        Writing a document to disk without buffering it::
+
+            with open("attachment.pdf", "wb") as handle:
+                async for chunk in client.stream_document_content(42):
+                    handle.write(chunk)
+        """
+
+        for chunk in self._stream_request(
+            f"{DOCUMENT_ENDPOINT}/{document_id}/Download",
+            chunk_size=chunk_size,
+            skip_entity=True,
+            failure_message=f"Failed to download document {document_id}",
+        ):
+            yield chunk
 
     def upload_document(
         self,

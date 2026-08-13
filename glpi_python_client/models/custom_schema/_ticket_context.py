@@ -9,7 +9,7 @@ single object to reason about a ticket and its history.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -29,7 +29,7 @@ from glpi_python_client.models.api_schema.assistance.timeline._task import (
 )
 from glpi_python_client.models.api_schema.management._document import GetDocument
 
-_MAX_DATETIME = datetime.max
+_MAX_DATETIME = datetime.max.replace(tzinfo=timezone.utc)
 
 
 def _ref_label(ref: IdNameRef | None) -> str | None:
@@ -164,9 +164,24 @@ def _event_sort_key(event: Any) -> datetime:
     are therefore always ordered by ``date_creation`` and items missing a
     creation timestamp are pushed to the end while preserving the sort's
     stability.
+
+    Every key is returned as an aware datetime. Awareness is not uniform
+    across a timeline: GLPI omits the offset on some resources and sends
+    it on others, so one response can carry both spellings, and the
+    end-of-time sentinel has to compare against whichever arrives.
+    Comparing the two kinds raises ``TypeError``, which would surface as a
+    crash in :meth:`GlpiTicketContext.to_markdown` rather than as a
+    mis-ordering. A naive value is the server's own wall clock, so it is
+    read as UTC here; that assumption orders events and never reaches the
+    rendered output, which prints the original value.
     """
 
-    return getattr(event, "date_creation", None) or _MAX_DATETIME
+    created: datetime | None = getattr(event, "date_creation", None)
+    if created is None:
+        return _MAX_DATETIME
+    if created.tzinfo is None:
+        return created.replace(tzinfo=timezone.utc)
+    return created
 
 
 class GlpiTicketContext(GlpiModel):

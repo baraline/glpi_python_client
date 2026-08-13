@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 
 from glpi_python_client._async.clients.commons._constants import USER_ENDPOINT, GlpiId
 from glpi_python_client._async.clients.commons._transport import TransportMixin
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.models.api_schema.administration._user import (
     DeleteUser,
     GetUser,
@@ -109,6 +110,81 @@ class UserMixin(TransportMixin):
             if len(batch) < batch_size:
                 break
             start += batch_size
+
+    async def find_user_by_email(
+        self,
+        email: str,
+        *,
+        rsql_filter: str = "",
+        batch_size: int = 100,
+        skip_entity: bool = True,
+    ) -> GetUser | None:
+        """Return the first user holding ``email``, or ``None``.
+
+        **This scans.** GLPI exposes e-mail addresses as ``User.emails``, a
+        nested *array*, and the v2 filter engine cannot join a nested array
+        -- the structurally identical ``Ticket.team`` answers HTTP 500 for
+        its declared subfields and is silently ignored for every other
+        spelling. So there is no server-side e-mail filter to use, and the
+        addresses have to be compared client-side.
+
+        Nothing about that is cheap: the scan costs one request per
+        ``batch_size`` users until it matches, so it is meant for
+        occasional resolution, not for a per-request lookup. Narrow it with
+        ``rsql_filter`` when you can (``"is_active==true"`` is the usual
+        one), and cache the resulting id rather than calling this again.
+
+        A server-side fast path is deliberately *not* attempted. GLPI v2
+        ignores a filter field it does not recognise and answers with the
+        whole unfiltered table, so a guessed e-mail filter would not fail
+        -- it would return a plausible non-empty page whose first row is
+        the wrong person. Guessing is the one thing this helper exists to
+        stop each caller doing separately.
+
+        Parameters
+        ----------
+        email : str
+            Address to look for. Compared case-insensitively after
+            trimming surrounding whitespace, the way mail systems treat it.
+        rsql_filter : str, optional
+            Raw RSQL filter narrowing the population scanned. Empty by
+            default, which scans every visible user.
+        batch_size : int, optional
+            Users fetched per request while scanning (defaults to 100).
+        skip_entity : bool, optional
+            When ``True`` (the default) the ``GLPI-Entity`` header is
+            omitted so the scan spans every entity the caller can see. A
+            user whose account lives outside the client's configured entity
+            is invisible otherwise, and the helper would answer ``None``
+            for somebody who exists.
+
+        Returns
+        -------
+        GetUser | None
+            The first user with a matching address, or ``None`` when the
+            scanned population holds none.
+
+        Raises
+        ------
+        GlpiValidationError
+            If ``email`` is blank -- which would otherwise scan the whole
+            directory and match nothing.
+        """
+
+        needle = email.strip().casefold()
+        if not needle:
+            raise GlpiValidationError("find_user_by_email requires a non-empty address")
+
+        async for batch in self.iter_search_users(
+            rsql_filter,
+            batch_size=batch_size,
+            skip_entity=skip_entity,
+        ):
+            for user in batch:
+                for entry in user.emails or ():
+                    if entry.email and entry.email.strip().casefold() == needle:
+                        return user
+        return None
 
     async def get_user(self, user_id: GlpiId) -> GetUser:
         """Fetch one GLPI user by identifier.

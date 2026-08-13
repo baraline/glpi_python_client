@@ -25,10 +25,12 @@ from glpi_python_client._async._concurrency import Lock
 from glpi_python_client._async.clients.commons._config import (
     build_client_env_config,
     build_client_resources,
+    resolve_server_timezone,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import tzinfo
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ class _BaseGlpiClient:
         self,
         *,
         glpi_api_url: str,
+        server_timezone: str | tzinfo,
         client_id: str | None = None,
         client_secret: str | None = None,
         username: str | None = None,
@@ -66,6 +69,25 @@ class _BaseGlpiClient:
         glpi_api_url : str
             Base URL of the GLPI v2 REST API, e.g.
             ``https://glpi.example.com/api.php/v2``.
+        server_timezone : str | tzinfo
+            IANA name of the timezone the GLPI server runs in (e.g.
+            ``"Europe/Paris"``), or a ``tzinfo``. **Required**: GLPI does
+            not advertise it, and it governs both directions of every
+            timestamp the client exchanges.
+
+            Reading, it interprets the timestamps the server sends without
+            an offset. Writing, it is what makes an aware ``datetime``
+            arrive as the moment it names: GLPI reads the naive prefix of a
+            timestamp and discards the offset, so the value has to be
+            converted onto the server's clock before it is sent. Measured on
+            a live instance, offsets from ``-08:00`` to ``+14:00`` written
+            to one field all stored the same wall clock.
+
+            There is no default because every candidate is wrong somewhere
+            -- guessing UTC against a Europe/Paris instance shifts those
+            timestamps by an hour or two and never raises. Prefer a name
+            over a fixed offset: a name follows DST, and one instance emits
+            both ``+01:00`` and ``+02:00``.
         client_id : str | None, optional
             OAuth client identifier used to obtain access tokens.
         client_secret : str | None, optional
@@ -103,6 +125,7 @@ class _BaseGlpiClient:
             missing OAuth credentials together with no v1 fallback).
         """
 
+        self.server_timezone = resolve_server_timezone(server_timezone)
         resources = build_client_resources(
             glpi_api_url=glpi_api_url,
             client_name=type(self).__name__,
@@ -142,7 +165,8 @@ class _BaseGlpiClient:
         ``GLPI_USERNAME``, ``GLPI_PASSWORD``, ``GLPI_VERIFY_SSL``,
         ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``,
         ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``,
-        ``GLPI_LANGUAGE``, ``GLPI_AUTH_TOKEN_REFRESH``).
+        ``GLPI_LANGUAGE``, ``GLPI_AUTH_TOKEN_REFRESH``,
+        ``GLPI_SERVER_TIMEZONE``).
 
         Parameters
         ----------

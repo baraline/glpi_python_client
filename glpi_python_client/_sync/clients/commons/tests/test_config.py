@@ -7,6 +7,8 @@ functions: no client is constructed and nothing is awaited.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from glpi_python_client import GlpiValidationError
@@ -15,6 +17,7 @@ from glpi_python_client._sync.clients.commons._config import (
     normalize_client_api_url,
     parse_optional_env_bool,
     parse_optional_env_int,
+    resolve_server_timezone,
     validate_v1_document_config,
 )
 
@@ -160,3 +163,47 @@ def test_build_client_env_config_overrides_win() -> None:
     assert config["glpi_api_url"] == "https://override"
     assert config["verify_ssl"] is False
     assert config["language"] == "en_GB"
+
+
+def test_resolve_server_timezone_accepts_an_iana_name() -> None:
+    """An IANA zone name resolves to a DST-aware timezone.
+
+    A name rather than a fixed offset is what makes winter and summer both
+    correct: the same GLPI instance sends ``+01:00`` and ``+02:00``.
+    """
+
+    resolved = resolve_server_timezone("Europe/Paris")
+
+    assert datetime(2019, 1, 15, tzinfo=resolved).utcoffset() == timedelta(hours=1)
+    assert datetime(2018, 7, 15, tzinfo=resolved).utcoffset() == timedelta(hours=2)
+
+
+def test_resolve_server_timezone_passes_a_tzinfo_through() -> None:
+    """A caller holding a tzinfo object may supply it directly."""
+
+    fixed = timezone(timedelta(hours=2))
+
+    assert resolve_server_timezone(fixed) is fixed
+
+
+def test_resolve_server_timezone_rejects_an_unknown_name() -> None:
+    """A typo fails at construction, not silently at the first timestamp."""
+
+    with pytest.raises(GlpiValidationError) as excinfo:
+        resolve_server_timezone("Europe/Pariss")
+
+    assert "Europe/Pariss" in str(excinfo.value)
+
+
+def test_resolve_server_timezone_rejects_a_missing_value() -> None:
+    """The timezone is required; GLPI does not advertise it."""
+
+    with pytest.raises(GlpiValidationError):
+        resolve_server_timezone(None)
+
+
+def test_resolve_server_timezone_rejects_a_blank_name() -> None:
+    """An empty environment variable is a missing value, not a valid one."""
+
+    with pytest.raises(GlpiValidationError):
+        resolve_server_timezone("   ")

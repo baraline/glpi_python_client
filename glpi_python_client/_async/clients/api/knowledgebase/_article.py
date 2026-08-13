@@ -8,7 +8,7 @@ Markdown through GLPI's HTML wire format transparently.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 from glpi_python_client._async.clients.commons._constants import (
     KB_ARTICLE_ENDPOINT,
@@ -50,7 +50,11 @@ class KBArticleMixin(TransportMixin):
         start : int, optional
             Zero-based offset of the first record returned.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is.
+            ``sort`` query parameter, spelled ``field`` or ``field:direction``
+            (e.g. ``"date_mod:desc"``). Measured against GLPI 11: a space
+            before the direction answers **HTTP 400** ("Invalid property for
+            sorting"), a bare ``field`` sorts *ascending*, and a separate
+            ``order`` parameter is ignored.
         language : str | None, optional
             GLPI language code forwarded as the ``language`` query
             parameter to select a translated view.
@@ -71,6 +75,59 @@ class KBArticleMixin(TransportMixin):
         return await self._resource_list(
             KB_ARTICLE_ENDPOINT, GetKBArticle, params=params
         )
+
+    async def iter_search_kb_articles(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> AsyncIterator[list[GetKBArticle]]:
+        """Yield successive pages of GLPI knowledge base articles until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_kb_articles`
+            call.
+        sort : str | None, optional
+            ``sort`` query parameter forwarded to each page request,
+            spelled ``field`` or ``field:direction`` (e.g. ``"date_mod:desc"``).
+            A space before the direction answers HTTP 400.
+        language : str | None, optional
+            GLPI language code forwarded to each page request to select
+            a translated view.
+
+        Yields
+        ------
+        list[GetKBArticle]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = await self.search_kb_articles(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                sort=sort,
+                language=language,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     async def get_kb_article(self, article_id: GlpiId) -> GetKBArticle:
         """Fetch one knowledge base article by identifier.

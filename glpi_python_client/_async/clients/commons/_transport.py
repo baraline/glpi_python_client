@@ -25,7 +25,8 @@ mutated afterwards.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from datetime import tzinfo
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
@@ -108,6 +109,7 @@ class TransportMixin:
     glpi_entity: int | None
     glpi_profile: int | None
     language: str
+    server_timezone: tzinfo
 
     def _ensure_open(self) -> None:
         """Raise when the client has already been closed.
@@ -191,6 +193,65 @@ class TransportMixin:
             return await self._session.request(method.upper(), url, **kwargs)
         except httpx.HTTPError as exc:
             raise transport_error_from(exc, method=method, url=url) from exc
+
+    async def _stream_request(
+        self,
+        endpoint: str,
+        *,
+        chunk_size: int,
+        skip_entity: bool = False,
+        failure_message: str,
+    ) -> AsyncIterator[bytes]:
+        """Stream one authenticated GLPI ``GET`` body in chunks.
+
+        The non-streaming helpers materialise the whole body before the
+        caller sees any of it, which is fine for JSON and wrong for a
+        document that may be hundreds of megabytes.
+
+        Two details differ from the buffered path and both are load-bearing.
+        The status has to be checked *inside* the context manager, and the
+        body read first: the error helpers format the response text, and
+        reading text off an unread stream raises rather than reporting the
+        status. And no retry decorator belongs here -- tenacity does not
+        wrap an async generator, so a decorator would silently degrade to
+        the sync path instead of failing loudly.
+
+        Raises
+        ------
+        GlpiStatusError
+            When the response status is not 200.
+        GlpiTransportError
+            When the request never produced a response.
+        """
+
+        await self._ensure_token()
+        access_token = require_access_token(self._auth.access_token)
+        url = build_request_url(self.glpi_api_url, endpoint)
+        headers = build_request_headers(
+            access_token=access_token,
+            language=self.language,
+            glpi_entity=self.glpi_entity,
+            glpi_profile=self.glpi_profile,
+            entity_recursive=self.entity_recursive,
+            include_content_type=False,
+            skip_entity=skip_entity,
+        )
+
+        try:
+            async with self._session.stream(
+                "GET", url, headers=headers, timeout=30
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    ensure_response_status(
+                        response,
+                        success_statuses=(200,),
+                        failure_message=failure_message,
+                    )
+                async for chunk in response.aiter_bytes(chunk_size):
+                    yield chunk
+        except httpx.HTTPError as exc:
+            raise transport_error_from(exc, method="get", url=url) from exc
 
     async def _execute_request(
         self,
@@ -354,9 +415,9 @@ class TransportMixin:
         skip_entity : bool, optional
             When ``True`` the ``GLPI-Entity`` header is omitted.
         failure_message : str | None, optional
-            When provided, response status is checked with this message;
-            search-style endpoints that tolerate empty results pass
-            ``None``.
+            Message embedded in the raised ``GlpiStatusError``. ``None``
+            derives one from the endpoint; the status is checked either
+            way.
         success_statuses : tuple[int, ...], optional
             HTTP status codes considered successful when
             ``failure_message`` is set.
@@ -373,19 +434,28 @@ class TransportMixin:
         response = await self._get_request(
             endpoint, params=params, skip_entity=skip_entity
         )
-        if failure_message is not None:
-            ensure_response_status(
-                response,
-                success_statuses=success_statuses,
-                failure_message=failure_message,
-            )
+        # The status is checked on every list call, search included. It used
+        # not to be, and a refused search then came back as ``[]``: a 403 was
+        # indistinguishable from a filter that matched nothing. It composed
+        # badly with the batch iterators, which stop on a page shorter than
+        # ``batch_size`` -- so a 403 on page one ended the walk having
+        # yielded nothing and the caller saw a successful empty result. An
+        # empty list now means the server said the result set is empty.
+        ensure_response_status(
+            response,
+            success_statuses=success_statuses,
+            failure_message=failure_message or f"Failed to list {endpoint}",
+        )
         payload = response.json()
         items = (
             unwrap_timeline_items(payload)
             if unwrap_envelope
             else list_payload_items(payload)
         )
-        return [model_from_payload(model, item) for item in items]
+        return [
+            model_from_payload(model, item, server_timezone=self.server_timezone)
+            for item in items
+        ]
 
     async def _resource_get(
         self,
@@ -421,7 +491,21 @@ class TransportMixin:
             success_statuses=(200, 206),
             failure_message=failure_message,
         )
-        return model_from_payload(model, response.json())
+        return model_from_payload(
+            model, response.json(), server_timezone=self.server_timezone
+        )
+
+    def _body(self, model: GlpiModel) -> dict[str, object]:
+        """Serialise one model into a request body on the server's clock.
+
+        Every write in the package goes through here rather than calling
+        :func:`model_to_payload` directly, because the timezone argument is
+        not optional in practice and a call site that forgets it produces no
+        error -- just a timestamp GLPI silently reinterprets. Binding it once
+        leaves nothing to remember at the next endpoint.
+        """
+
+        return model_to_payload(model, server_timezone=self.server_timezone)
 
     async def _resource_create(
         self,
@@ -466,7 +550,7 @@ class TransportMixin:
         """
 
         response = await self._post_request(
-            endpoint, model_to_payload(body_model), skip_entity=skip_entity
+            endpoint, self._body(body_model), skip_entity=skip_entity
         )
         ensure_response_status(
             response,
@@ -507,7 +591,7 @@ class TransportMixin:
         None
         """
 
-        response = await self._update_request(endpoint, model_to_payload(body_model))
+        response = await self._update_request(endpoint, self._body(body_model))
         ensure_response_status(
             response,
             success_statuses=(200, 204),
@@ -558,7 +642,7 @@ class TransportMixin:
 
         request_body = body
         if request_body is None and delete_model_cls is not None and force is not None:
-            request_body = model_to_payload(delete_model_cls(force=force))  # type: ignore[call-arg]
+            request_body = self._body(delete_model_cls(force=force))  # type: ignore[call-arg]
         response = await self._delete_request(
             endpoint, request_body, skip_entity=skip_entity
         )

@@ -126,3 +126,64 @@ async def test_delete_helpers_raise_on_failure_status(
     FailingTransportRecorder(500).install(client)
     with pytest.raises(ValueError):
         await call(client)
+
+
+async def test_iter_search_locations_yields_every_page(client: Any) -> None:
+    """The generator advances ``start`` until a short page ends the walk."""
+
+    from glpi_python_client.models.api_schema.dropdowns import GetLocation
+
+    pages = [[GetLocation(id=i) for i in range(3)], [GetLocation(id=99)]]
+    starts: list[int] = []
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetLocation]:
+        starts.append(start)
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_locations = fake_search  # type: ignore[method-assign]
+
+    batches = [
+        batch async for batch in client.iter_search_locations("name==x", batch_size=3)
+    ]
+
+    assert starts == [0, 3]
+    assert [len(b) for b in batches] == [3, 1]
+
+
+async def test_iter_search_locations_stops_on_a_single_short_page(client: Any) -> None:
+    """One short page is the last page; no second request is made."""
+
+    from glpi_python_client.models.api_schema.dropdowns import GetLocation
+
+    starts: list[int] = []
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetLocation]:
+        starts.append(start)
+        return [GetLocation(id=1)]
+
+    client.search_locations = fake_search  # type: ignore[method-assign]
+
+    batches = [batch async for batch in client.iter_search_locations(batch_size=50)]
+
+    assert starts == [0]
+    assert len(batches) == 1
+
+
+async def test_iter_search_locations_yields_nothing_when_empty(client: Any) -> None:
+    """An empty first page yields no batch at all rather than one empty list."""
+
+    from glpi_python_client.models.api_schema.dropdowns import GetLocation
+
+    async def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetLocation]:
+        return []
+
+    client.search_locations = fake_search  # type: ignore[method-assign]
+
+    assert [batch async for batch in client.iter_search_locations()] == []

@@ -16,10 +16,19 @@ Pydantic so the conversion happens transparently on every model boundary:
   the Markdown value is rendered back to HTML so GLPI receives the format
   it expects.
 
-Plain-text content (no ``<...>`` markup) is preserved verbatim on the
-inbound path and rendered as HTML paragraphs on the outbound path, matching
-the converter's default behaviour. ``None`` values are passed through
-unchanged so optional fields and ``exclude_none`` semantics keep working.
+Plain-text content is preserved verbatim on the inbound path and rendered
+as HTML paragraphs on the outbound path, matching the converter's default
+behaviour. "Plain text" means text carrying no recognised HTML element:
+``use the <Enter> key`` and ``if x<y then z>0`` are text, because ``Enter``
+and ``y`` are not elements, while ``a<b>c`` is treated as markup because
+``b`` is. ``None`` values are passed through unchanged so optional fields
+and ``exclude_none`` semantics keep working.
+
+Note that the inbound converter also runs on **outbound** content: the
+``BeforeValidator`` below fires when a caller constructs a ``Post*`` model,
+so caller-authored Markdown passes through it before the serializer renders
+it. That is why the plain-text path has to stay verbatim -- routing Markdown
+through the HTML normaliser escapes it, and GLPI receives literal asterisks.
 """
 
 from __future__ import annotations

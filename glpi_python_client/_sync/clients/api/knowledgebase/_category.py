@@ -7,6 +7,8 @@ GLPI knowledge base category resource using the contract-aligned
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from glpi_python_client._sync.clients.commons._constants import (
     KB_CATEGORY_ENDPOINT,
     GlpiId,
@@ -43,7 +45,11 @@ class KBCategoryMixin(TransportMixin):
         start : int, optional
             Zero-based offset of the first record returned.
         sort : str | None, optional
-            ``sort`` query parameter forwarded as-is, e.g. ``"name asc"``.
+            ``sort`` query parameter, spelled ``field`` or ``field:direction``
+            (e.g. ``"name:asc"``). Measured against GLPI 11: a space
+            before the direction answers **HTTP 400** ("Invalid property for
+            sorting"), a bare ``field`` sorts *ascending*, and a separate
+            ``order`` parameter is ignored.
         language : str | None, optional
             GLPI language code forwarded as the ``language`` query
             parameter to select a translated view.
@@ -64,6 +70,59 @@ class KBCategoryMixin(TransportMixin):
         return self._resource_list(
             KB_CATEGORY_ENDPOINT, GetKBCategory, params=params
         )
+
+    def iter_search_kb_categories(
+        self,
+        rsql_filter: str = "",
+        *,
+        batch_size: int = 50,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> Iterator[list[GetKBCategory]]:
+        """Yield successive pages of GLPI knowledge base categories until exhausted.
+
+        The generator drives pagination automatically by advancing the
+        ``start`` offset after each batch. Iteration stops when the server
+        returns fewer items than ``batch_size``, which signals the last page.
+
+        Parameters
+        ----------
+        rsql_filter : str, optional
+            Raw RSQL filter forwarded as the ``filter`` query parameter.
+            Empty by default, which lists every visible record.
+        batch_size : int, optional
+            Number of records requested per page (default 50). Acts as the
+            ``limit`` parameter on each underlying :meth:`search_kb_categories`
+            call.
+        sort : str | None, optional
+            ``sort`` query parameter forwarded to each page request,
+            spelled ``field`` or ``field:direction`` (e.g. ``"date_mod:desc"``).
+            A space before the direction answers HTTP 400.
+        language : str | None, optional
+            GLPI language code forwarded to each page request to select
+            a translated view.
+
+        Yields
+        ------
+        list[GetKBCategory]
+            One page per iteration. The last yielded batch may be shorter
+            than ``batch_size``.
+        """
+
+        start = 0
+        while True:
+            batch = self.search_kb_categories(
+                rsql_filter,
+                limit=batch_size,
+                start=start,
+                sort=sort,
+                language=language,
+            )
+            if batch:
+                yield batch
+            if len(batch) < batch_size:
+                break
+            start += batch_size
 
     def get_kb_category(self, category_id: GlpiId) -> GetKBCategory:
         """Fetch one knowledge base category by identifier.

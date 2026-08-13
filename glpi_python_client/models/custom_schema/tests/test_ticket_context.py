@@ -396,3 +396,61 @@ def test_options_default_reproduces_original_output() -> None:
 
     context = GlpiTicketContext.model_validate(_FULL_PAYLOAD)
     assert context.to_markdown() == context.to_markdown(TicketMarkdownOptions())
+
+
+def test_to_markdown_sorts_aware_events_when_one_lacks_a_creation_date() -> None:
+    """An event with no ``date_creation`` sorts last among aware timestamps.
+
+    The undated event falls back to the sentinel used by ``_event_sort_key``.
+    When the server sends offset-bearing timestamps -- the format GLPI emits
+    for the knowledge base -- a naive sentinel makes that comparison raise
+    ``TypeError`` instead of ordering.
+    """
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {"id": 2, "content": "undated note"},
+                {
+                    "id": 1,
+                    "content": "dated note",
+                    "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                },
+            ],
+        }
+    )
+
+    rendered = context.to_markdown()
+
+    assert rendered.index("dated note") < rendered.index("undated note")
+
+
+def test_to_markdown_orders_events_across_mixed_datetime_awareness() -> None:
+    """Naive and aware timestamps in one timeline still order chronologically.
+
+    Nothing guarantees one wire format per response: a naive value is read as
+    the server's wall clock, so it is treated as UTC for ordering purposes.
+    """
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {"id": 1, "name": "x"},
+            "followups": [
+                {
+                    "id": 2,
+                    "content": "aware second",
+                    "date_creation": datetime(2024, 1, 2, tzinfo=timezone.utc),
+                },
+                {
+                    "id": 1,
+                    "content": "naive first",
+                    "date_creation": datetime(2024, 1, 1),
+                },
+            ],
+        }
+    )
+
+    rendered = context.to_markdown()
+
+    assert rendered.index("naive first") < rendered.index("aware second")

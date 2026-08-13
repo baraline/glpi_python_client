@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,7 +14,10 @@ from glpi_python_client import (
     PatchKBArticle,
     PostKBArticle,
 )
-from glpi_python_client._async._testing import FailingTransportRecorder
+from glpi_python_client._async._testing import (
+    FailingTransportRecorder,
+    TransportRecorder,
+)
 from glpi_python_client.testing.utils import FakeResponse
 
 
@@ -111,7 +115,7 @@ async def test_search_kb_articles_forwards_params(client: Any) -> None:
     rec = _Recorder(get_payload=[{"id": 1, "name": "Reset", "content": "<p>c</p>"}])
     rec.install(client)
     result = await client.search_kb_articles(
-        "is_faq==1", limit=3, start=1, sort="date_mod desc", language="en_GB"
+        "is_faq==1", limit=3, start=1, sort="date_mod:desc", language="en_GB"
     )
     assert result[0].id == 1
     call = rec.calls[0]
@@ -119,7 +123,7 @@ async def test_search_kb_articles_forwards_params(client: Any) -> None:
     assert call["params"]["filter"] == "is_faq==1"
     assert call["params"]["limit"] == 3
     assert call["params"]["start"] == 1
-    assert call["params"]["sort"] == "date_mod desc"
+    assert call["params"]["sort"] == "date_mod:desc"
     assert call["params"]["language"] == "en_GB"
 
 
@@ -345,3 +349,119 @@ async def test_delete_helpers_raise_on_failure(
     FailingTransportRecorder(500).install(client)
     with pytest.raises(ValueError):
         await call(client)
+
+
+async def test_iter_search_kb_articles_yields_every_page(client: Any) -> None:
+    """The generator advances ``start`` until a short page ends the walk."""
+
+    from glpi_python_client.models.api_schema.knowledgebase import GetKBArticle
+
+    pages = [[GetKBArticle(id=i) for i in range(3)], [GetKBArticle(id=99)]]
+    starts: list[int] = []
+    forwarded: dict[str, Any] = {}
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> list[GetKBArticle]:
+        starts.append(start)
+        forwarded["sort"] = sort
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_kb_articles = fake_search  # type: ignore[method-assign]
+
+    batches = [
+        batch
+        async for batch in client.iter_search_kb_articles(
+            "name==x", batch_size=3, sort="name:asc"
+        )
+    ]
+
+    assert starts == [0, 3]
+    assert [len(b) for b in batches] == [3, 1]
+    assert forwarded["sort"] == "name:asc"
+
+
+async def test_iter_search_kb_articles_stops_on_a_single_short_page(
+    client: Any,
+) -> None:
+    """One short page is the last page; no second request is made."""
+
+    from glpi_python_client.models.api_schema.knowledgebase import GetKBArticle
+
+    starts: list[int] = []
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> list[GetKBArticle]:
+        starts.append(start)
+        return [GetKBArticle(id=1)]
+
+    client.search_kb_articles = fake_search  # type: ignore[method-assign]
+
+    batches = [batch async for batch in client.iter_search_kb_articles(batch_size=50)]
+
+    assert starts == [0]
+    assert len(batches) == 1
+
+
+async def test_iter_search_kb_articles_yields_nothing_when_empty(client: Any) -> None:
+    """An empty first page yields no batch at all rather than one empty list."""
+
+    from glpi_python_client.models.api_schema.knowledgebase import GetKBArticle
+
+    async def fake_search(
+        rsql_filter: str = "",
+        *,
+        limit: int = 50,
+        start: int = 0,
+        sort: str | None = None,
+        language: str | None = None,
+    ) -> list[GetKBArticle]:
+        return []
+
+    client.search_kb_articles = fake_search  # type: ignore[method-assign]
+
+    assert [batch async for batch in client.iter_search_kb_articles()] == []
+
+
+async def test_get_kb_article_localises_the_naive_revision_date(client: Any) -> None:
+    """A KB article's revision dates come back comparable with its own.
+
+    This is the shape GLPI 11 actually sends, measured on a live instance:
+    the article's own timestamps carry an offset and the nested revision
+    dates do not. Before the server timezone was threaded through, sorting
+    an article's history against the article itself raised
+    ``TypeError: can't compare offset-naive and offset-aware datetimes``.
+    """
+
+    rec = TransportRecorder(
+        get_payload={
+            "id": 1,
+            "name": "article",
+            "date_creation": "2018-04-06T17:38:15+02:00",
+            "revisions": [{"id": 9, "date": "2018-04-06 17:39:44"}],
+        }
+    )
+    rec.install(client)
+
+    article = await client.get_kb_article(1)
+
+    assert article.revisions is not None
+    revision_date = article.revisions[0].date
+    assert revision_date is not None
+    assert revision_date.tzinfo is not None
+    # The comparison itself is the regression: it used to raise.
+    assert article.date_creation is not None
+    assert revision_date > article.date_creation
+    assert revision_date - article.date_creation == timedelta(seconds=89)

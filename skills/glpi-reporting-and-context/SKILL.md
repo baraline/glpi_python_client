@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read tickets, tasks, users, entities, and timeline records."
 metadata:
   package: glpi-python-client
-  version: "0.4.1"
+  version: "0.4.3"
 ---
 
 # GLPI Reporting And Context
@@ -18,7 +18,7 @@ Custom helpers on `GlpiClient` build on top of the contract-aligned API mixins:
 - `get_task_statistics(ticket_ids)` returns task duration totals grouped by user and ticket for a caller-supplied list of ticket IDs.
 - `get_task_durations(...)` is a higher-level helper that internally iterates `iter_search_tickets` with a date/entity RSQL filter, computes per-user and per-entity duration totals, and optionally returns a flat per-task list when `return_task_details=True`. `user_id` is **not** part of the RSQL filter: the v2 `team` array cannot be joined by the RSQL engine, so the ticket ids for that actor are resolved through the legacy v1 search engine (searchOptions 5 `Technicien` and 4 `Demandeur`, OR-ed) and intersected client-side. Passing `user_id` therefore requires a client built with `v1_base_url` + `v1_user_token`, or the call raises `RuntimeError`; a non-positive or non-`int` id raises `GlpiValidationError`. Once the matched ticket set reaches 25 tickets and a v1 session is present, task aggregation switches from the per-ticket v2 fan-out to one bulk sweep of the v1 `TicketTask` collection (paged 1000 rows at a time); the aggregate is identical either way.
 - `get_user_activity(...)` aggregates per-user activity (tickets as technician, tickets as recipient, task durations) over a date window; resolves users by `user_id`, `username`, `realname`, or `firstname` and merges users that share the same display key. The technician and recipient counts have **no v2 equivalent** and are resolved through the legacy v1 search engine (searchOption 5 `Technicien`, 4 `Demandeur`), intersected with the ids returned by a single walk of the date window. This helper therefore **always** requires a client built with `v1_base_url` + `v1_user_token` and raises `RuntimeError` naming the missing options when they are absent.
-- `iter_search_tickets`, `iter_search_users`, `iter_search_entities` yield successive `list[...]` batches of contract models and stop on the first short batch. They handle pagination so callers do not manage `start` cursors manually.
+- `iter_search_tickets`, `iter_search_users`, `iter_search_entities`, `iter_search_locations`, `iter_search_documents`, `iter_search_kb_articles` and `iter_search_kb_categories` yield successive `list[...]` batches of contract models and stop on the first short batch. They handle pagination so callers do not manage `start` cursors manually. A 4xx raises `GlpiStatusError` rather than ending the walk quietly, so an empty walk does mean the filter matched nothing.
 
 Returned identifiers are raw GLPI numeric values; resolve them with the appropriate `search_*` helpers when human-readable labels are needed.
 
@@ -29,7 +29,7 @@ Returned identifiers are raw GLPI numeric values; resolve them with the appropri
 3. For ticket counts, call `await client.get_ticket_statistics(start_date=..., end_date=..., default_days=..., entity_id=..., entity_name=..., extra_filter=...)`. All keyword arguments are optional; the default window is the last 30 days ending today.
 4. For task duration totals on a known ticket list, call `await client.get_task_statistics(ticket_ids)`. For an end-to-end "duration over a window with filters" report, call `await client.get_task_durations(...)` instead; it gathers the ticket IDs internally.
 5. For a per-user activity report, call `await client.get_user_activity(username=..., start_date=..., end_date=...)`. Supply at least one of `user_id`, `username`, `realname`, `firstname`.
-6. For memory-bounded pagination over large result sets, iterate `iter_search_tickets` / `iter_search_users` / `iter_search_entities` with `async for batch in client.iter_search_*(...): ...`.
+6. For memory-bounded pagination over large result sets, iterate any `iter_search_*` helper with `async for batch in client.iter_search_*(...): ...`.
 7. Use the public enums when composing additional RSQL filters. There are eight, all exported from `glpi_python_client`, and this is the whole list: `GlpiTicketStatus` (`NEW = 1`, `ASSIGNED = 2`, `PLANNED = 3`, `PENDING = 4`, `SOLVED = 5`, `CLOSED = 6`, `VALIDATION = 10`), `GlpiTicketType` (`INCIDENT = 1`, `REQUEST = 2`), `GlpiPriority` (`VERY_LOW = 1` .. `VERY_HIGH = 5`, `MAJOR = 6`), `GlpiGlobalValidation` and `GlpiSolutionStatus` (both `NONE = 1`, `WAITING = 2`, `ACCEPTED = 3`, `REFUSED = 4`), `GlpiTaskState` (`INFORMATION = 0`, `TODO = 1`, `DONE = 2`), `GlpiTimelinePosition` (`INVALID = -1`, `NONE = 0`, `LEFT = 1`, `RIGHT = 2`, `LEFT_BIG = 3`, `RIGHT_BIG = 4`) and `GlpiUserAuthType` (`LOCAL = 1`, `LDAP = 2`, `MAIL = 3`, `CAS = 4`, `X509 = 5`, `EXTERNAL = 6`). All eight subclass `GlpiEnum`, which is exported too and is a plain `IntEnum` with two conveniences for filter building: `.glpi_id` returns the number, and `.rsql_equals("status")` returns the RSQL fragment, so `GlpiTicketStatus.NEW.rsql_equals("status")` replaces the hand-written `f"status=={int(GlpiTicketStatus.NEW)}"` below.
 
 ## Examples

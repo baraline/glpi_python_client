@@ -4,7 +4,149 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.4.3 — 2026-08-13
+
+### Changed (breaking)
+
+- **`server_timezone` is now a required client argument** (`GLPI_SERVER_TIMEZONE`
+  for `from_env`). It takes an IANA zone name — `"Europe/Paris"` — or a
+  `tzinfo`.
+
+  GLPI 11 sends most timestamps with the correct historical offset, but not
+  all of them. Measured against a live instance: 19 of the 20 datetime fields
+  across every resource are offset-bearing, and `KBArticle.revisions[].date`
+  is not. One response therefore carries both kinds, and comparing them raises
+  `TypeError: can't compare offset-naive and offset-aware datetimes` — sorting
+  an article's revision history against the article's own dates was enough to
+  trigger it.
+
+  There is deliberately **no default**. Every candidate is wrong somewhere:
+  against a Europe/Paris instance, assuming UTC shifts the affected timestamps
+  by one or two hours *and stops raising*, turning a loud failure into a quiet
+  wrong answer. An IANA name is preferred over a fixed offset because a name
+  follows DST — the same instance emits both `+01:00` and `+02:00`.
+
+  An offset already on the wire always wins over the configured zone, and a
+  model built outside the client (no validation context) keeps its naive values
+  rather than being stamped with a guess.
+
+  Adds `tzdata` as a dependency on Windows, which ships no system timezone
+  database; without it `zoneinfo` resolves on Linux CI and raises on a
+  developer machine.
+
+- **Search endpoints now raise on a 4xx instead of returning `[]`.** The seven
+  `search_*` helpers passed no `failure_message` to `_resource_list`, which
+  skipped the status check entirely, so a 400, 401, 403 or 404 came back as an
+  empty list — indistinguishable from a filter that legitimately matched
+  nothing. (5xx already raised.) It composed badly with the batch iterators:
+  they stop on a page shorter than `batch_size`, so a 403 on the first page
+  ended the walk having yielded nothing and the caller saw a *successful*
+  empty result. This reverses decision D2 of the 0.4.0 error work, which chose
+  tolerance deliberately; the silent-empty failure mode has proved worse than
+  the exception. An empty list now means the server said the result set is
+  empty. **Callers that relied on `[]` after a permission error must catch
+  `GlpiStatusError`.**
+
+### Added
+
+- **`glpi_python_client.rsql`** — public date builders for the v2 filter
+  grammar: `created_between`, `date_window` and `changed_since`, all exported
+  from the package root. The end-of-day detail on a window's upper bound is
+  easy to get wrong and impossible to notice, since GLPI answers a malformed
+  filter by ignoring it and returning the whole table.
+
+- **`find_user_by_email(email)`** — resolves a person by address. It scans,
+  because GLPI exposes addresses as the nested array `User.emails` and the v2
+  filter engine cannot join a nested array. Narrow it with `rsql_filter` and
+  cache the id; do not hand-roll an RSQL e-mail filter.
+
+- **`stream_document_content(document_id, chunk_size=...)`** — yields a
+  document body in chunks instead of buffering it whole, as
+  `download_document_content` does. Upload still buffers.
+
+- **Batch iterators for the four resources that lacked one**:
+  `iter_search_kb_articles`, `iter_search_kb_categories`,
+  `iter_search_documents` and `iter_search_locations`.
+
+### Fixed
+
+- **Every `datetime` write raised `TypeError`.** `model_to_payload` dumped in
+  Pydantic's python mode, so a request body reached `json.dumps` still holding
+  a live `datetime`. The failure landed at the encoder — after the model had
+  validated and outside any transport stub — which is why the suite never saw
+  it. The dump now runs in JSON mode.
+
+- **GLPI discards the offset on every datetime it is sent, so aware values
+  were written as the wrong moment.** Measured against a live Europe/Paris
+  instance: `2026-08-01T12:30:00` written bare, as `...Z`, and with `+02:00`,
+  `+09:00`, `-08:00` and `+14:00` all store 12:30 Paris. The server reads the
+  naive prefix, interprets it in its own timezone, and throws the rest away —
+  with a 200. It does parse the offset first, since `+99:99` answers HTTP 500,
+  which is the worst combination: a malformed offset crashes, a well-formed
+  wrong one is silent. `12:30-08:00` is 21:30 in Paris and landed nine hours
+  early.
+
+  An aware `datetime` is now converted onto the server's clock and the offset
+  dropped, via a serialisation context mirroring the validation context used
+  on the inbound half. Naive values are untouched — they already mean the
+  server's clock — and no context means no conversion, so a model dumped
+  outside the client is unchanged. This is the second half of the
+  `server_timezone` contract above; `mode="json"` alone would have shipped
+  writes wrong by up to twelve hours.
+
+- **`get_ticket_statistics` silently truncated at 200 tickets**, on an
+  instance whose own docstring records 59,690. It issued one `search_tickets`
+  call with no paging loop, so every statistic was computed over whichever
+  200 tickets came back first and reported as if it covered the corpus. The
+  two entity and one user name-resolution sites had the same shape. All four
+  now page through `iter_search_*`.
+
+- **`from_transport` silently deleted text.** The HTML path was taken whenever
+  the content held both `<` and `>`, so `"use the <Enter> key"` became
+  `"use the  key"` — an unknown tag's markup is dropped and its empty body
+  kept, removing the word with nothing left to show it was ever there.
+  `"cmd </dev/null > out"` and `"if x<y then z>0"` lost text the same way. The
+  decision is now made on the element *name*.
+
+- **Fenced code blocks, tables and prose punctuation were mangled.** Without
+  the `fenced_code` extension a fence rendered as inline `<code>`, which the
+  GLPI web UI shows as one run-on line and which a later read wrote back as
+  inline code — so a pasted log degraded further on every edit. Without
+  `tables`, a table rendered as literal pipes. Inbound, `markdownify` escaped
+  underscores and asterisks, so `snake_case` came back as `snake\_case` and
+  accumulated a backslash on every read-modify-write cycle.
+
+- **`_MAX_DATETIME` was naive, so `to_markdown()` raised on a mixed-awareness
+  timeline.** Sorting events padded absent timestamps with `datetime.max`,
+  which cannot be compared against the offset-bearing values GLPI sends. The
+  sort key now normalises both sides to UTC. The live probe confirmed the
+  mixed population is real, not hypothetical.
+
+- **`require_response_int` rejected create responses GLPI actually returns.**
+  A numeric-string id, an id nested under a `data` envelope, and a create that
+  reports only a `Location` header all raised a protocol error over a
+  perfectly usable identifier. It now probes top-level keys, then the
+  envelope, then the header.
+
+- **`sort="date_mod desc"` — the library's own documented example — is HTTP
+  400.** Found while running the wire-format probe. The accepted syntax is
+  `field:direction`; a bare `date_mod` is accepted but sorts *ascending*, and
+  `order=` is ignored entirely.
+
+- **Three client construction examples had `server_timezone` inserted twice
+  and misindented**, by the sweep that added it. A repeated keyword argument
+  is a `SyntaxError`, so those examples could not be copied at all. Two older
+  documentation defects surfaced alongside them: three lines of expected
+  output stranded inside a `code-block:: python` (they belong to the example
+  above), and an import indented four spaces inside a three-space block. A new
+  test compiles all 77 Python snippets in the skills, the guide and the
+  README.
+
+## 0.4.0 – 0.4.2
+
+These three releases were tagged without the changelog ever being
+sectioned, so their notes accumulated under a single `Unreleased`
+heading. They are grouped here rather than split retroactively.
 
 ### Fixed
 
@@ -313,6 +455,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `test_parity.py` / `test_async_selfcall_guard.py` suites.
 - The `requests` intersphinx mapping is removed; it survived the transport
   swap and made every docs build fetch an inventory nothing referenced.
+
+## Pre-0.4.0 notes
+
+Kept for history. Written before the httpx and unasync rewrites, so the
+status they describe is superseded by everything above — the transport is
+no longer `requests`, and tolerant searches no longer swallow a 4xx.
 
 ### Unchanged (deliberately)
 

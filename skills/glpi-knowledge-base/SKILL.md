@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and — for category writes only — a legacy v1 session (v1_base_url + v1_user_token)."
 metadata:
   package: glpi-python-client
-  version: "0.4.1"
+  version: "0.4.3"
 ---
 
 # GLPI Knowledge Base
@@ -16,7 +16,7 @@ The GLPI knowledge base lives under `/Knowledgebase/*` on the v2 API and covers 
 ## Procedure
 
 1. Create a client from the `glpi-client-setup` skill. Add `v1_base_url` and `v1_user_token` **only** if you will write article categories.
-2. Articles: `search_kb_articles(rsql_filter, limit=..., start=..., sort=..., language=...)` for lists and `get_kb_article(article_id)` for one. Write with `create_kb_article(PostKBArticle(...))` (returns the new id), `update_kb_article(article_id, PatchKBArticle(...))` and `delete_kb_article(article_id, force=...)` (both return `None`).
+2. Articles: `search_kb_articles(rsql_filter, limit=..., start=..., sort=..., language=...)` for lists, `iter_search_kb_articles(rsql_filter, batch_size=50, sort=..., language=...)` to walk every page without managing `start` yourself, and `get_kb_article(article_id)` for one. `sort` is spelled `field` or `field:direction` (`"date_mod:desc"`); a space before the direction is HTTP 400, and a bare field sorts *ascending*. Write with `create_kb_article(PostKBArticle(...))` (returns the new id), `update_kb_article(article_id, PatchKBArticle(...))` and `delete_kb_article(article_id, force=...)` (both return `None`).
 3. Article categories: `set_kb_article_categories(article_id, category_ids)`. The ids **replace** the whole set; an empty sequence clears it. Ids are not validated against the server -- an unknown id is simply not linked.
 4. Categories: `search_kb_categories(...)` (same parameters as the article search), `get_kb_category(category_id)`, `create_kb_category(PostKBCategory(...))`, `update_kb_category(category_id, PatchKBCategory(...))`, `delete_kb_category(category_id, force=...)`. `completename` and `level` are server-managed and absent from the write models.
 5. Comments: `list_kb_article_comments(article_id)`, `get_kb_article_comment(article_id, comment_id)`, `create_kb_article_comment(article_id, PostKBArticleComment(...))` (returns the new id), `update_kb_article_comment(article_id, comment_id, PatchKBArticleComment(...))`, `delete_kb_article_comment(article_id, comment_id, force=...)`. The parent article comes from the URL, so `PostKBArticleComment` has no `kbarticle` field.
@@ -32,6 +32,7 @@ from glpi_python_client import AsyncGlpiClient, IdNameRef, PostKBArticle, PostKB
 
 async with AsyncGlpiClient(
     glpi_api_url="https://glpi.example.com/api.php/v2",
+    server_timezone="Europe/Paris",
     client_id="oauth-client-id",
     client_secret="oauth-client-secret",
     v1_base_url="https://glpi.example.com/api.php/v1",
@@ -89,7 +90,7 @@ Search, and disambiguate an empty result. `language` is a query parameter on bot
 from glpi_python_client import GlpiNotFoundError
 
 faq = await client.search_kb_articles(
-    "is_faq==1", limit=25, start=0, sort="date_mod desc", language="fr_FR"
+    "is_faq==1", limit=25, start=0, sort="date_mod:desc", language="fr_FR"
 )
 categories = await client.search_kb_categories("name==Network", limit=10)
 print([(c.id, c.completename) for c in categories])
@@ -159,7 +160,7 @@ await client.delete_kb_article(42, force=True)
 - `update_kb_article` does not wrap the failure the way create does -- the raw error propagates (`GlpiValidationError` for a category reference with no `id`, `RuntimeError` for a missing v1 session, `GlpiStatusError` for a legacy non-success). The v2 field changes are already applied and are not reverted.
 - `categories=[]` means opposite things on create and update. On create it is skipped entirely: no v1 call, no v1 session needed. On update it *clears* every category, which is a legacy write and does need v1. Only `categories=None` (the default) is a no-op on both.
 - `categories` is still sent inside the v2 POST/PATCH body and GLPI silently ignores it; the body is never stripped. So a create-with-categories against a client with no v1 session yields an uncategorised article *and* an error, not a clean rejection -- and no code path persists a category through v2 alone.
-- **Every `search_*` helper in the library swallows 4xx and returns `[]`. This is a library-wide contract, not a KB peculiarity.** `_resource_list` checks the response status only when the caller passes a `failure_message`, and none of the seven searches -- `search_kb_articles`, `search_kb_categories`, `search_tickets`, `search_users`, `search_locations`, `search_entities`, `search_documents` -- passes one. A GLPI error body is not a JSON list, so it is coerced to `[]`. Every `list_*` and `get_*` helper does pass a `failure_message` and raises normally: here that is `list_kb_article_comments`, `list_kb_article_revisions`, `get_kb_article`, `get_kb_category` and `get_kb_article_revision` (`GlpiNotFoundError` on a 404). So an empty list from a search means "no matches" *or* "bad RSQL filter" *or* "403" *or* "this GLPI serves no `/Knowledgebase` routes at all" (they need High-Level API >= 2.2.0), indistinguishably; an empty list from a list helper is unambiguous. Never treat `[]` from a search as proof a record is absent before creating one.
+- **Every `search_*` helper raises `GlpiStatusError` on a 4xx.** This changed: `_resource_list` used to check the response status only when the caller passed a `failure_message`, which none of the seven searches does, so a GLPI error body was coerced to `[]`. An empty list from a search meant "no matches" *or* "bad RSQL filter" *or* "403" *or* "this GLPI serves no `/Knowledgebase` routes at all" (they need High-Level API >= 2.2.0), indistinguishably. The status is now checked on every call, so **an empty list means the server said there are no matches** -- and a GLPI without the Knowledgebase routes raises rather than looking like an empty knowledge base. The *other* fail-open path is unchanged: v2 ignores a filter field it does not recognise and answers 200 with the whole unfiltered table, so a search that returns rows is still not proof the filter applied.
 - `language` has two different mechanics in this family. On `search_kb_articles`/`search_kb_categories` it is a **query parameter**. On `list_kb_article_revisions`/`get_kb_article_revision` it is a **path segment** between the id and `Revision` (`Knowledgebase/Article/5/fr_FR/Revision`). `get_kb_article`, the comment helpers and every write helper take no `language` at all; they inherit the client-level value, sent as `Accept-Language` (default `en_GB`).
 - KB write models use `IdNameRef` for every foreign key -- `categories[]`, `entity`, `user`, `parent` -- not `IdRef`. Passing `IdRef(id=4)` raises a pydantic `ValidationError`. (`GetKBArticleComment.parent` is the one KB field genuinely typed `IdRef`, and it is read-only.)
 - Article `content`/`description` and revision `content` are Markdown on the Python side and HTML on the wire; the conversion is automatic, so never author HTML. Comment `comment` is a plain `str` with no conversion at all -- the inconsistency is real, not an omission here.

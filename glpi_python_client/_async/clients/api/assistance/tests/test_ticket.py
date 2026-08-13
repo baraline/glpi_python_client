@@ -29,14 +29,14 @@ async def test_search_tickets_forwards_sort_and_fields(client: Any) -> None:
     rec = TransportRecorder(get_payload=[{"id": 1, "name": "n", "content": "c"}])
     rec.install(client)
     tickets = await client.search_tickets(
-        "status==1", limit=5, start=10, sort="date_mod desc", fields=("id", "name")
+        "status==1", limit=5, start=10, sort="date_mod:desc", fields=("id", "name")
     )
 
     assert len(tickets) == 1
     assert rec.calls[0]["params"]["filter"] == "status==1"
     assert rec.calls[0]["params"]["limit"] == 5
     assert rec.calls[0]["params"]["start"] == 10
-    assert rec.calls[0]["params"]["sort"] == "date_mod desc"
+    assert rec.calls[0]["params"]["sort"] == "date_mod:desc"
     assert rec.calls[0]["params"]["fields"] == "id,name"
 
 

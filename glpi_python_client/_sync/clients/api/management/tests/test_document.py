@@ -9,7 +9,7 @@ additionally stub the legacy v1 session used for binary uploads.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -224,3 +224,146 @@ def test_delete_helpers_raise_on_failure_status(
     FailingTransportRecorder(500).install(client)
     with pytest.raises(ValueError):
         call(client)
+
+
+def test_iter_search_documents_yields_every_page(client: Any) -> None:
+    """The generator advances ``start`` until a short page ends the walk."""
+
+    from glpi_python_client.models.api_schema.management import GetDocument
+
+    pages = [[GetDocument(id=i) for i in range(3)], [GetDocument(id=99)]]
+    starts: list[int] = []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetDocument]:
+        starts.append(start)
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_documents = fake_search  # type: ignore[method-assign]
+
+    batches = [
+        batch for batch in client.iter_search_documents("name==x", batch_size=3)
+    ]
+
+    assert starts == [0, 3]
+    assert [len(b) for b in batches] == [3, 1]
+
+
+def test_iter_search_documents_stops_on_a_single_short_page(client: Any) -> None:
+    """One short page is the last page; no second request is made."""
+
+    from glpi_python_client.models.api_schema.management import GetDocument
+
+    starts: list[int] = []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetDocument]:
+        starts.append(start)
+        return [GetDocument(id=1)]
+
+    client.search_documents = fake_search  # type: ignore[method-assign]
+
+    batches = [batch for batch in client.iter_search_documents(batch_size=50)]
+
+    assert starts == [0]
+    assert len(batches) == 1
+
+
+def test_iter_search_documents_yields_nothing_when_empty(client: Any) -> None:
+    """An empty first page yields no batch at all rather than one empty list."""
+
+    from glpi_python_client.models.api_schema.management import GetDocument
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetDocument]:
+        return []
+
+    client.search_documents = fake_search  # type: ignore[method-assign]
+
+    assert [batch for batch in client.iter_search_documents()] == []
+
+
+def _pin_token(client: Any) -> None:
+    """Pretend a valid token is held so no OAuth round trip happens.
+
+    The transport recorders stub above ``_ensure_token``; the streaming
+    helper runs through it, so the token has to be supplied here instead.
+    """
+
+    from datetime import datetime, timedelta, timezone
+
+    client._auth.access_token = "stub-token"
+    client._auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=1)
+
+
+def test_stream_document_content_yields_chunks(client: Any) -> None:
+    """The generator yields the body in chunks instead of buffering it."""
+
+    seen: dict[str, Any] = {}
+
+    class _Stream:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+        status_code = 200
+        headers: ClassVar[dict[str, str]] = {}
+
+        def read(self) -> bytes:
+            return b""
+
+        def iter_bytes(self, chunk_size: int | None = None) -> Any:
+            seen["chunk_size"] = chunk_size
+            for chunk in (b"abc", b"def"):
+                yield chunk
+
+    def _stream(method: str, url: str, **kwargs: Any) -> Any:
+        seen["method"] = method
+        seen["url"] = url
+        return _Stream()
+
+    _pin_token(client)
+    client._session.stream = _stream  # type: ignore[method-assign]
+
+    chunks = [c for c in client.stream_document_content(7, chunk_size=4)]
+
+    assert chunks == [b"abc", b"def"]
+    assert seen["method"] == "GET"
+    assert seen["url"].endswith("Management/Document/7/Download")
+    assert seen["chunk_size"] == 4
+
+
+def test_stream_document_content_raises_on_error_status(client: Any) -> None:
+    """A non-success status raises rather than yielding an error page as bytes."""
+
+    class _Stream:
+        def __enter__(self) -> Any:
+            return self
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+        status_code = 404
+        headers: ClassVar[dict[str, str]] = {}
+        url = "https://glpi.example.test/Management/Document/7/Download"
+        text = "not found"
+
+        def read(self) -> bytes:
+            return b"not found"
+
+        def iter_bytes(self, chunk_size: int | None = None) -> Any:
+            yield b"not found"
+
+    _pin_token(client)
+    client._session.stream = lambda method, url, **kw: _Stream()  # type: ignore[method-assign]
+
+    from glpi_python_client import GlpiStatusError
+
+    with pytest.raises(GlpiStatusError):
+        [c for c in client.stream_document_content(7)]

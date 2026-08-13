@@ -103,8 +103,13 @@ from glpi_python_client.models import (
     PostUser,
     TicketMarkdownOptions,
 )
+from glpi_python_client.rsql import (
+    changed_since,
+    created_between,
+    date_window,
+)
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
 
 __all__ = [
     "AsyncGlpiClient",
@@ -190,4 +195,7 @@ __all__ = [
     "PostUser",
     "TicketMarkdownOptions",
     "__version__",
+    "changed_since",
+    "created_between",
+    "date_window",
 ]

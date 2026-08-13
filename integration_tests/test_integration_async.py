@@ -58,6 +58,7 @@ def _build_async_client(config: _LiveGlpiConfig) -> AsyncGlpiClient:
 
     return AsyncGlpiClient(
         glpi_api_url=config.api_url,
+        server_timezone=config.server_timezone,
         client_id=config.client_id,
         client_secret=config.client_secret,
         username=config.username,

@@ -52,6 +52,7 @@ class _LiveGlpiConfig:
     v1_user_token: str | None
     v1_app_token: str | None
     team_member_role: str
+    server_timezone: str
 
 
 def _read_value(secret_name: str, *env_names: str) -> str | None:
@@ -138,6 +139,8 @@ def _load_config() -> _LiveGlpiConfig:
         v1_base_url=_read_value("glpi_api_v1_url", "GLPI_API_V1_URL"),
         v1_user_token=_read_value("glpi_api_v1_token_user", "GLPI_V1_USER_TOKEN"),
         v1_app_token=_read_value("glpi_api_v1_app_token", "GLPI_V1_APP_TOKEN"),
+        server_timezone=_read_value("glpi_server_timezone", "GLPI_SERVER_TIMEZONE")
+        or "UTC",
         team_member_role=_read_value("glpi_team_member_role", "GLPI_TEAM_MEMBER_ROLE")
         or "assigned",
     )
@@ -162,6 +165,7 @@ def client(
 
     glpi_client = GlpiClient(
         glpi_api_url=live_config.api_url,
+        server_timezone=live_config.server_timezone,
         client_id=live_config.client_id,
         client_secret=live_config.client_secret,
         username=live_config.username,

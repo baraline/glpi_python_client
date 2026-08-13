@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 from glpi_python_client._sync.clients.commons._payloads import (
     model_from_payload,
     model_to_payload,
@@ -9,6 +12,9 @@ from glpi_python_client._sync.clients.commons._payloads import (
 from glpi_python_client.models.api_schema.administration._user import (
     GetUser,
     PostUser,
+)
+from glpi_python_client.models.api_schema.assistance.timeline._task import (
+    PostTicketTask,
 )
 
 
@@ -62,3 +68,54 @@ def test_capture_extra_keys_merges_with_existing_extra_payload_dict() -> None:
         "stranger": "explicit",
         "caller_wins": True,
     }
+
+
+def test_model_to_payload_body_is_json_encodable() -> None:
+    """Every value in the body survives the JSON encoder httpx will use.
+
+    ``_execute_request`` hands the mapping straight to ``httpx`` as ``json=``,
+    whose encoder is ``json.dumps``. A body holding a live ``datetime`` object
+    raises ``TypeError`` there -- after the model validated, and outside any
+    transport stub -- so the assertion has to be encodability, not shape.
+    """
+
+    body = model_to_payload(PostTicketTask(planned_begin=datetime(2024, 1, 1, 12, 0)))
+
+    assert json.dumps(body)
+
+
+def test_model_to_payload_renders_naive_datetime_without_offset() -> None:
+    """A naive datetime reaches GLPI as the bare timestamp it was given."""
+
+    body = model_to_payload(PostTicketTask(planned_begin=datetime(2024, 1, 1, 12, 0)))
+
+    assert body["planned_begin"] == "2024-01-01T12:00:00"
+
+
+def test_model_to_payload_rewrites_an_aware_datetime_onto_the_server_clock() -> None:
+    """An aware datetime is converted to server-local time and sent bare.
+
+    GLPI 11 ignores the offset it is sent -- measured, three spellings of one
+    moment all stored the same wall clock -- so writing ``12:00Z`` to a
+    ``+01:00`` instance stores 12:00 there and loses an hour silently. The
+    offset has to be spent on the conversion instead of written out.
+    """
+
+    aware = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    body = model_to_payload(
+        PostTicketTask(planned_begin=aware),
+        server_timezone=timezone(timedelta(hours=1)),
+    )
+
+    assert body["planned_begin"] == "2024-01-01T13:00:00"
+
+
+def test_model_to_payload_leaves_an_aware_datetime_alone_without_a_timezone() -> None:
+    """Outside the client there is no server clock to convert onto."""
+
+    aware = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    body = model_to_payload(PostTicketTask(planned_begin=aware))
+
+    assert body["planned_begin"] == "2024-01-01T12:00:00Z"
