@@ -19,7 +19,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializationInfo,
+    SerializerFunctionWrapHandler,
+    ValidationInfo,
+    model_serializer,
+    model_validator,
+)
 
 #: Validation-context key carrying the GLPI server's timezone.
 #:
@@ -112,3 +121,56 @@ class GlpiModel(BaseModel):
         if not localised:
             return self
         return self.model_copy(update=localised)
+
+    @model_serializer(mode="wrap")
+    def _render_datetimes_on_the_server_clock(
+        self,
+        handler: SerializerFunctionWrapHandler,
+        info: SerializationInfo,
+    ) -> Any:
+        """Convert aware datetimes to server-local time and drop the offset.
+
+        GLPI 11 does not read the offset it sends. Measured on a live
+        Europe/Paris instance, ``12:30:00`` written bare, as ``...Z``, and
+        with ``+02:00``, ``+09:00``, ``-08:00`` and ``+14:00`` all store the
+        same moment -- 12:30 Paris. The server takes the naive prefix,
+        interprets it in its own timezone, and discards the rest. It is not
+        ignoring the offset unparsed either: ``+99:99`` answers HTTP 500. So
+        the value is read and then thrown away, and ``12:30-08:00`` -- 21:30
+        in Paris -- lands nine hours early with a 200 and nothing to read
+        back that looks wrong.
+
+        An offset is therefore not something to preserve on the way out. The
+        only spelling GLPI cannot misread is one whose naive prefix is
+        already server-local, so the offset is spent converting the value
+        and then removed.
+
+        The two rules mirror the inbound half:
+
+        * **Naive values are left alone.** A naive datetime already means
+          "the server's clock" -- converting it would require guessing which
+          zone the caller meant.
+        * **No context means no conversion.** A model dumped outside the
+          client has no server to be local to.
+
+        Converted values go onto a copy for the same reason the inbound
+        validator copies: the caller still holds the model being dumped, and
+        serialising is not allowed to change it.
+        """
+
+        context = info.context
+        if not isinstance(context, dict):
+            return handler(self)
+        tzinfo = context.get(SERVER_TIMEZONE_CONTEXT_KEY)
+        if tzinfo is None:
+            return handler(self)
+
+        server_local = {
+            name: value.astimezone(tzinfo).replace(tzinfo=None)
+            for name in type(self).model_fields
+            if isinstance(value := getattr(self, name, None), datetime)
+            and value.tzinfo is not None
+        }
+        if not server_local:
+            return handler(self)
+        return handler(self.model_copy(update=server_local))

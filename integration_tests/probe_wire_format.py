@@ -16,8 +16,14 @@ body and keeps one integer. If the body already carries the full record,
 the fix is to stop discarding it, not to add a second request behind a
 ``create_*_and_fetch`` helper.
 
-This is a **read-mostly** probe. It creates exactly one ticket, to see a
-create response, and deletes it again in a ``finally``. Nothing else is
+**#22 follow-up -- does GLPI honour an offset on write?** The fix for #22
+changed outbound serialisation to Pydantic's JSON mode, so an aware
+``datetime`` now goes out as ``...+02:00`` or ``...Z``. Accepting it and
+honouring it are different questions, and only the second is dangerous to
+get wrong: a truncated offset moves the moment silently, with a 200.
+
+This is a **read-mostly** probe. It creates exactly one ticket -- reused by
+both write probes -- and deletes it again in a ``finally``. Nothing else is
 written.
 
 Usage
@@ -158,8 +164,70 @@ def _report_timestamps(label: str, payload: Any) -> None:
         print(f"  {label}.{path} = {value!r}  -> {verdict}")
 
 
+#: The three ways this package can now render one moment onto the wire.
+#:
+#: These are not hypothetical spellings -- they are the literal bytes
+#: ``model_to_payload`` produces for a ``PatchTicket(date=...)`` built with a
+#: UTC ``tzinfo``, a ``Europe/Paris`` one, and none at all. Pydantic's JSON
+#: mode writes UTC as ``Z`` and every other zone as a numeric offset.
+#:
+#: ``12:30Z`` is the discriminating case, because it is ``14:30`` in Paris:
+#: a server that honours the offset stores a different wall clock than one
+#: that ignores it, and one read-back separates them. The ``+02:00`` case
+#: cannot discriminate -- it names the same wall clock either way -- but it
+#: does answer whether an offset-bearing string is accepted at all.
+_WRITE_CASES = (
+    ("naive   (control)", "2026-08-01T12:30:00"),
+    ("UTC     (Z form) ", "2026-08-01T12:30:00Z"),
+    ("Paris   (+02:00) ", "2026-08-01T12:30:00+02:00"),
+    ("Tokyo   (+09:00) ", "2026-08-01T12:30:00+09:00"),
+    ("LA      (-08:00) ", "2026-08-01T12:30:00-08:00"),
+    ("Kiritim (+14:00) ", "2026-08-01T12:30:00+14:00"),
+    ("nonsense(+99:99) ", "2026-08-01T12:30:00+99:99"),
+)
+
+
+def _probe_write_offsets(
+    client: httpx.Client,
+    base: str,
+    read_headers: dict[str, str],
+    write_headers: dict[str, str],
+    ticket_id: int,
+) -> None:
+    """Write each spelling of one moment and report what GLPI stored.
+
+    Issue #22 changed outbound serialisation to Pydantic's JSON mode, so an
+    aware ``datetime`` now leaves as ``...+02:00`` or ``...Z`` where it
+    previously left as a live object that ``json.dumps`` refused. That fixed
+    the crash but moved the question rather than answering it: nothing here
+    had ever recorded whether GLPI *accepts* an offset, nor -- the part that
+    matters more -- whether it *honours* one.
+
+    A rejection is loud and harmless. Silent truncation is neither: writing
+    ``12:30Z`` and having 12:30 stored as Paris local time moves the moment
+    two hours with a 200 and no complaint.
+    """
+
+    for label, wire in _WRITE_CASES:
+        patch = client.request(
+            "PATCH",
+            f"{base}/Assistance/Ticket/{ticket_id}",
+            headers=write_headers,
+            json={"date": wire},
+        )
+        if patch.status_code >= 400:
+            print(f"  {label} {wire!r}")
+            print(f"      PATCH -> HTTP {patch.status_code} REJECTED")
+            print(f"      body  -> {patch.text[:200]!r}")
+            continue
+        read = client.get(f"{base}/Assistance/Ticket/{ticket_id}", headers=read_headers)
+        stored = read.json().get("date") if read.status_code < 400 else None
+        print(f"  {label} {wire!r}")
+        print(f"      PATCH -> HTTP {patch.status_code}   read back -> {stored!r}")
+
+
 def main() -> None:
-    """Run both probes and print a report to paste into the issues."""
+    """Run every probe and print a report to paste into the issues."""
 
     config = _load()
     base = config["api_url"].rstrip("/")
@@ -231,6 +299,14 @@ def main() -> None:
                             "adding create_*_and_fetch (#35)"
                         )
                     )
+            if created_id:
+                print()
+                print("=" * 72)
+                print("PROBE 3 (#22 follow-up) -- does GLPI honour an offset on write?")
+                print("=" * 72)
+                _probe_write_offsets(
+                    client, base, read_headers, write_headers, created_id
+                )
         finally:
             if created_id:
                 # `client.delete(...)` rejects `json=` -- httpx exposes a body

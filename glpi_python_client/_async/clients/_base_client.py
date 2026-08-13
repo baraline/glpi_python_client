@@ -72,13 +72,22 @@ class _BaseGlpiClient:
         server_timezone : str | tzinfo
             IANA name of the timezone the GLPI server runs in (e.g.
             ``"Europe/Paris"``), or a ``tzinfo``. **Required**: GLPI does
-            not advertise it, and it is needed to interpret the timestamps
-            the server sends without an offset. There is no default because
-            every candidate is wrong somewhere -- guessing UTC against a
-            Europe/Paris instance shifts those timestamps by an hour or two
-            and never raises. Prefer a name over a fixed offset: a name
-            follows DST, and one instance emits both ``+01:00`` and
-            ``+02:00``.
+            not advertise it, and it governs both directions of every
+            timestamp the client exchanges.
+
+            Reading, it interprets the timestamps the server sends without
+            an offset. Writing, it is what makes an aware ``datetime``
+            arrive as the moment it names: GLPI reads the naive prefix of a
+            timestamp and discards the offset, so the value has to be
+            converted onto the server's clock before it is sent. Measured on
+            a live instance, offsets from ``-08:00`` to ``+14:00`` written
+            to one field all stored the same wall clock.
+
+            There is no default because every candidate is wrong somewhere
+            -- guessing UTC against a Europe/Paris instance shifts those
+            timestamps by an hour or two and never raises. Prefer a name
+            over a fixed offset: a name follows DST, and one instance emits
+            both ``+01:00`` and ``+02:00``.
         client_id : str | None, optional
             OAuth client identifier used to obtain access tokens.
         client_secret : str | None, optional

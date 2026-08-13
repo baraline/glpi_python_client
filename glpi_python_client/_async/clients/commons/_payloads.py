@@ -18,7 +18,11 @@ from glpi_python_client.models._base import (
 ModelT = TypeVar("ModelT", bound=GlpiModel)
 
 
-def model_to_payload(model: GlpiModel) -> dict[str, object]:
+def model_to_payload(
+    model: GlpiModel,
+    *,
+    server_timezone: tzinfo | None = None,
+) -> dict[str, object]:
     """Serialise one :class:`GlpiModel` into a request body.
 
     ``None`` fields are omitted, the meta ``extra_payload`` field is
@@ -32,9 +36,30 @@ def model_to_payload(model: GlpiModel) -> dict[str, object]:
     objects and every write of a date field then fails at the encoder, past
     the point any transport stub can see. JSON mode renders them as ISO-8601
     strings instead, so what the model validated is what GLPI receives.
+
+    ``server_timezone`` is passed as a Pydantic serialisation context, the
+    mirror of the validation context in :func:`model_from_payload` and
+    threaded the same way, so it reaches nested submodels. It is needed
+    because JSON mode alone renders an aware datetime *with* its offset, and
+    GLPI 11 does not read that offset: it takes the naive prefix, interprets
+    it in the server's own timezone, and discards the rest -- measured across
+    offsets from ``-08:00`` to ``+14:00``, which all stored the same moment.
+    The context lets the value be converted onto that clock first -- see
+    :meth:`GlpiModel._render_datetimes_on_the_server_clock`. ``None``
+    converts nothing, so a model dumped outside the client is unchanged.
     """
 
-    body = model.model_dump(mode="json", exclude_none=True, exclude={"extra_payload"})
+    context = (
+        {SERVER_TIMEZONE_CONTEXT_KEY: server_timezone}
+        if server_timezone is not None
+        else None
+    )
+    body = model.model_dump(
+        mode="json",
+        exclude_none=True,
+        exclude={"extra_payload"},
+        context=context,
+    )
     if model.extra_payload:
         body.update(model.extra_payload)
     return body

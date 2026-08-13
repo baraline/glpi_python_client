@@ -495,6 +495,18 @@ class TransportMixin:
             model, response.json(), server_timezone=self.server_timezone
         )
 
+    def _body(self, model: GlpiModel) -> dict[str, object]:
+        """Serialise one model into a request body on the server's clock.
+
+        Every write in the package goes through here rather than calling
+        :func:`model_to_payload` directly, because the timezone argument is
+        not optional in practice and a call site that forgets it produces no
+        error -- just a timestamp GLPI silently reinterprets. Binding it once
+        leaves nothing to remember at the next endpoint.
+        """
+
+        return model_to_payload(model, server_timezone=self.server_timezone)
+
     async def _resource_create(
         self,
         endpoint: str,
@@ -538,7 +550,7 @@ class TransportMixin:
         """
 
         response = await self._post_request(
-            endpoint, model_to_payload(body_model), skip_entity=skip_entity
+            endpoint, self._body(body_model), skip_entity=skip_entity
         )
         ensure_response_status(
             response,
@@ -579,7 +591,7 @@ class TransportMixin:
         None
         """
 
-        response = await self._update_request(endpoint, model_to_payload(body_model))
+        response = await self._update_request(endpoint, self._body(body_model))
         ensure_response_status(
             response,
             success_statuses=(200, 204),
@@ -630,7 +642,7 @@ class TransportMixin:
 
         request_body = body
         if request_body is None and delete_model_cls is not None and force is not None:
-            request_body = model_to_payload(delete_model_cls(force=force))  # type: ignore[call-arg]
+            request_body = self._body(delete_model_cls(force=force))  # type: ignore[call-arg]
         response = await self._delete_request(
             endpoint, request_body, skip_entity=skip_entity
         )

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from glpi_python_client.models._base import GlpiModel
 
 _PARIS_SUMMER = timezone(timedelta(hours=2))
+_PARIS_WINTER = timezone(timedelta(hours=1))
 
 
 class _Stamped(GlpiModel):
@@ -126,3 +127,57 @@ def test_validating_an_existing_instance_does_not_mutate_the_original() -> None:
     assert revalidated.date.utcoffset() == timedelta(hours=2)
     assert original.date is not None
     assert original.date.tzinfo is None
+
+
+def test_aware_datetime_is_converted_to_the_server_clock_and_stripped() -> None:
+    """An offset is not information GLPI keeps, so the value must carry none.
+
+    Measured against GLPI 11: the server reads the naive prefix of a
+    timestamp, interprets it in its own timezone, and discards whatever
+    offset followed. ``12:30:00Z`` written to a Europe/Paris instance is
+    stored as 12:30 Paris -- two hours before the moment that was sent, with
+    a 200 and no complaint. The only spelling that survives is one whose
+    naive prefix is already server-local, so the offset has to be spent on
+    the conversion rather than written out.
+    """
+
+    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+
+    dumped = stamped.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
+
+    assert dumped["date"] == "2024-01-01T13:00:00"
+
+
+def test_naive_datetime_serialises_unchanged() -> None:
+    """A naive value already means "the server's clock" and is left alone."""
+
+    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0))
+
+    dumped = stamped.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
+
+    assert dumped["date"] == "2024-01-01T12:00:00"
+
+
+def test_serialisation_without_a_context_leaves_the_offset_alone() -> None:
+    """No timezone means no conversion, matching the inbound half.
+
+    A model dumped outside the client has no server to be local to. Guessing
+    one would be the same silent shift the conversion exists to prevent.
+    """
+
+    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+
+    assert stamped.model_dump(mode="json")["date"] == "2024-01-01T12:00:00Z"
+
+
+def test_the_serialisation_timezone_reaches_a_nested_model() -> None:
+    """Submodels are converted too, since request bodies nest."""
+
+    nested = _Nested(
+        id=1,
+        inner=_Stamped(id=2, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)),
+    )
+
+    dumped = nested.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
+
+    assert dumped["inner"]["date"] == "2024-01-01T13:00:00"

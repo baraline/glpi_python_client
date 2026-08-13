@@ -15,7 +15,6 @@ from glpi_python_client._async.clients.commons._constants import (
     GlpiId,
 )
 from glpi_python_client._async.clients.commons._http import ensure_response_status
-from glpi_python_client._async.clients.commons._payloads import model_to_payload
 from glpi_python_client._async.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance._team import (
     GetTeamMember,
@@ -79,7 +78,7 @@ class TeamMemberMixin(TransportMixin):
         """
 
         endpoint = f"{TICKET_ENDPOINT}/{ticket_id}/{TEAM_MEMBER_SUFFIX}"
-        response = await self._post_request(endpoint, model_to_payload(member))
+        response = await self._post_request(endpoint, self._body(member))
         ensure_response_status(
             response,
             success_statuses=(200, 201),
@@ -114,7 +113,7 @@ class TeamMemberMixin(TransportMixin):
             f"{TICKET_ENDPOINT}/{ticket_id}/{TEAM_MEMBER_SUFFIX}",
             failure_message=f"Failed to remove team member on ticket {ticket_id}",
             log_message=f"GLPI API removed team member on ticket {ticket_id}",
-            body=model_to_payload(member),
+            body=self._body(member),
         )
 
 
