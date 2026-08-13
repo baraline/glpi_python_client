@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and — for category writes only — a legacy v1 session (v1_base_url + v1_user_token)."
 metadata:
   package: glpi-python-client
-  version: "0.4.1"
+  version: "0.4.3"
 ---
 
 # GLPI Knowledge Base

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, the GLPI Fields plugin installed server-side, and a legacy v1 session (v1_base_url + v1_user_token) — every method in this family goes over the v1 API."
 metadata:
   package: glpi-python-client
-  version: "0.4.1"
+  version: "0.4.3"
 ---
 
 # GLPI Plugin Fields
