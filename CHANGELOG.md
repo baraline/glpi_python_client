@@ -34,6 +34,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   database; without it `zoneinfo` resolves on Linux CI and raises on a
   developer machine.
 
+- **`changed_since` no longer assumes UTC.** An aware `datetime` now needs the
+  server's timezone and raises `GlpiValidationError` without it:
+
+  ```python
+  window = changed_since(last_run, tz=client.server_timezone)
+  ```
+
+  The bound this builds is compared against a naive server-local column, so
+  converting the caller's moment to UTC asked the server for a different one.
+  A 09:33 Paris timestamp became a `07:33` filter. East of UTC that only
+  re-reads a few hours on every sweep; west of it the bound moves *forward*
+  and modifications are skipped outright — four hours in New York, seven in
+  Los Angeles — and the size of the drift changes at each DST transition, so
+  a sync that looks correct in January starts losing rows in March.
+
+  The offset is now spent converting the value onto the server's clock and
+  then dropped, which is what the model serialiser already does on the way
+  out; the two halves had diverged by exactly the offset. Missing `tz` is
+  refused rather than defaulted for the same reason `server_timezone` has no
+  default: every guess is wrong somewhere, and being wrong here returns a
+  short result set rather than an error.
+
+  A `date`, an ISO string, or a naive `datetime` is unaffected and needs no
+  `tz` — a naive value already means the server's clock.
+
 - **Search endpoints now raise on a 4xx instead of returning `[]`.** The seven
   `search_*` helpers passed no `failure_message` to `_resource_list`, which
   skipped the status check entirely, so a 400, 401, 403 or 404 came back as an
