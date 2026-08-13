@@ -68,6 +68,7 @@ pair. The OAuth password grant accepts either ``client_id`` /
 
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
+       server_timezone="Europe/Paris",
        client_id="oauth-client-id",
        client_secret="oauth-client-secret",
        username="api-user",
@@ -92,6 +93,7 @@ The asynchronous client takes the same arguments and is used inside an
    async def main() -> None:
        async with AsyncGlpiClient(
            glpi_api_url="https://glpi.example.com/api.php/v2",
+           server_timezone="Europe/Paris",
            client_id="oauth-client-id",
            client_secret="oauth-client-secret",
            username="api-user",
@@ -719,6 +721,7 @@ internal container and field names:
 
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
+       server_timezone="Europe/Paris",
        client_id="oauth-client-id",
        client_secret="oauth-client-secret",
        username="api-user",

@@ -57,6 +57,7 @@ from glpi_python_client import GlpiClient, PostTicket
 
 with GlpiClient(
     glpi_api_url="https://glpi.example.com/api.php/v2",
+    server_timezone="Europe/Paris",
     client_id="oauth-client-id",
     client_secret="oauth-client-secret",
     username="api-user",
@@ -83,6 +84,7 @@ from glpi_python_client import AsyncGlpiClient, PostTicket
 async def main() -> None:
     async with AsyncGlpiClient(
         glpi_api_url="https://glpi.example.com/api.php/v2",
+        server_timezone="Europe/Paris",
         client_id="oauth-client-id",
         client_secret="oauth-client-secret",
         username="api-user",

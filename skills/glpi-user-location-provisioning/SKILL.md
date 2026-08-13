@@ -72,13 +72,14 @@ async def find_or_create_location(
     if matches and matches[0].id is not None:
         return matches[0].id
 
-    # Guard 2. Empty is not proof of absence. Re-run the same route with no
-    # filter at all -- same URL, same auth, same entity scope, nothing to
-    # reject -- so a swallowed 403/404/5xx shows up here too. An empty
-    # answer here has exactly two causes: the search layer failed, or the
-    # Locations dropdown is genuinely empty (a fresh GLPI ships it empty).
-    # This cannot tell them apart either, so it fails closed and makes the
-    # second one something the caller states on purpose.
+    # Guard 2. Empty is not proof of absence. A 4xx now raises, so the
+    # failure this used to catch is loud -- but the *other* fail-open path
+    # is not: v2 silently ignores a filter field it does not know and
+    # answers 200 with the whole table, and a filter that is dropped
+    # entirely can still yield nothing useful. Re-running with no filter
+    # at all distinguishes "this dropdown is empty" from "my filter was
+    # the problem", and it fails closed so the empty case is something the
+    # caller states on purpose.
     if not await client.search_locations("", limit=1) and not dropdown_may_be_empty:
         raise RuntimeError(
             "search_locations returned nothing even unfiltered: assume a failed "

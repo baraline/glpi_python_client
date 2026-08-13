@@ -11,7 +11,7 @@ metadata:
 # GLPI Document Workflow
 > The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
-Document metadata uses the standard `Get`/`Post`/`Patch`/`Delete` shape on `/Management/Document`. Binary content uses two dedicated helpers: `download_document_content` for downloads and `upload_document` for uploads through the legacy v1 fallback session (the v2 contract does not advertise a binary upload endpoint).
+Document metadata uses the standard `Get`/`Post`/`Patch`/`Delete` shape on `/Management/Document`. Binary content uses three dedicated helpers: `download_document_content` for whole-file downloads, `stream_document_content` for chunked ones, and `upload_document` for uploads through the legacy v1 fallback session (the v2 contract does not advertise a binary upload endpoint).
 
 The `GLPIV1Session` class is no longer part of the public surface; the v1 session is fully internal and is configured by passing `v1_base_url` and `v1_user_token` to `GlpiClient`.
 
@@ -23,7 +23,7 @@ The `GLPIV1Session` class is no longer part of the public surface; the v1 sessio
 4. Create a metadata-only record with `PostDocument(...)` and `await client.create_document(document)`. The method returns the new ID.
 5. Update with `PatchDocument(...)` and `await client.update_document(document_id, document)`.
 6. Delete with `await client.delete_document(document_id, force=True|False|None)`.
-7. Download bytes with `content = await client.download_document_content(document_id)`.
+7. Download bytes with `content = await client.download_document_content(document_id)`, which buffers the whole body. For a large attachment use `async for chunk in client.stream_document_content(document_id, chunk_size=65536)` and write each chunk out as it arrives.
 8. Upload bytes with `await client.upload_document(filename=..., content=..., mime_type=..., ticket_id=..., entity_id=...)`.
 9. To put a file on a ticket timeline, use `upload_document(..., ticket_id=...)` -- it creates the document *and* the ticket link in one call. `link_ticket_timeline_document` from the timeline skill cannot be told **which** existing document to link: `PostTimelineDocument` declares only `extra_payload` and `timeline_position`, and the POST URL carries only the ticket id, so there is no typed slot for a document id. See the timeline skill for the `extra_payload` escape hatch and its caveat.
 
@@ -64,10 +64,10 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 
 ## Gotchas
 
-- **`search_documents` swallows 4xx and returns `[]`.** This is a library-wide contract, not a document peculiarity: `_resource_list` checks the response status only when the caller passes a `failure_message`, and none of the seven `search_*` helpers (`search_documents`, `search_tickets`, `search_users`, `search_locations`, `search_entities`, `search_kb_articles`, `search_kb_categories`) passes one -- a GLPI error body is not a JSON list, so it is coerced to `[]`. A malformed RSQL filter, a 403 on `/Management/Document`, a missing route and "no such document" all look identical. `get_document`, `download_document_content` and every `list_*` helper do pass a `failure_message` and raise `GlpiStatusError` (narrowed to `GlpiAuthError` / `GlpiNotFoundError` / `GlpiServerError`) normally. So never conclude from an empty `search_documents` that a file is not on the server and re-upload it -- that is how duplicate documents get created; corroborate with a call that raises first.
+- **`search_documents` raises `GlpiStatusError` on a 4xx.** This changed: `_resource_list` used to check the response status only when the caller passed a `failure_message`, which none of the seven `search_*` helpers does, so a GLPI error body was coerced to `[]` and a malformed RSQL filter, a 403 on `/Management/Document`, a missing route and "no such document" all looked identical. The status is now checked on every call, so **an empty list means the server said there are no matches**. The *other* fail-open path is unchanged: GLPI v2 ignores a filter field it does not recognise and answers 200 with the whole unfiltered table, so a search that returns rows is still not proof the filter applied. Never conclude from a search that a file is absent and re-upload it without corroborating -- that is how duplicate documents get created.
 - `upload_document` raises `RuntimeError` when the v1 session is not configured. Pass `v1_base_url` and `v1_user_token` to the client constructor or `from_env`.
 - `upload_document` requires a non-empty `filename`. On the async client the multipart POST is awaited like any other call, so the event loop is not blocked.
-- `download_document_content` returns `bytes` and raises on non-200 responses.
+- `download_document_content` returns `bytes` and raises on non-200 responses. It holds the entire file in memory, so a 500 MB attachment costs 500 MB of process memory even when the caller only writes it straight to disk -- prefer `stream_document_content(document_id, chunk_size=65536)`, an async generator on `AsyncGlpiClient` (`async for`) and a plain generator on `GlpiClient` (`for`), which yields the body in chunks and raises the same `GlpiStatusError` on a non-200. Uploads still buffer.
 - `mime_type` defaults to `application/octet-stream` when omitted on `upload_document`.
 - The snippets above use `AsyncGlpiClient`, so every call is awaited. The same methods on the synchronous `GlpiClient` are plain blocking calls -- drop the `await`.
 - The `delete_document(force=True)` flag permanently deletes; omit (or `False`) to move to the trash.

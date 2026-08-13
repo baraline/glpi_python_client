@@ -101,7 +101,7 @@ def test_table_survives_the_round_trip() -> None:
     ],
 )
 def test_incoming_text_is_not_backslash_escaped(html: str, expected: str) -> None:
-    """Underscores and asterisks in prose stay readable.
+    r"""Underscores and asterisks in prose stay readable.
 
     Escaping them turns ``snake_case`` into ``snake\_case`` on every read,
     and the backslash accumulates across read-modify-write cycles.
