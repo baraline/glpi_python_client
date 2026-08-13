@@ -64,7 +64,6 @@ async def main() -> None:
     async with AsyncGlpiClient(
         glpi_api_url="https://glpi.example.com/api.php/v2",
         server_timezone="Europe/Paris",
-    server_timezone="Europe/Paris",
         client_id="oauth-client-id",
         client_secret="oauth-client-secret",
         v1_base_url="https://glpi.example.com/api.php/v1",

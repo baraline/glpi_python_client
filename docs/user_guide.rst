@@ -635,6 +635,9 @@ so the client sets it through a legacy fallback — see
 Example output::
 
    ['Networking']
+   42 Reset a Wi-Fi controller
+   42 Reset a Wi-Fi controller
+   1 revision(s)
 
 Assigning categories
 ^^^^^^^^^^^^^^^^^^^^^
@@ -666,9 +669,6 @@ article's full category set; passing an empty list clears every category.
    # Or set them explicitly at any time.
    client.set_kb_article_categories(article_id, [14])  # replace the full set
    client.set_kb_article_categories(article_id, [])    # clear all
-   42 Reset a Wi-Fi controller
-   42 Reset a Wi-Fi controller
-   1 revision(s)
 
 Enums
 ~~~~~
@@ -717,7 +717,7 @@ internal container and field names:
 
 .. code-block:: python
 
-    from glpi_python_client import GlpiClient
+   from glpi_python_client import GlpiClient
 
    with GlpiClient(
        glpi_api_url="https://glpi.example.com/api.php/v2",
