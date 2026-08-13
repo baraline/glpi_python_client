@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from glpi_python_client.models.api_schema.assistance import (
     DeleteTicket,
     GetTeamMember,
@@ -13,6 +16,7 @@ from glpi_python_client.models.api_schema.assistance import (
 )
 from glpi_python_client.models.api_schema.enums import (
     GlpiPriority,
+    GlpiTicketStatus,
     GlpiTicketType,
 )
 
@@ -115,6 +119,51 @@ def test_patch_ticket_partial_body() -> None:
     """``PatchTicket`` accepts a partial body."""
 
     PatchTicket.model_validate({"name": "renamed", "priority": 5})
+
+
+def test_patch_ticket_declares_status_and_post_ticket_does_not() -> None:
+    """``status`` is a real field on the update body and absent from create.
+
+    GLPI treats the two routes differently even though the contract
+    publishes one schema for both: a ``PATCH`` with ``status`` moves the
+    ticket, a ``POST`` with ``status`` answers 201 and creates a ``New``
+    one. Declaring the field only on the subclass is what keeps the
+    create body from advertising an argument the server throws away --
+    ``PostTicket`` funnels it to ``extra_payload`` instead, which is
+    asserted by ``test_post_ticket_excludes_read_only_fields``.
+    """
+
+    assert "status" in PatchTicket.model_fields
+    assert "status" not in PostTicket.model_fields
+
+
+def test_patch_ticket_serialises_status_as_a_bare_integer() -> None:
+    """The enum leaves as ``{"status": 5}``, the spelling GLPI honours.
+
+    The nested ``{"id": 5}`` form is accepted by the server too, but the
+    integer is what an ``IntEnum`` renders in JSON mode and what the live
+    probe measured moving a ticket. ``status_id`` is *not* honoured, so a
+    round trip through this model must not produce it.
+    """
+
+    ticket = PatchTicket(status=GlpiTicketStatus.SOLVED)
+    body = ticket.model_dump(mode="json", exclude_none=True, exclude={"extra_payload"})
+    assert body == {"status": 5}
+
+
+def test_patch_ticket_rejects_a_status_outside_the_enum() -> None:
+    """An out-of-range status is refused here because GLPI refuses nothing.
+
+    Measured on a live instance: ``PATCH {"status": 99}`` answers 200 and
+    stores it. The ticket then reads back as ``{"id": 99, "name": "99"}``,
+    the web form shows it as *New*, and it vanishes from the ticket list
+    while remaining open -- only the history says what happened. This
+    model is the sole validation on that path, so a typo like ``55`` for
+    ``5`` has to fail loudly rather than lose the ticket.
+    """
+
+    with pytest.raises(ValidationError):
+        PatchTicket.model_validate({"status": 99})
 
 
 def test_delete_ticket_default() -> None:

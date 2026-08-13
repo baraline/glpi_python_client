@@ -1231,8 +1231,10 @@ Example 4 — Close a ticket with a solution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 GLPI moves a ticket to the *Solved* status as soon as a solution is
-posted, so adding a solution is the supported way to change the ticket
-status from the v2 API.
+posted, so this both records *how* the ticket was resolved and advances
+its lifecycle in one call. Prefer it over setting the status directly
+whenever there is a resolution to record — a status moved on its own
+leaves no trace of why.
 
 .. code-block:: python
 
@@ -1255,6 +1257,34 @@ Expected Markdown (abridged)::
    ### Solution #8
 
    Replaced the access point firmware.
+
+For the transitions that have no timeline record behind them — putting a
+ticket on hold, planning it, taking it back from *Solved* — set the
+status directly. ``PatchTicket`` carries a ``status`` field and
+``update_ticket`` sends it:
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiTicketStatus, PatchTicket
+
+   client.update_ticket(ticket_id, PatchTicket(status=GlpiTicketStatus.PENDING))
+
+The field lives on ``PatchTicket`` and deliberately not on
+``PostTicket``: GLPI ignores a status sent at creation time and the new
+ticket comes back as *New*, so a create argument for it would do
+nothing.
+
+.. warning::
+
+   ``status`` is typed as :class:`glpi_python_client.GlpiTicketStatus`
+   and rejects anything outside it, because the server accepts
+   everything and its interface hides the result. Writing ``99``
+   answers ``200`` and stores it; the API then reports
+   ``{"id": 99, "name": "99"}``, the web form displays the ticket as
+   *New*, and the ticket disappears from the ticket list while staying
+   open in the database — only the history records the change. A typo
+   such as ``55`` for ``5`` would lose a ticket with no error anywhere,
+   which is why the enum refuses it here.
 
 Example 5 — Upload a document to an existing ticket
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

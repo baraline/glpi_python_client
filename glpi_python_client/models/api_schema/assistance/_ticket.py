@@ -27,6 +27,7 @@ from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
 from glpi_python_client.models.api_schema.enums import (
     GlpiGlobalValidation,
     GlpiPriority,
+    GlpiTicketStatus,
     GlpiTicketType,
 )
 
@@ -228,9 +229,13 @@ class GetTicket(GlpiModel):
 class PostTicket(GlpiModel):
     """Request body for ``POST /Assistance/Ticket``.
 
-    Read-only contract fields are excluded. ``status`` is also excluded
-    because GLPI manages the ticket lifecycle through dedicated timeline
-    routes (followups, solutions, validation).
+    Read-only contract fields are excluded, and so is ``status`` -- not
+    because the contract marks it ``readOnly`` (it does, and it is wrong
+    about that: see :class:`PatchTicket`) but because GLPI 11 *ignores*
+    the field on create. Measured on a live instance: posting
+    ``{"status": 4}`` answers ``201`` and the new ticket reads back as
+    ``New``. Declaring it here would publish a create argument that does
+    nothing.
 
     Parameters
     ----------
@@ -321,10 +326,41 @@ class PostTicket(GlpiModel):
 class PatchTicket(PostTicket):
     """Request body for ``PATCH /Assistance/Ticket/{id}``.
 
-    The contract uses the same ``Ticket`` schema for create and
-    partial-update bodies; ``PatchTicket`` is kept distinct so client
-    mixins can express the intent of the operation explicitly.
+    Every :class:`PostTicket` field applies here too. ``status`` is the
+    one field this model adds, and the reason the two are no longer
+    interchangeable: GLPI honours a status write on ``PATCH`` and drops
+    it on ``POST``.
+
+    The contract disagrees, and it is worth knowing why the package used
+    to as well. GLPI publishes ``Ticket.status.id`` as ``readOnly: true``,
+    so the field was excluded on the stated grounds that the lifecycle
+    could only be moved through the timeline routes. Measured against a
+    live GLPI 11 instance, ``PATCH`` with ``{"status": 5}`` returns 200
+    and the ticket really does move -- the published contract is simply
+    wrong here, the same way it omits the ``Major`` level from
+    ``priority`` (see :class:`~glpi_python_client.GlpiPriority`).
+
+    ``status`` is typed as the enum rather than a bare ``int`` because
+    **GLPI validates nothing on this field and its interface hides the
+    damage**. Writing ``99`` answers 200 and stores it: the API then
+    reports ``{"id": 99, "name": "99"}``, the web form displays the
+    ticket as *New*, and the ticket disappears from the ticket list
+    while staying open in the database. Only the history records what
+    happened. A typo such as ``55`` for ``5`` therefore loses a ticket
+    silently, and this enum is the only thing on the path that can catch
+    it.
+
+    Parameters
+    ----------
+    status : GlpiTicketStatus | None, optional
+        Lifecycle status to move the ticket to (``1`` New, ``2``
+        Assigned, ``3`` Planned, ``4`` Pending, ``5`` Solved, ``6``
+        Closed, ``10`` Validation). Serialises to the bare integer form,
+        which is the spelling measured as honoured; the nested
+        ``{"id": ...}`` form works too, but ``status_id`` does not.
     """
+
+    status: GlpiTicketStatus | None = None
 
 
 class DeleteTicket(GlpiModel):

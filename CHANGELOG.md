@@ -49,6 +49,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`PatchTicket.status`** — ticket status is writable after all, typed
+  `GlpiTicketStatus | None`:
+
+  ```python
+  client.update_ticket(ticket_id, PatchTicket(status=GlpiTicketStatus.PENDING))
+  ```
+
+  The field had been excluded on the grounds that GLPI "manages the ticket
+  lifecycle through dedicated timeline routes", which is what the contract
+  says: it publishes `Ticket.status.id` as `readOnly: true`. Measured against
+  a live GLPI 11 instance, that is wrong — `PATCH` with `{"status": 5}`
+  answers 200 and the ticket moves. Same failure mode as the `Major` priority
+  level the contract omits: observed server behaviour wins.
+
+  It is declared on `PatchTicket` and **not** on `PostTicket`, because the two
+  routes genuinely differ — `POST` with a status answers 201 and creates a
+  *New* ticket, dropping the field. A create argument for it would have done
+  nothing. `status_id` is likewise ignored; `status` is the spelling that
+  works.
+
+  The annotation is the enum rather than `int` deliberately. GLPI validates
+  nothing here: `{"status": 99}` answers 200 and stores it, after which the
+  API reports `{"id": 99, "name": "99"}`, the web form displays the ticket as
+  *New*, and the ticket vanishes from the ticket list while remaining open in
+  the database — only the history records the change. A typo like `55` for
+  `5` would lose a ticket in silence, so this model is the only validation on
+  the path. `GetTicket.status` stays the permissive `IdNameRef`, since a
+  strict enum on the read side would fail a whole search over one bad row.
+
 - **`glpi_python_client.rsql`** — public date builders for the v2 filter
   grammar: `created_between`, `date_window` and `changed_since`, all exported
   from the package root. The end-of-day detail on a window's upper bound is

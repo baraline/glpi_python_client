@@ -19,6 +19,8 @@ from glpi_python_client import (
     GlpiClient,
     GlpiStatusError,
     GlpiTicketContext,
+    GlpiTicketStatus,
+    PatchTicket,
     PostFollowup,
     PostLocation,
     PostSolution,
@@ -384,6 +386,64 @@ def test_example_close_ticket_with_solution(client: GlpiClient) -> None:
         rendered = context.to_markdown()
         assert f"### Solution #{solution_id}" in rendered
         assert f"resolution note {suffix}" in rendered
+    finally:
+        client.delete_ticket(ticket_id, force=True)
+
+
+def test_update_ticket_moves_the_status(client: GlpiClient) -> None:
+    """``PatchTicket.status`` really moves the ticket on the live server.
+
+    This is the assertion the model change rests on, and it has to be made
+    against a live instance: GLPI publishes ``Ticket.status.id`` as
+    ``readOnly: true`` in its own contract, so nothing offline can tell
+    that the write works. The v2 API is also fail-open -- it answers 200
+    to fields it does not recognise -- which is why the ticket is read
+    back rather than the HTTP status trusted.
+    """
+
+    suffix = _suffix()
+    ticket_id = client.create_ticket(
+        PostTicket(
+            name=f"itest-status-{suffix}",
+            content=f"status write body {suffix}",
+        )
+    )
+    try:
+        created = client.get_ticket(ticket_id)
+        assert created.status is not None
+        assert created.status.id == int(GlpiTicketStatus.NEW)
+
+        client.update_ticket(ticket_id, PatchTicket(status=GlpiTicketStatus.PENDING))
+
+        moved = client.get_ticket(ticket_id)
+        assert moved.status is not None
+        assert moved.status.id == int(GlpiTicketStatus.PENDING)
+    finally:
+        client.delete_ticket(ticket_id, force=True)
+
+
+def test_create_ticket_cannot_set_the_status(client: GlpiClient) -> None:
+    """GLPI drops a status sent at create time, which is why POST omits it.
+
+    ``PostTicket`` funnels the unknown key into ``extra_payload`` and
+    forwards it verbatim, so this exercises exactly what a caller reaching
+    for the escape hatch would send. The server answers 201 and the new
+    ticket is ``New`` regardless -- the reason ``status`` is declared on
+    ``PatchTicket`` alone.
+    """
+
+    suffix = _suffix()
+    ticket_id = client.create_ticket(
+        PostTicket(
+            name=f"itest-status-create-{suffix}",
+            content=f"status create body {suffix}",
+            extra_payload={"status": int(GlpiTicketStatus.PENDING)},
+        )
+    )
+    try:
+        created = client.get_ticket(ticket_id)
+        assert created.status is not None
+        assert created.status.id == int(GlpiTicketStatus.NEW)
     finally:
         client.delete_ticket(ticket_id, force=True)
 
