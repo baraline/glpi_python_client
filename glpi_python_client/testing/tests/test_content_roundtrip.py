@@ -9,12 +9,14 @@ that keep ``exclude_none`` semantics and non-HTML payloads stable.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from functools import cached_property
 
 import pytest
 
 from glpi_python_client._sync.clients.commons._payloads import model_to_payload
 from glpi_python_client.content import conversion
+from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema.assistance import (
     GetTicket,
     PatchTicket,
@@ -230,9 +232,12 @@ def test_round_trip_corpus(markdown: str) -> None:
 
 #: Every read model with a content slot, and the fields on each.
 #:
-#: Named explicitly rather than discovered, so that adding a read model with
-#: a content field and forgetting the property is a failure here rather than
-#: a silently eager model.
+#: Named explicitly so each case reads as itself, with the *completeness* of
+#: the list asserted separately by
+#: :func:`test_every_read_model_with_a_raw_slot_is_covered_here`. The list
+#: on its own cannot give that guarantee -- a read model nobody adds to it
+#: is a model these cases never mention, which is silence, not a failure --
+#: and it claimed to for a while.
 READ_CONTENT_MODELS = [
     pytest.param(GetTicket, ["content"], id="GetTicket"),
     pytest.param(GetFollowup, ["content"], id="GetFollowup"),
@@ -382,3 +387,63 @@ def test_reading_content_off_a_write_model_still_works() -> None:
     assert ticket.content == "The printer is **offline**."
     assert "content" in PostTicket.model_fields
     assert not hasattr(ticket, "content_html")
+
+
+def _model_subclasses() -> list[type]:
+    """Return every ``GlpiModel`` subclass the api_schema package defines."""
+
+    def walk(cls: type) -> Iterator[type]:
+        for sub in cls.__subclasses__():
+            yield sub
+            yield from walk(sub)
+
+    return sorted(set(walk(GlpiModel)), key=lambda cls: cls.__name__)
+
+
+def test_every_read_model_with_a_raw_slot_is_covered_here() -> None:
+    """Discovery, so a seventh read model cannot arrive uncovered.
+
+    ``READ_CONTENT_MODELS`` is hand-written, and a hand-written list cannot
+    notice a model that is missing from it. This walks the class tree
+    instead: every ``Get*`` model carrying a ``<slot>_html`` field must
+    appear above, with that slot named.
+    """
+
+    listed = {param.values[0]: set(param.values[1]) for param in READ_CONTENT_MODELS}
+    for model_cls in _model_subclasses():
+        if not model_cls.__name__.startswith("Get"):
+            continue
+        raw = {
+            name[: -len("_html")]
+            for name in model_cls.model_fields
+            if name.endswith("_html")
+        }
+        if not raw:
+            continue
+        assert model_cls in listed, (
+            f"{model_cls.__name__} has raw slots {sorted(raw)} and is not in "
+            "READ_CONTENT_MODELS"
+        )
+        assert listed[model_cls] == raw, (
+            f"{model_cls.__name__} declares {sorted(raw)} but the list says "
+            f"{sorted(listed[model_cls])}"
+        )
+
+
+def test_no_read_model_anywhere_declares_a_converted_slot_as_a_field() -> None:
+    """The shadowing guard, applied to every read model rather than six.
+
+    A field named ``content`` or ``description`` on a ``Get*`` model would
+    shadow the ``cached_property`` silently and hand back raw HTML, and the
+    six-model version of this check could not see a seventh.
+    """
+
+    for model_cls in _model_subclasses():
+        if not model_cls.__name__.startswith("Get"):
+            continue
+        for slot in ("content", "description"):
+            if f"{slot}_html" not in model_cls.model_fields:
+                continue
+            assert slot not in model_cls.model_fields, (
+                f"{model_cls.__name__}.{slot} is a field and shadows its property"
+            )
