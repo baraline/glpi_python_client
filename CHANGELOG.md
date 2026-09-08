@@ -156,9 +156,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     />TAIL</p>"` lost `TAIL` outright, and `<img>` and `<hr>` lost their
     tails the same way.
   - **A document the parser rejects now degrades instead of raising.**
-    `<![FOO[` makes `_markupbase` raise `AssertionError`, which `bs4`
-    re-raises as `ParserRejectedMarkup`; the caller used to get a
+    `<![FOO[` makes `_markupbase` raise `AssertionError` on the
+    interpreters where that keyword is unknown — 3.10 through 3.12.11 as
+    measured, no longer 3.12.14 — and `bs4` re-raises it as
+    `ParserRejectedMarkup`. Where it happens, the caller used to get a
     `GlpiContentError` and none of their text, and now gets their words.
+
+  Note that `html.parser`'s reading of a *malformed* construct is not
+  stable across CPython patch releases: the same three builds disagree
+  about an unterminated `<script>`, a comment with no `-->` and an end
+  tag carrying a quoted `>`. The scan tracks the parser rather than a
+  snapshot of it, so the depth decision stays correct on every version,
+  but the exact text a broken construct contributes to a degraded body is
+  the interpreter's. Well-formed content is unaffected.
   - **A processing instruction no longer leaves `<?` and `>` in the
     degraded text.** The converting path prints the body alone, so this
     does too.
