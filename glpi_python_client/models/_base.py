@@ -20,6 +20,8 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import (
+    AliasChoices,
+    AliasPath,
     BaseModel,
     ConfigDict,
     Field,
@@ -38,6 +40,67 @@ from pydantic import (
 #: :meth:`GlpiModel._localise_naive_datetimes`.
 SERVER_TIMEZONE_CONTEXT_KEY = "server_timezone"
 
+#: Per-class cache of the payload keys that map onto a declared field.
+#:
+#: One entry per :class:`GlpiModel` subclass ever validated, computed once.
+#: Worth caching rather than recomputing: it is read once per record, so on
+#: a page of search results it is read once per row per model.
+_PAYLOAD_KEYS: dict[type[BaseModel], frozenset[str]] = {}
+
+
+def _payload_keys(model_class: type[BaseModel]) -> frozenset[str]:
+    """Return every payload key that maps onto a declared field.
+
+    Field *names* are not the whole answer, because a field may be fed by a
+    validation alias instead -- the read models take the wire's ``content``
+    into a field called ``content_html``. Comparing incoming keys against
+    names alone put that ``content`` in ``extra_payload`` before Pydantic
+    could resolve the alias, so the body silently arrived as ``None``.
+
+    All three alias shapes are covered. ``alias=`` and ``validation_alias=``
+    are both valid spellings of the same thing, an
+    :class:`~pydantic.AliasChoices` holds a list of either strings or
+    :class:`~pydantic.AliasPath` objects, and only the *first* segment of an
+    ``AliasPath`` is a key of the incoming mapping -- the rest index into
+    the value.
+
+    Parameters
+    ----------
+    model_class : type of pydantic.BaseModel
+        The concrete model class whose payload keys are wanted.
+
+    Returns
+    -------
+    frozenset of str
+        Field names plus every key any of their aliases can consume.
+    """
+
+    cached = _PAYLOAD_KEYS.get(model_class)
+    if cached is not None:
+        return cached
+
+    keys = set(model_class.model_fields)
+    pending: list[str | AliasPath | AliasChoices] = []
+    for field in model_class.model_fields.values():
+        if field.validation_alias is not None:
+            pending.append(field.validation_alias)
+        if field.alias is not None:
+            pending.append(field.alias)
+    while pending:
+        candidate = pending.pop()
+        if isinstance(candidate, str):
+            keys.add(candidate)
+        elif isinstance(candidate, AliasChoices):
+            pending.extend(candidate.choices)
+        else:
+            head = candidate.path[0]
+            if isinstance(head, str):
+                keys.add(head)
+
+    resolved = frozenset(keys)
+    _PAYLOAD_KEYS[model_class] = resolved
+    return resolved
+
 
 class GlpiModel(BaseModel):
     """Base class for field-validated GLPI data models.
@@ -55,16 +118,21 @@ class GlpiModel(BaseModel):
     def _capture_unknown_fields(cls, data: Any) -> Any:
         """Funnel unknown payload keys into ``extra_payload``.
 
-        The validator only runs when ``data`` is a mapping. Keys that are
-        not declared as fields on the concrete subclass (and are not the
-        ``extra_payload`` meta field itself) are removed from the incoming
-        mapping and merged into the ``extra_payload`` mapping. Any keys the
-        caller already placed in ``extra_payload`` win on conflicts.
+        The validator only runs when ``data`` is a mapping. Keys that no
+        declared field on the concrete subclass can consume (and that are
+        not the ``extra_payload`` meta field itself) are removed from the
+        incoming mapping and merged into the ``extra_payload`` mapping. Any
+        keys the caller already placed in ``extra_payload`` win on
+        conflicts.
+
+        "Can consume" means field names *and* validation aliases -- see
+        :func:`_payload_keys`. This validator runs before Pydantic resolves
+        aliases, so a key it removes is a key the alias never gets to see.
         """
 
         if not isinstance(data, dict):
             return data
-        known = set(cls.model_fields.keys())
+        known = _payload_keys(cls)
         existing_extras = data.get("extra_payload")
         captured: dict[str, Any] = {}
         for key in list(data.keys()):

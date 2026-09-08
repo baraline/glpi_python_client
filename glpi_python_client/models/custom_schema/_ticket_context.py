@@ -238,6 +238,18 @@ class GlpiTicketContext(GlpiModel):
             Markdown transcript suitable for direct display or for
             forwarding into a downstream Markdown renderer. The string
             never ends with trailing whitespace.
+
+        Raises
+        ------
+        GlpiContentError
+            One of the bodies could not be converted from GLPI's HTML.
+            This is where the read models' HTML-to-Markdown conversion
+            actually happens -- they hold the wire value and convert on
+            first read, and this method is normally the first reader.
+            Content nested past
+            :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`
+            is degraded to plain text rather than raising, so this is a
+            backstop rather than an expected outcome.
         """
 
         opts = options if options is not None else TicketMarkdownOptions()

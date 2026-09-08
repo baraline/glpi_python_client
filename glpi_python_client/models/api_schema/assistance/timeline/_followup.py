@@ -5,17 +5,26 @@ The endpoints live under
 ``components.schemas.Followup`` from the GLPI OpenAPI contract.
 
 Read-only contract fields (``id``) are excluded from request models.
-``content`` is exchanged as HTML; HTML/Markdown conversion is left to the
-client transport layer.
+``content`` is exchanged as HTML. The write models accept Markdown and
+render it on serialisation; the read model stores the wire value in
+``content_html`` and exposes Markdown through the ``content`` property,
+converting on first read. See
+:mod:`glpi_python_client.models.api_schema._content` for why the two
+directions differ.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
-from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
+from glpi_python_client.models.api_schema._content import (
+    GlpiMarkdownContent,
+    GlpiRawContent,
+    markdown_view,
+)
 from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
 
 
@@ -34,10 +43,10 @@ class GetFollowup(GlpiModel):
         GLPI item type the followup belongs to, typically ``"Ticket"``.
     items_id : int | None, optional
         Identifier of the parent GLPI item.
-    content : GlpiMarkdownContent
-        Body of the followup exchanged as HTML over the wire
-        (``format: html``); transparent Markdown conversion is applied
-        on the model boundary. Defaults to :data:`None`.
+    content_html : GlpiRawContent
+        Body of the followup exactly as GLPI sent it, which is HTML
+        (``format: html``). Accepts the wire spelling ``content`` too.
+        Read :attr:`content` for Markdown. Defaults to :data:`None`.
     is_private : bool | None, optional
         Whether the followup is visible only to technicians.
     user : IdNameRef | None, optional
@@ -69,7 +78,7 @@ class GetFollowup(GlpiModel):
     id: int | None = None
     itemtype: str | None = None
     items_id: int | None = None
-    content: GlpiMarkdownContent = None
+    content_html: GlpiRawContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
@@ -80,6 +89,18 @@ class GetFollowup(GlpiModel):
     timeline_position: GlpiTimelinePosition | None = None
     source_item_id: int | None = None
     source_of_item_id: int | None = None
+
+    @cached_property
+    def content(self) -> str | None:
+        """The followup body as Markdown, or ``None`` if GLPI sent none.
+
+        Converted from ``content_html`` on the first read and cached, so
+        reading a ticket's timeline costs nothing per body and a body that
+        cannot be converted affects only this record. ``content_html``
+        holds the HTML exactly as it arrived.
+        """
+
+        return markdown_view(self.content_html)
 
 
 class PostFollowup(GlpiModel):

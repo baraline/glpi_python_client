@@ -9,21 +9,30 @@ contract. Read-only fields (``id``, ``actiontime``, ``begin_waiting_date``,
 ``internal_resolution_date``, ``internal_take_into_account_date``) are
 excluded from the request models.
 
-Ticket ``content`` is exchanged with GLPI as HTML (``format: html``). The
-schema models the raw transport string; HTML/Markdown conversion belongs
-to the client layer.
+Ticket ``content`` is exchanged with GLPI as HTML (``format: html``).
+:class:`PostTicket` and :class:`PatchTicket` accept Markdown and render it
+on serialisation; :class:`GetTicket` stores the wire value in
+``content_html`` and exposes Markdown through the ``content`` property,
+converting on first read. See
+:mod:`glpi_python_client.models.api_schema._content` for why the two
+directions differ.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import (
     IdNameCompletenameRef,
     IdNameRef,
 )
-from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
+from glpi_python_client.models.api_schema._content import (
+    GlpiMarkdownContent,
+    GlpiRawContent,
+    markdown_view,
+)
 from glpi_python_client.models.api_schema.enums import (
     GlpiGlobalValidation,
     GlpiPriority,
@@ -70,10 +79,10 @@ class GetTicket(GlpiModel):
         Native GLPI identifier (``readOnly``).
     name : str | None, optional
         Title of the ticket.
-    content : GlpiMarkdownContent
-        Body of the ticket exchanged as HTML over the wire
-        (``format: html``); transparent Markdown conversion is applied
-        on the model boundary. Defaults to :data:`None`.
+    content_html : GlpiRawContent
+        Body of the ticket exactly as GLPI sent it, which is HTML
+        (``format: html``). Accepts the wire spelling ``content`` too.
+        Read :attr:`content` for Markdown. Defaults to :data:`None`.
     user_recipient : IdNameRef | None, optional
         Reference to the user designated as the ticket recipient (no
         contract description).
@@ -183,7 +192,7 @@ class GetTicket(GlpiModel):
 
     id: int | None = None
     name: str | None = None
-    content: GlpiMarkdownContent = None
+    content_html: GlpiRawContent = None
     user_recipient: IdNameRef | None = None
     user_editor: IdNameRef | None = None
     is_deleted: bool | None = None
@@ -224,6 +233,18 @@ class GetTicket(GlpiModel):
     status: IdNameRef | None = None
     entity: IdNameCompletenameRef | None = None
     team: list[_TicketTeamMember] | None = None
+
+    @cached_property
+    def content(self) -> str | None:
+        """The ticket body as Markdown, or ``None`` if GLPI sent none.
+
+        Converted from ``content_html`` on the first read and cached, so
+        listing tickets costs nothing per body and a body that cannot be
+        converted affects only this record. ``content_html`` holds the HTML
+        exactly as it arrived.
+        """
+
+        return markdown_view(self.content_html)
 
 
 class PostTicket(GlpiModel):

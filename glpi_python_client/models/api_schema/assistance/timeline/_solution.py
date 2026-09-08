@@ -5,17 +5,26 @@ The endpoints live under
 ``components.schemas.Solution`` from the GLPI OpenAPI contract.
 
 Read-only contract fields (``id``) are excluded from request models.
-``content`` is exchanged as HTML; HTML/Markdown conversion is left to the
-client transport layer.
+``content`` is exchanged as HTML. The write models accept Markdown and
+render it on serialisation; the read model stores the wire value in
+``content_html`` and exposes Markdown through the ``content`` property,
+converting on first read. See
+:mod:`glpi_python_client.models.api_schema._content` for why the two
+directions differ.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
-from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
+from glpi_python_client.models.api_schema._content import (
+    GlpiMarkdownContent,
+    GlpiRawContent,
+    markdown_view,
+)
 from glpi_python_client.models.api_schema.enums import GlpiSolutionStatus
 
 
@@ -35,10 +44,10 @@ class GetSolution(GlpiModel):
         Identifier of the parent GLPI item.
     type : IdNameRef | None, optional
         Reference to the solution type.
-    content : GlpiMarkdownContent
-        Body of the solution exchanged as HTML over the wire
-        (``format: html``); transparent Markdown conversion is applied
-        on the model boundary. Defaults to :data:`None`.
+    content_html : GlpiRawContent
+        Body of the solution exactly as GLPI sent it, which is HTML
+        (``format: html``). Accepts the wire spelling ``content`` too.
+        Read :attr:`content` for Markdown. Defaults to :data:`None`.
     user : IdNameRef | None, optional
         Reference to the author of the solution.
     user_editor : IdNameRef | None, optional
@@ -66,7 +75,7 @@ class GetSolution(GlpiModel):
     itemtype: str | None = None
     items_id: int | None = None
     type: IdNameRef | None = None
-    content: GlpiMarkdownContent = None
+    content_html: GlpiRawContent = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
     approver: IdNameRef | None = None
@@ -75,6 +84,18 @@ class GetSolution(GlpiModel):
     date_creation: datetime | None = None
     date_mod: datetime | None = None
     date_approval: datetime | None = None
+
+    @cached_property
+    def content(self) -> str | None:
+        """The solution body as Markdown, or ``None`` if GLPI sent none.
+
+        Converted from ``content_html`` on the first read and cached, so
+        reading a ticket's timeline costs nothing per body and a body that
+        cannot be converted affects only this record. ``content_html``
+        holds the HTML exactly as it arrived.
+        """
+
+        return markdown_view(self.content_html)
 
 
 class PostSolution(GlpiModel):

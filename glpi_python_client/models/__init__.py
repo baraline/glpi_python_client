@@ -3,9 +3,10 @@
 The models are organised in two layers:
 
 * :mod:`glpi_python_client.models.api_schema` -- raw Pydantic shapes that
-  mirror ``docs/glpi_api_contract.json`` one for one. One model per HTTP
-  verb is exposed under the ``Get<Name>``, ``Post<Name>``, ``Patch<Name>``
-  and ``Delete<Name>`` naming convention. Use these models from new client
+  mirror ``docs/glpi_api_contract.json`` one for one, apart from the
+  rich-text slots documented there. One model per HTTP verb is exposed
+  under the ``Get<Name>``, ``Post<Name>``, ``Patch<Name>`` and
+  ``Delete<Name>`` naming convention. Use these models from new client
   mixins.
 * :mod:`glpi_python_client.models.custom_schema` -- aggregated views, such
   as :class:`GlpiTicketContext`, that group several API objects into one

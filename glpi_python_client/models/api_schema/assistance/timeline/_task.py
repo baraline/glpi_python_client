@@ -5,17 +5,26 @@ field layout mirrors ``components.schemas.TicketTask`` from the GLPI
 OpenAPI contract.
 
 Read-only contract fields (``id``, ``uuid``) are excluded from request
-models. ``content`` is exchanged as HTML; HTML/Markdown conversion is left
-to the client transport layer.
+models. ``content`` is exchanged as HTML. The write models accept Markdown
+and render it on serialisation; the read model stores the wire value in
+``content_html`` and exposes Markdown through the ``content`` property,
+converting on first read. See
+:mod:`glpi_python_client.models.api_schema._content` for why the two
+directions differ.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
-from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
+from glpi_python_client.models.api_schema._content import (
+    GlpiMarkdownContent,
+    GlpiRawContent,
+    markdown_view,
+)
 from glpi_python_client.models.api_schema.enums import (
     GlpiTaskState,
     GlpiTimelinePosition,
@@ -37,10 +46,10 @@ class GetTicketTask(GlpiModel):
         Server-generated universally unique identifier matching the
         pattern ``/^[0-9a-f]{8}-...-4...-[89ab]...-...$/i``
         (``readOnly``).
-    content : GlpiMarkdownContent
-        Body of the task exchanged as HTML over the wire
-        (``format: html``); transparent Markdown conversion is applied
-        on the model boundary. Defaults to :data:`None`.
+    content_html : GlpiRawContent
+        Body of the task exactly as GLPI sent it, which is HTML
+        (``format: html``). Accepts the wire spelling ``content`` too.
+        Read :attr:`content` for Markdown. Defaults to :data:`None`.
     is_private : bool | None, optional
         Whether the task is visible only to technicians.
     user : IdNameRef | None, optional
@@ -86,7 +95,7 @@ class GetTicketTask(GlpiModel):
 
     id: int | None = None
     uuid: str | None = None
-    content: GlpiMarkdownContent = None
+    content_html: GlpiRawContent = None
     is_private: bool | None = None
     user: IdNameRef | None = None
     user_editor: IdNameRef | None = None
@@ -104,6 +113,18 @@ class GetTicketTask(GlpiModel):
     tickets_id: int | None = None
     source_item_id: int | None = None
     source_of_item_id: int | None = None
+
+    @cached_property
+    def content(self) -> str | None:
+        """The task body as Markdown, or ``None`` if GLPI sent none.
+
+        Converted from ``content_html`` on the first read and cached, so
+        reading a ticket's timeline costs nothing per body and a body that
+        cannot be converted affects only this record. ``content_html``
+        holds the HTML exactly as it arrived.
+        """
+
+        return markdown_view(self.content_html)
 
 
 class PostTicketTask(GlpiModel):
