@@ -123,10 +123,68 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **A body of nothing but `<div a="` cost O(n²).** 32 KB took 6.6 s. `re`
   restarts at every `<` where `html.parser` buffers an incomplete tag and
   never looks back. No `>` anywhere means no element anywhere, so that is
-  now answered in constant time. The remaining non-linear shape is
-  documented rather than papered over: bounding the attribute repetition
-  would make a tag past the bound fail to match, which is an *under*-count
-  and unbounded once such tags nest.
+  now answered in constant time. The pattern's remaining non-linear
+  shapes turned out to be exponential rather than quadratic, and are gone
+  with the pattern itself — see the entry below.
+
+- **The markup scan imitated `html.parser` instead of using it, and was
+  wrong in five unbounded ways at once.** A third adversarial round found
+  that the pattern reproducing the parser's dispatch disagreed with the
+  parser on: a comment closing on `--\s*>` rather than only `-->`; `</
+  script>` ending raw text; `<![IGNORE[` opening a marked section; `</ div
+  foo>` being a bogus comment rather than an end tag; and `<a href=/>` —
+  an ordinary root-relative link — leaving the element *open*, because the
+  unquoted value swallows the `/`. Each made a document measure one level
+  deep where the real tree was hundreds, so `'<a href=/>' * 494` cleared
+  the ceiling and raised. Two further findings were cost: a run of
+  whitespace inside a failing tag made the attribute pattern backtrack as
+  `(a+)*`, and a 39-byte body took 20.8 s.
+
+  The pattern is gone. Depth, void-tag canonicalisation and the degraded
+  rendering now come from one pass of an `html.parser` subclass — the same
+  parser `bs4` uses, so this cannot be wrong about the parser and is not a
+  new dependency or a new risk. Every pathology `html.parser` has was
+  already in the pipeline: measured on the shapes that made the pattern
+  backtrack, the `markdownify` call costs what the scan costs, to within a
+  few per cent.
+
+  Three consequences beyond the five defects:
+
+  - **A derailed scan silently reinstated the `<br>` data loss fixed
+    below**, because the void-tag workaround read the same pattern.
+    Measured, `"<p>one<br>two</p><script>x</ script><p>three<br
+    />TAIL</p>"` lost `TAIL` outright, and `<img>` and `<hr>` lost their
+    tails the same way.
+  - **A document the parser rejects now degrades instead of raising.**
+    `<![FOO[` makes `_markupbase` raise `AssertionError`, which `bs4`
+    re-raises as `ParserRejectedMarkup`; the caller used to get a
+    `GlpiContentError` and none of their text, and now gets their words.
+  - **A processing instruction no longer leaves `<?` and `>` in the
+    degraded text.** The converting path prints the body alone, so this
+    does too.
+
+  Cost, end to end and on identical output: 0.77x to 1.52x of the previous
+  implementation on realistic bodies — faster on sparse prose, where the
+  scan is four times quicker than the pattern was — and the guard stays 6
+  to 18% of the `markdownify` call it protects. The exponential shapes are
+  flat: 39 bytes of the whitespace bomb went from 20.8 s to 0.12 ms, and
+  20 KB of it costs 0.67 ms.
+
+  The one shape where `html.parser` is worse than linear is a document
+  carrying no `>` at all, where `close()` advances a character at a time
+  and rescans the tail: 32 KB costs it 13 s. That is answered in constant
+  time by the guard already present for the pattern's own O(n²) on the
+  same input, and is unreachable from `from_transport`, which needs a `>`
+  to find an element at all.
+
+  Re-fuzzed against a ground-truth walk of the tree `bs4` really builds,
+  over an alphabet carrying every construct all three rounds raised —
+  including the four whose absence is why the previous 10.5M-document
+  corpus could not have found these: `-- >`, `</ script>`, `<![IGNORE[`
+  and runs of whitespace and quotes inside a tag. **470000 documents, 0
+  depth under-counts, 0 prose losses, 0 crashes**, plus 60000 hostile
+  documents through `from_transport` with nothing but `GlpiError`
+  escaping.
 
 - **`GlpiContentError` did not survive the write path.** Outbound
   conversion runs in a `PlainSerializer`, and pydantic-core catches

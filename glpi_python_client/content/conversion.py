@@ -17,6 +17,7 @@ import re
 from collections import Counter
 from html import unescape
 from html.entities import html5 as _HTML5_REFERENCES
+from html.parser import HTMLParser
 
 from markdown import markdown as markdown_to_html
 from markdownify import markdownify as html_to_markdown
@@ -144,131 +145,6 @@ _BLOCK_ELEMENTS = frozenset(
 #: the input is the fix that does not.
 MAX_HTML_DEPTH = 200
 
-#: Every markup construct, in the order ``html.parser`` dispatches them.
-#:
-#: One alternation rather than a sequence of substitutions, because the
-#: parser reads left to right and the constructs overlap: in
-#: ``<?php x<!-- <div><div> -->`` the processing instruction ends at the
-#: first ``>``, which lands *inside* what looks like a comment, and the
-#: ``<div>`` after it is a real element. Removing comments globally first
-#: gets that document wrong in both directions. ``finditer`` consumes each
-#: match before looking for the next, so a single pattern reproduces the
-#: dispatch for free; the branch order is the parser's own.
-#:
-#: The branches, in order:
-#:
-#: 1. A terminated comment. First, so a legitimate comment containing
-#:    ``>`` is not cut short by branch 3.
-#: 2. A ``CDATA`` section, capturing its body -- the parser keeps that
-#:    body as text, and branch 3 would swallow it.
-#: 3. A doctype, an unterminated comment, a bogus or malformed
-#:    declaration, or a processing instruction, consumed through its first
-#:    ``>``. Measured on the parser: ``<custom><!--oops</custom><br>``
-#:    puts the ``<br>`` *inside* ``custom``, because ``</custom>`` fell in
-#:    the bogus comment and became text -- so reading that ``</custom>``
-#:    as a real close under-counts, the one error that ends in a
-#:    ``RecursionError``. Conversely ``<!--oops><div><div>`` really is two
-#:    levels: recovery ends at the ``>``, it does not swallow the rest of
-#:    the document. Trailing ``>?`` covers running to end-of-input.
-#: 4. A ``<script>`` or ``<style>`` element with its body, closed or not.
-#:    Its content is raw text to the parser, so no tag inside it counts;
-#:    ``strip=["script", "style"]`` discards both on the normal path, so
-#:    the degraded path discards them too. The ``$`` alternative covers an
-#:    unclosed one, whose body the parser also reads to the end as text.
-#: 5. An end tag, which runs to its **first** ``>`` and skips nothing.
-#:    ``parse_endtag`` falls back to ``rawdata.find(">", ...)`` when its
-#:    strict pattern fails, and CPython's own comment there concedes the
-#:    consequence: "this is not 100% correct, since we might have things
-#:    like ``</tag attr=">">``". So the parser makes three tokens of
-#:    ``</x a="><div>">`` -- an end tag, a real ``<div>`` and some text --
-#:    where reading it with attribute rules makes one. That mattered:
-#:    every repetition closed nothing and opened a ``<div>`` that never
-#:    closed, so ``'</x a="><div>">' * 600`` measured **0** against a real
-#:    600 and raised. It also has to allow ``</ p>``, since the strict
-#:    pattern starts ``</\s*``.
-#: 6. A start tag. The ``<`` must abut the name, matching what the parser
-#:    accepts -- which is what keeps ``2 < 3 > 1`` and ``x <= y`` text: a
-#:    space after ``<`` means no tag, so arithmetic never reaches the HTML
-#:    path in the first place.
-#:
-#: Branches 4 and 6 read attributes with :data:`_ATTRIBUTES` rather than
-#: ``[^<>]*``, because an attribute value may legally contain ``<`` and
-#: ``>``. Skipping over quotes is not cosmetic: measured,
-#: ``'<div title="</div>">' * 600`` used to measure **0** levels deep when
-#: the parser builds 600, because the quoted ``</div>`` was read as a real
-#: close. That document went to ``markdownify`` and raised -- the one
-#: direction of error the ceiling exists to prevent.
-#:
-#: Two further rules, both taken from the parser rather than guessed, and
-#: both wrong in an earlier revision of this module.
-#:
-#: A quote only opens a value when it is the first character after the
-#: ``=``: ``attrfind_tolerant`` spells the bare alternative
-#: ``(?!['"])[^>\s]*``, so ``<p title=don't>`` carries the value ``don't``
-#: and ends at its ``>``, and an unquoted value may hold ``<`` as well.
-#: Reading that apostrophe as an opening quote ran the value on to the next
-#: apostrophe in the document and the tag then failed to match at all:
-#: measured, ``"<div>" * 300 + "<p title=don't>Le serveur ne repond
-#: plus.</p>"`` degraded to ``"<p title=don't>Le serveur ne repond plus."``
-#: -- the opening tag emitted verbatim into text a reader sees, and markup
-#: in an output this module promises holds none. Apostrophes are ordinary
-#: in the French an editor types.
-#:
-#: The leading lookahead is the other half: the parser will not read a tag
-#: at all unless whitespace, ``/`` or ``>`` follows the name, because
-#: ``attrfind_tolerant`` only starts an attribute after ``['"\s/]`` and
-#: ``parse_starttag`` then discards a start tag whose remainder is not
-#: ``>`` or ``/>``. So ``<style=>`` is *data* to the parser, not an
-#: element. Accepting it here was the worse direction of the same mistake:
-#: it entered raw-text mode, swallowed the rest of the document, and
-#: ``"<style=>" + "<div>" * 600`` measured **1** level against a real 601
-#: -- through ``markdownify`` and into the ``RecursionError`` the ceiling
-#: exists to prevent. A malformed ``<custom=>`` costs nothing, but the
-#: raw-text names make it unbounded, so the gate belongs on both branches.
-#:
-#: Which makes the shape below a *sequence of attributes* rather than a
-#: run of permitted characters, because only a real attribute can open a
-#: quoted value. The authority is ``locatestarttagend_tolerant``, which is
-#: what decides where a start tag ends; a value is reachable only through
-#: the name group ``(?<=['"\s/])[^\s/>][^\s/=>]*``, and an attribute name
-#: may itself begin with ``=`` and contain ``"`` and ``<``. So in
-#: ``<div ="<p><p>">`` the parser reads the attribute *name* ``="<p``,
-#: opens no value at all, and ends the tag at the first ``>``. Treating
-#: any ``=`` before a quote as a value indicator swallowed the rest:
-#: measured, ``'<div ="' + "<p>" * 600`` gave **1** level against a real
-#: 600, cleared the ceiling and raised. Whitespace between name and ``=``
-#: is fine (``<div a ="x>y">`` really does quote its value), which is why
-#: the name has to be matched rather than approximated by a lookbehind.
-#: One attribute value, as ``locatestarttagend_tolerant`` reads one.
-_ATTRIBUTE_VALUE = r"""(?:"[^"]*"|'[^']*'|(?!["'])[^\s>]*)"""
-
-#: One attribute: a name, then optionally ``=`` and a value.
-#:
-#: The leading lookbehind is the parser's own -- an attribute name starts
-#: only after a quote, whitespace or ``/`` -- and it is load-bearing twice
-#: over. It is what makes ``<div ="`` read as a name rather than a value,
-#: and it is what keeps this pattern from backtracking catastrophically:
-#: without it, ``[^\s/>][^\s/=>]*`` under the outer ``*`` below can split
-#: one run of name characters in exponentially many ways, and a 400-byte
-#: ``'<div a="' * 50`` did not finish. With it, a name can only begin
-#: where a delimiter precedes it, so there is nothing to split.
-_ATTRIBUTE = (
-    r"""(?<=['"\s/])[^\s/>][^\s/=>]*(?:\s*=+\s*""" + _ATTRIBUTE_VALUE + r""")?"""
-)
-
-_ATTRIBUTES = r"""(?=[\s/>])(?:[\s/]+|""" + _ATTRIBUTE + r""")*"""
-
-_MARKUP = re.compile(
-    r"<!--.*?-->"
-    r"|<!\[CDATA\[(?P<cdata>.*?)\]\]>"
-    r"|(?P<decl><[!?][^>]*>?)"
-    r"|<(?P<raw>script|style)" + _ATTRIBUTES + r"(?<!/)>"
-    r"(?P<rawbody>.*?)(?:</(?P=raw)\s*>|(?P<rawcut>$))"
-    r"|</\s*(?P<close>[a-zA-Z][^\t\n\r\f />\x00]*)[^>]*>"
-    r"|<(?P<name>[a-zA-Z][^\t\n\r\f />\x00]*)" + _ATTRIBUTES + r">",
-    re.DOTALL | re.IGNORECASE,
-)
-
 #: One character reference, with or without its terminating semicolon.
 #:
 #: Resolved by :func:`_resolve_references` rather than by ``html.unescape``
@@ -283,16 +159,9 @@ _CHARACTER_REFERENCE = re.compile(
     r"&(?:\#[0-9]+;?|\#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]*;?)"
 )
 
-#: A declaration the parser can resolve, whose text is therefore not text.
-#:
-#: ``html.parser`` turns ``<!DOCTYPE html>`` and ``<!anything>`` into a
-#: declaration node, which ``markdownify`` renders as nothing -- so
-#: :func:`_strip_tags` drops them too. Everything else matched by the
-#: ``decl`` branch (an unterminated comment, an unterminated marked
-#: section, a processing instruction) the parser hands back as character
-#: data and the converting path prints, so it is kept. Measured against
-#: the converting path, construct by construct.
-_RESOLVED_DECLARATION = re.compile(r"<!\s*[A-Za-z]")
+
+#: The ``/`` of a self-closing tag, with any space around it.
+_VOID_SELF_CLOSE = re.compile(r"\s*/\s*>$")
 
 
 def _resolve_references(text: str) -> str:
@@ -336,70 +205,315 @@ def _looks_like_html(content: str) -> bool:
     )
 
 
+class _ParserScan(HTMLParser):
+    """Walk a document with the parser that will convert it, not one like it.
+
+    Everything this module needs to know before it hands content to
+    ``markdownify`` -- how deep the tree will be, which self-closing void
+    tags to rewrite, and what the text is when the tree is too deep to
+    walk -- is a question about ``html.parser``'s dispatch. This subclass
+    asks ``html.parser`` instead of describing it.
+
+    It replaces a regular expression that reproduced that dispatch by
+    imitation. The imitation was wrong in five unbounded ways at once, and
+    each was found only after it shipped: a comment closes on ``--\\s*>``
+    and not only on ``-->``, ``</ script>`` ends raw text, ``<![IGNORE[``
+    opens a marked section, ``</ div foo>`` is a bogus comment rather than
+    an end tag, and ``<a href=/>`` leaves an element *open* because the
+    unquoted value swallows the ``/``. Each made a document measure one
+    level deep where the real tree was hundreds, which is the one error
+    that ends in the ``RecursionError`` :data:`MAX_HTML_DEPTH` exists to
+    prevent. Two more were cost rather than correctness: a run of
+    whitespace inside a failing tag made the attribute pattern backtrack
+    as ``(a+)*``, and a 62-byte body took 7.45 seconds.
+
+    Reading the parser's own event stream cannot be wrong about the
+    parser, so none of those remain judgement calls. It is also not a new
+    dependency nor a new risk: ``markdownify`` builds its tree with
+    ``bs4``, and ``bs4`` builds it with this same ``html.parser``, so
+    every pathology the parser has was already in the pipeline. Measured
+    on the shapes that made the pattern backtrack, the ``markdownify``
+    call costs what this scan costs, to within a few per cent.
+
+    ``convert_charrefs`` is ``False`` because that is what ``bs4`` passes
+    (in ``bs4.builder._htmlparser``), and the difference shows: with it
+    on, ``html.unescape`` consumes the longest *known* name, so
+    ``&copyright=2`` in a pasted URL loses its ``&copy``. Off, each
+    reference arrives as its own event and :func:`_resolve_references`
+    applies the whole-name rule the converting path applies.
+
+    One pass answers all three questions, so a conversion scans once
+    rather than once per question. ``collect_text`` is what separates
+    them: measuring depth needs no text, and accumulating the pieces of a
+    150 KB body when only the depth is wanted is waste.
+
+    Parameters
+    ----------
+    content : str
+        The document to walk. Kept so spans can be sliced back out of it:
+        the parser reports what it found and where, and the source is the
+        only place the exact original spelling still exists.
+    collect_text : bool, optional
+        Whether to accumulate :attr:`pieces` for :func:`_strip_tags`.
+    """
+
+    def __init__(self, content: str, *, collect_text: bool = False) -> None:
+        super().__init__(convert_charrefs=False)
+        self._content = content
+        self._collect_text = collect_text
+        offsets = [0]
+        for line in content.splitlines(keepends=True):
+            offsets.append(offsets[-1] + len(line))
+        self._line_offsets = offsets
+        #: Open element names, innermost last.
+        self.stack: list[str] = []
+        #: How many of each name are open, so a close with no match can be
+        #: ignored without walking the stack.
+        self.open_names: Counter[str] = Counter()
+        #: High-water mark of :attr:`stack`.
+        self.deepest = 0
+        #: Source spans of ``<void ... />`` tags, for
+        #: :func:`_canonicalise_void_elements`.
+        self.void_spans: list[tuple[int, int]] = []
+        #: The document's text, in order, when ``collect_text`` is set.
+        self.pieces: list[str] = []
+        #: Set when ``html.parser`` gave up on the document.
+        self.rejected = False
+
+    def _at(self) -> int:
+        """Return the absolute offset of the construct being handled.
+
+        ``goahead`` calls ``updatepos`` up to the start of each construct
+        before dispatching it, so ``getpos`` addresses the construct
+        itself. It reports a line and a column, and every span sliced
+        here needs an index, which is what the line table built in
+        ``__init__`` converts between.
+        """
+
+        lineno, offset = self.getpos()
+        return self._line_offsets[lineno - 1] + offset
+
+    def _text(self, piece: str) -> None:
+        if self._collect_text:
+            self.pieces.append(piece)
+
+    def _boundary(self, tag: str) -> None:
+        """Record a block element's edge as a line break.
+
+        See :data:`_BLOCK_ELEMENTS` for why the block/inline line is the
+        one that matters here.
+        """
+
+        if self._collect_text and tag in _BLOCK_ELEMENTS:
+            self.pieces.append("\n")
+
+    def _leaf(self) -> None:
+        if len(self.stack) + 1 > self.deepest:
+            self.deepest = len(self.stack) + 1
+
+    def handle_starttag(self, tag: str, attrs: object) -> None:
+        """Open an element, or count a void one as the leaf it is.
+
+        A void element is a node but never a parent, so it lifts the
+        high-water mark without joining the stack -- which is why
+        ``"<br>" * 5000`` is one level rather than five thousand.
+        """
+
+        if tag in _VOID_ELEMENTS:
+            self._leaf()
+        else:
+            self.stack.append(tag)
+            self.open_names[tag] += 1
+            if len(self.stack) > self.deepest:
+                self.deepest = len(self.stack)
+        self._boundary(tag)
+
+    def handle_startendtag(self, tag: str, attrs: object) -> None:
+        """Count a ``<foo/>`` as a leaf, and note a void one to rewrite.
+
+        This is the event :func:`_canonicalise_void_elements` needs, and
+        the one a pattern cannot identify reliably. ``html.parser``
+        reaches it only when the stripped remainder of the tag is exactly
+        ``/>``, so ``<br />`` arrives here while ``<br  /  >`` is an
+        ordinary start tag. Deciding it on the event means the workaround
+        fires on exactly the tags that trigger the ``bs4`` defect, and on
+        no others.
+        """
+
+        self._leaf()
+        if tag in _VOID_ELEMENTS:
+            token = self.get_starttag_text()
+            start = self._at()
+            if token is not None and self._content.startswith(token, start):
+                self.void_spans.append((start, start + len(token)))
+        self._boundary(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        """Pop to the matching open element, or pop nothing at all.
+
+        ``bs4`` looks up the stack for a match and ignores a close with no
+        open element of that name. A counter that decremented anyway made
+        ``"<div></p>" * 600`` -- a Word or Outlook paste rather than an
+        adversarial input -- measure 1 against a real 600. Interleaved
+        tags (``<b><i>x</b></i>``) pop the way the parser pops them.
+        """
+
+        if self.open_names[tag]:
+            while True:
+                popped = self.stack.pop()
+                self.open_names[popped] -= 1
+                if popped == tag:
+                    break
+        self._boundary(tag)
+
+    def handle_data(self, data: str) -> None:
+        """Keep character data, a raw-text element's body included.
+
+        A ``<script>`` or ``<style>`` body arrives here because the parser
+        is in CDATA mode, and it is kept for the reason recorded in
+        :func:`_strip_tags`: ``markdownify``'s ``strip=`` removes an
+        element's markup and still walks its children, so the body
+        reaches the converted output as text.
+        """
+
+        self._text(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self._text(self._reference_at())
+
+    def handle_charref(self, name: str) -> None:
+        self._text(self._reference_at())
+
+    def _reference_at(self) -> str:
+        """Return a character reference exactly as it was written.
+
+        The event carries the name but not whether a semicolon closed it,
+        and that is what decides whether the reference resolves -- so the
+        source is re-read rather than the token rebuilt from the name.
+        See :data:`_CHARACTER_REFERENCE`.
+        """
+
+        match = _CHARACTER_REFERENCE.match(self._content, self._at())
+        return match.group(0) if match is not None else ""
+
+    def handle_pi(self, data: str) -> None:
+        """Keep a processing instruction's body, which the converter prints.
+
+        Measured, not assumed, and the delimiters are the detail that
+        matters: ``bs4`` files the instruction as a string node, so
+        ``<p>a</p><?php SECRET ?><p>b</p>`` converts to
+        ``"a\\n\\nphp SECRET ?\\n\\nb"`` -- the body, without its ``<?``
+        and ``>``. Keeping the body alone therefore matches the
+        converting path exactly, where keeping the whole construct used
+        to leave punctuation in an output that promises none.
+        """
+
+        self._text(data)
+
+    def keep_remainder(self) -> None:
+        """Hand back the text of the region the parser stopped on.
+
+        Called only when it raised, so that the degraded path still
+        carries every word after the construct it could not read.
+        """
+
+        self._text(self._content[self._at() :])
+
+    def unknown_decl(self, data: str) -> None:
+        """Keep the body of a ``CDATA`` section or a marked section.
+
+        Counter-intuitive, and measured rather than assumed: ``bs4`` files
+        both as a string node, and ``markdownify`` prints a string node
+        that is neither a comment nor a doctype. So ``<![IGNORE[x]]>``
+        contributes ``IGNORE[x`` to the converted output, and dropping it
+        here would make the same document say less on the degraded path
+        than on the converting one.
+        """
+
+        self._text(data[6:] if data.startswith("CDATA[") else data)
+
+
+def _scan(content: str, *, collect_text: bool = False) -> _ParserScan:
+    """Run one :class:`_ParserScan` over ``content`` and hand it back.
+
+    The parser gives up on two constructs -- an unknown marked-section
+    keyword such as ``<![FOO[``, and a ``[`` where a declaration cannot
+    hold one -- by raising ``AssertionError`` from ``_markupbase``. That
+    is not a case to guess around, because ``bs4`` catches the same
+    ``AssertionError`` and re-raises it as ``ParserRejectedMarkup``: a
+    document that stops this scan is a document ``markdownify`` cannot
+    convert either. So the partial scan is kept, the remainder of the
+    source is handed to :attr:`_ParserScan.pieces` as text, and the depth
+    reported by :func:`_html_nesting_depth` sends the document down the
+    degraded path -- where it now yields its text instead of the
+    :class:`GlpiContentError` the converting path would have raised.
+
+    Parameters
+    ----------
+    content : str
+        The document to walk.
+    collect_text : bool, optional
+        Whether the scan should accumulate the document's text.
+
+    Returns
+    -------
+    _ParserScan
+        The finished scan, whether or not the parser ran out of document.
+    """
+
+    scan = _ParserScan(content, collect_text=collect_text)
+    try:
+        scan.feed(content)
+        scan.close()
+    except AssertionError:
+        scan.rejected = True
+        scan.keep_remainder()
+    return scan
+
+
 def _html_nesting_depth(content: str) -> int:
     """Return how deeply ``content`` nests, without recursing to find out.
 
-    One pass over the tag candidates, keeping the open elements on a list
+    One pass of :class:`_ParserScan`, keeping the open elements on a list
     and its high-water mark. Flat in the stack, which is the point: the
-    number this returns decides whether a recursive parser is safe to run,
-    so computing it must not need one.
+    number this returns decides whether a recursive parser is safe to
+    run, so computing it must not need one. ``html.parser`` is itself an
+    iterative scanner -- the recursion in the pipeline is
+    ``markdownify``'s walk of the finished tree, not the parse that
+    builds it.
 
-    Linear on any content a client or a mail gateway produces, and measured
-    at 4-6% of the ``markdownify`` call it guards: 148 KB of well-formed
-    HTML in 19 ms, the same body truncated mid-attribute in 22 ms, 296 KB
-    with an unpaired quote in the middle in 41 ms.
+    Exact, now, rather than approximately right. The count is the depth
+    of the tree ``bs4`` will really build, because it is derived from the
+    events of the parser ``bs4`` will really use; the rules that used to
+    have to be restated here -- a close pops by name or is ignored, a
+    childless node is still a node, an unknown name counts, an unclosed
+    tag counts -- are either the parser's own behaviour or live on
+    :class:`_ParserScan` beside the handler that implements them.
 
-    Not linear in the worst case, which is worth stating plainly rather
-    than claiming a bound this does not have. ``re`` restarts at every
-    ``<`` where ``html.parser`` buffers an incomplete tag and never looks
-    back, so a document whose every tag leaves an unpaired quote and which
-    carries no ``>`` until the very end -- ``'<div a="b" c="' * n`` --
-    costs O(n**2): 28 KB in 3 s. The simplest such shape, no ``>`` at all,
-    is answered in constant time by the guard below; the rest is a crafted
-    string rather than a truncation, and the obvious fix is worse than the
-    problem, since bounding the attribute repetition would make a tag past
-    the bound fail to match, which is an *under*-count, and unbounded
-    again once such tags nest.
+    Cost is linear in the document, and small against what it guards:
+    measured at 6-18% of the ``markdownify`` call for tag-dense bodies (a
+    400-row table, 8.4 ms against 47 ms) and 6% for sparse prose (154 KB,
+    0.87 ms against 14 ms), where it is four times *faster* than the
+    pattern it replaced.
 
-    Four rules make the count match the tree ``html.parser`` will actually
-    build. The first two are what an open/close counter would get wrong:
+    The one shape where ``html.parser`` is worse than linear is a
+    document carrying no ``>`` at all: ``check_for_whole_start_tag``
+    cannot complete a tag, ``close()`` then advances one character at a
+    time, and each step rescans the tail -- measured, 32 KB of
+    ``'<div a="'`` takes 13 seconds. The guard below answers that shape
+    in constant time. It is also unreachable from
+    :meth:`GlpiContentConverter.from_transport`, which runs
+    :func:`_looks_like_html` first and needs a ``>`` to find an element
+    at all; the guard is what makes a direct call safe as well. Once a
+    ``>`` is present the parser is no longer the slower of the two:
+    128 KB of the same shape costs it 57 ms against the pattern's 66 ms.
 
-    * **A closing tag pops by name, or is ignored.** ``bs4`` looks up the
-      stack for a matching open element and pops nothing when there is
-      none. A plain counter decrements anyway, and then
-      ``"<div></p>" * 600`` -- a Word or Outlook paste, not an adversarial
-      input -- measures 1 when the parser builds 600. Measured: that
-      document reached ``markdownify`` and raised. Interleaved tags
-      (``<b><i>x</b></i>``) pop the same way the parser does.
-    * **A childless node is still a node.** A void element or a ``<foo/>``
-      sits one level below its parent, so ``"<br>" * 5000`` is one level,
-      not none.
-    * **Unknown names count.** ``html.parser`` gives ``<foo>`` a node like
-      any other, so it nests like any other -- measured, ``"<foo>" * 600``
-      inside a document with one real element raises just as ``<div>``
-      does. Whether ``markdownify`` later knows how to *render* the element
-      is a separate question from whether it has to walk it.
-    * **An unclosed tag still counts.** ``html.parser`` does not auto-close
-      ``<p>`` or ``<li>``, so ``"<p>" * 5000`` really is 5000 levels, and
-      raises exactly like the balanced shape.
-
-    Comments, declarations, processing instructions and raw-text elements
-    are skipped by :data:`_MARKUP` itself, which is where the ordering
-    subtleties live. That is not only about over-counting a ``<div>`` in a
-    code sample: a closing tag swallowed by a bogus comment is a level the
-    parser keeps and a careless scan gives back.
-
-    The result was checked against a ground-truth iterative walk of the
-    tree ``bs4`` actually builds, over 15000 fuzzed documents mixing every
-    construct above plus attribute values containing ``<``, ``>`` and
-    whole tags, unquoted values holding quotes, malformed tag names such
-    as ``<style=>``, self-closed raw-text elements and declarations left
-    unterminated at end of input: **worst error 0 in either direction**,
-    and no document deep enough to matter reached ``markdownify`` in 4000
-    further trials built from those same shapes. Where the two could
-    still disagree, over-counting is the direction to err in -- it costs a
-    document that degrades when it need not have, while under-counting is
-    a crash.
+    Verified against a ground-truth iterative walk of the tree ``bs4``
+    actually builds, over fuzzed documents whose token alphabet carries
+    every construct any review round raised -- including the four whose
+    absence is why the previous corpus could not have found the defects
+    it missed: ``-- >``, ``</ script>``, ``<![IGNORE[`` and runs of
+    whitespace and quotes inside a tag.
 
     Parameters
     ----------
@@ -409,91 +523,52 @@ def _html_nesting_depth(content: str) -> int:
     Returns
     -------
     int
-        The depth of the deepest element the parser would build. ``0`` for
-        text with no tags at all.
+        The depth of the deepest element the parser would build. ``0``
+        for text with no tags at all, and ``MAX_HTML_DEPTH + 1`` for a
+        document the parser rejects, so that it degrades to text rather
+        than being handed to a converter that will reject it too.
     """
 
     if "<" not in content or ">" not in content:
-        # No ``>`` anywhere means no element anywhere: the parser buffers an
-        # incomplete tag and flushes it as text when it closes. Checking is
-        # also what keeps a body of nothing but ``'<div a="'`` cheap -- this
-        # scan restarts at every ``<`` where the parser never backtracks, so
-        # that shape costs it O(n) and would cost this O(n**2).
         return 0
-    stack: list[str] = []
-    open_names: Counter[str] = Counter()
-    deepest = 0
-    for match in _MARKUP.finditer(content):
-        if match.group("raw") is not None:
-            # Raw-text elements hold no markup, but the element is still a
-            # node one level below whatever is open around it.
-            deepest = max(deepest, len(stack) + 1)
-            continue
-        closing = match.group("close")
-        if closing is not None:
-            closing = closing.lower()
-            if not open_names[closing]:
-                continue  # nothing of that name is open, so bs4 pops nothing
-            while True:
-                popped = stack.pop()
-                open_names[popped] -= 1
-                if popped == closing:
-                    break
-            continue
-        name = match.group("name")
-        if name is None:
-            continue  # a comment, a declaration or a processing instruction
-        name = name.lower()
-        token = match.group(0)
-        if token.endswith("/>") or name in _VOID_ELEMENTS:
-            deepest = max(deepest, len(stack) + 1)
-        else:
-            stack.append(name)
-            open_names[name] += 1
-            deepest = max(deepest, len(stack))
-    return deepest
+    scan = _scan(content)
+    if scan.rejected:
+        return MAX_HTML_DEPTH + 1
+    return scan.deepest
 
 
 def _strip_tags(content: str) -> str:
-    """Reduce HTML to its text without parsing it, keeping every word.
+    """Reduce HTML to its text without building a tree, keeping every word.
 
-    The degraded path for a document too deeply nested to convert. One pass
-    of :data:`_MARKUP` -- the same scanner the depth measurement uses, so
-    the two agree about what is markup -- then whitespace tidying. No tree,
-    no recursion, no depth ceiling of its own, so it answers for input of
-    any shape. Tag density decides the rest, and decides it over a wide
-    range: measured at 2.2 MB/s on 128 KB of table cells and 11.5 MB/s on
-    217 KB of sparse prose, which is 18x and 2.3x faster respectively than
-    the ``markdownify`` call it stands in for. Dense markup is where it
-    pays best, which is the shape a document at this depth has.
+    The degraded path for a document too deeply nested to convert. One
+    pass of :class:`_ParserScan` -- the same scan the depth measurement
+    uses, so the two cannot disagree about what is markup -- then
+    whitespace tidying. No tree, no recursion, no depth ceiling of its
+    own, so it answers for input of any shape.
 
-    It **degrades and never truncates.** The property, stated as something
-    checkable: after collapsing whitespace, every character the converting
-    path would have produced also appears here, in order. A superset, not
-    an equality -- so no body says less because of the path it took, which
-    is the only guarantee worth making about a fallback. Checked as a
-    subsequence over 15000 fuzzed documents mixing tags, quoted and
-    unquoted attributes, malformed tag names, entities, comments, marked
-    sections, declarations left unterminated, processing instructions and
-    raw-text elements both closed and self-closed: **0 losing text**, and
-    the only documents that differ at all are the character-reference case
-    listed below.
+    It **degrades and never truncates.** The property, stated as
+    something checkable: after collapsing whitespace, every character the
+    converting path would have produced also appears here, in order. A
+    superset, not an equality -- so no body says less because of the path
+    it took, which is the only guarantee worth making about a fallback.
 
     Establishing that meant measuring what the converting path really
     keeps, construct by construct, rather than assuming. Three answers
-    were counter-intuitive and each one was a silent deletion here before
-    it was checked: a ``<script>``/``<style>`` body is *kept* (see
-    :func:`_strip_tags` for why), so is a ``CDATA`` body, and so is the
-    inside of any ``<!``/``<?`` construct the parser could not resolve.
+    were counter-intuitive and each was a silent deletion here before it
+    was checked: a ``<script>``/``<style>`` body is *kept*, because
+    ``markdownify``'s ``strip=`` removes an element's markup and still
+    walks its children; so is a ``CDATA`` body; and so is the inside of
+    any ``<!``/``<?`` construct the parser could not resolve, which it
+    hands back as character data.
 
     What it does **not** reproduce, none of which loses a character of
     prose:
 
     * Markup that only the converter can express: a link becomes its text
-      without the target, an image contributes nothing, and a fenced block
-      loses its fence -- so ``<pre>`` indentation is normalised away with
-      the rest. A pasted log comes back as its own lines of text, not as
-      a code block.
+      without the target, an image contributes nothing, and a fenced
+      block loses its fence -- so ``<pre>`` indentation is normalised
+      away with the rest. A pasted log comes back as its own lines of
+      text, not as a code block.
     * Whitespace is normalised harder. Runs of spaces collapse, and
       ``&nbsp;`` counts as whitespace, so ``&nbsp;``-padded column
       alignment does not survive.
@@ -502,8 +577,12 @@ def _strip_tags(content: str) -> str:
       as ``&``. In the other direction, a handful of semicolon-less
       references stay literal here that the converter resolves -- see
       :func:`_resolve_references`, which errs that way on purpose.
-    * A processing instruction keeps its ``<?`` and ``>`` as literal
-      text, where the converter strips them.
+    * Whitespace falls differently at a markup boundary, in both
+      directions: the converter joins ``a<b>c`` as ``a**c**`` where this
+      joins it as ``ac``, and this breaks a line at a block edge the
+      converter runs together. Which is why the property is about the
+      order of the characters of prose and not about where the spaces
+      land.
 
     Parameters
     ----------
@@ -513,63 +592,23 @@ def _strip_tags(content: str) -> str:
     Returns
     -------
     str
-        The document's text, block boundaries preserved as line breaks and
-        character references resolved.
+        The document's text, block boundaries preserved as line breaks
+        and character references resolved.
     """
 
-    pieces: list[str] = []
-    cursor = 0
-    # ``>`` gates the scan for the reason given in :func:`_html_nesting_depth`:
-    # without one there is no markup to skip, and the whole document is the
-    # text the parser would flush on ``close()``.
-    for match in _MARKUP.finditer(content) if ">" in content else ():
-        pieces.append(content[cursor : match.start()])
-        cursor = match.end()
-        cdata = match.group("cdata")
-        if cdata is not None:
-            pieces.append(cdata)
-            continue
-        name = match.group("name") or match.group("close")
-        if name is not None:
-            if name.lower() in _BLOCK_ELEMENTS:
-                pieces.append("\n")
-            continue
-        if match.group("raw") is not None:
-            # A `<script>`/`<style>` body. Kept, because -- against
-            # first expectations -- the converting path keeps it:
-            # ``markdownify``'s ``strip=`` removes an element's *markup*
-            # and still walks its children, so the body arrives as text.
-            # Dropping it here would make the same document say different
-            # things depending on how deeply it happened to nest. An
-            # *unterminated* one is the exception: the parser reads the
-            # rest of the input as script text and prints none of it.
-            if match.group("rawcut") is None:
-                pieces.append("\n" + (match.group("rawbody") or "") + "\n")
-            continue
-        decl = match.group("decl")
-        if decl is not None and (
-            not _RESOLVED_DECLARATION.match(decl) or not decl.endswith(">")
-        ):
-            # An unterminated comment, an unterminated marked section, or
-            # a processing instruction. ``html.parser`` resolves none of
-            # them, gives up, and emits the region as character data --
-            # so the converting path prints it and this keeps it. Only a
-            # resolvable declaration is text on neither path, and only
-            # when it is closed: ``"<!weird"`` at end of input never
-            # completes, so ``close()`` flushes it as text and dropping it
-            # lost the tail of the body.
-            pieces.append(decl)
-    pieces.append(content[cursor:])
-
-    text = _resolve_references("".join(pieces))
+    if ">" not in content:
+        # No ``>`` means no markup to skip, so the whole document is the
+        # text the parser would flush on ``close()`` -- and answering it
+        # here keeps the scan away from the one shape that costs
+        # ``html.parser`` more than linear time. See
+        # :func:`_html_nesting_depth`.
+        text = _resolve_references(content)
+    else:
+        text = _resolve_references("".join(_scan(content, collect_text=True).pieces))
     text = re.sub(r"[^\S\n]*\n[^\S\n]*", "\n", text)
     text = re.sub(r"[^\S\n]{2,}", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
-
-
-#: The ``/`` of a self-closing tag, with any space around it.
-_VOID_SELF_CLOSE = re.compile(r"\s*/\s*>$")
 
 
 def _canonicalise_void_elements(content: str) -> str:
@@ -580,12 +619,13 @@ def _canonicalise_void_elements(content: str) -> str:
 
     ``bs4``'s ``html.parser`` builder auto-closes a bare ``<br>`` and
     records the name in ``already_closed_empty_element``, a list keyed by
-    name alone, so that a later ``</br>`` can be ignored as redundant. If
-    no ``</br>`` ever arrives the entry simply stays there. The next
+    name alone, so a later ``</br>`` can be ignored as redundant. If no
+    ``</br>`` ever arrives the entry simply stays there. The next
     ``<br />`` -- which reaches the builder as ``handle_startendtag`` --
-    opens a real element and then closes it itself, and *that* close finds
-    the stale entry, treats the element as already closed, and leaves it
-    open. Every following sibling becomes a child of the ``<br>``.
+    opens a real element and then closes it itself, and *that* close
+    finds the stale entry, treats the element as already closed, and
+    leaves it open. Every following sibling becomes a child of the
+    ``<br>``.
 
     ``get_text`` still walks those children, which is why the tree looks
     intact, but ``markdownify``'s ``convert_br`` ignores an element's
@@ -593,18 +633,29 @@ def _canonicalise_void_elements(content: str) -> str:
 
     ``"<p>line1<br>line2</p><p>para2<br />line4</p>"`` converted to
     ``"line1  \\nline2\\n\\npara2"`` -- and note the two spellings are in
-    different paragraphs, because a name once recorded poisons the rest of
-    the document. ``<img>`` and ``<hr>`` lose text the same way; they are
-    the other two converters that discard children. One bare ``<br>``
+    different paragraphs, because a name once recorded poisons the rest
+    of the document. ``<img>`` and ``<hr>`` lose text the same way; they
+    are the other two converters that discard children. One bare ``<br>``
     anywhere before one ``<br />`` is the whole precondition, and GLPI
     bodies are edited by more than one client.
 
-    Rewriting to the bare spelling removes the ``handle_startendtag`` path
-    for void elements, which is where the asymmetry lives; both spellings
-    already build the same node, so nothing else about the output moves.
-    Only the names in :data:`_VOID_ELEMENTS` are touched, and only in real
-    tag position: a self-closed ``<div/>`` is left alone, and cannot be
-    affected anyway, since only a void name is ever recorded.
+    Rewriting to the bare spelling removes the ``handle_startendtag``
+    path for void elements, which is where the asymmetry lives; both
+    spellings already build the same node, so nothing else about the
+    output moves. Only the names in :data:`_VOID_ELEMENTS` are touched,
+    and only where the parser really reports ``handle_startendtag``: a
+    self-closed ``<div/>`` is left alone, and cannot be affected anyway,
+    since only a void name is ever recorded.
+
+    Which tags those are is the parser's answer rather than this
+    module's, and that is not cosmetic. Deciding it by pattern meant
+    inheriting every way the pattern could be derailed, and a derailed
+    scan reinstates the very defect this works around: measured,
+    ``"<p>one<br>two</p><script>x</ script><p>three<br />TAIL</p>"``
+    lost ``TAIL`` outright, because ``</ script>`` ends raw text for the
+    parser but not for the pattern, so the ``<br />`` after it was never
+    seen and never rewritten. ``<img>`` and ``<hr>`` lost their tails the
+    same way.
 
     Parameters
     ----------
@@ -619,21 +670,15 @@ def _canonicalise_void_elements(content: str) -> str:
 
     if "/>" not in content:
         return content
-
+    spans = _scan(content).void_spans
+    if not spans:
+        return content
     pieces: list[str] = []
     cursor = 0
-    for match in _MARKUP.finditer(content):
-        name = match.group("name")
-        if name is None or name.lower() not in _VOID_ELEMENTS:
-            continue
-        token = match.group(0)
-        if not token.endswith("/>"):
-            continue
-        pieces.append(content[cursor : match.start()])
-        pieces.append(_VOID_SELF_CLOSE.sub(">", token))
-        cursor = match.end()
-    if not pieces:
-        return content
+    for start, end in spans:
+        pieces.append(content[cursor:start])
+        pieces.append(_VOID_SELF_CLOSE.sub(">", content[start:end]))
+        cursor = end
     pieces.append(content[cursor:])
     return "".join(pieces)
 
@@ -670,6 +715,15 @@ class GlpiContentConverter:
         works around a ``beautifulsoup4`` defect that silently dropped
         everything after the second spelling of ``<br>`` in a body that
         used both -- see :func:`_canonicalise_void_elements`.
+
+        A document ``html.parser`` refuses outright takes the degraded
+        path as well, rather than the exception it used to. ``<![FOO[``
+        is the reachable case: an unknown marked-section keyword, which
+        ``bs4`` turns into ``ParserRejectedMarkup``. There is nothing to
+        gain from handing such a body to a converter that will reject it
+        too, and a caller who can read their text is better off than one
+        holding an error -- so :func:`_html_nesting_depth` reports past
+        the ceiling and the body is stripped.
 
         Raises
         ------

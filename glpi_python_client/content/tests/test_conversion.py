@@ -9,6 +9,7 @@ from glpi_python_client.content.conversion import (
     MAX_HTML_DEPTH,
     GlpiContentConverter,
     _html_nesting_depth,
+    _strip_tags,
 )
 
 
@@ -943,3 +944,56 @@ def test_a_document_with_no_closing_bracket_is_answered_without_scanning() -> No
     assert _html_nesting_depth(html) == 0
     assert GlpiContentConverter.from_transport(html).startswith('<div a="')
     assert "the printer" in GlpiContentConverter.from_transport(html + "the printer")
+
+
+def test_a_document_the_parser_rejects_degrades_instead_of_raising() -> None:
+    """An unknown marked-section keyword stops the parser, not the body.
+
+    ``_markupbase.parse_marked_section`` raises ``AssertionError`` for a
+    keyword it does not know, and ``bs4`` catches that same
+    ``AssertionError`` and re-raises it as ``ParserRejectedMarkup``. So a
+    document carrying ``<![FOO[`` is one the converting path cannot
+    convert either, and the old behaviour was to let it try and fail:
+    the caller got a :class:`GlpiContentError` and none of their text.
+
+    Reporting a depth past the ceiling instead sends it down the degraded
+    path, where it yields its words. Degrading beats raising when the
+    alternative is a body nobody can read.
+    """
+
+    html = "<p>Le serveur ne repond plus. SECRET</p><![FOO[x]]>"
+
+    assert _html_nesting_depth(html) == MAX_HTML_DEPTH + 1
+    assert "SECRET" in GlpiContentConverter.from_transport(html)
+
+
+def test_the_text_after_a_construct_the_parser_rejects_is_still_kept() -> None:
+    """The give-up point is not the end of the body.
+
+    The scan stops where the parser stopped, so everything past that
+    construct would go missing unless it is handed back explicitly --
+    and a body is far more likely to carry the marked section in the
+    middle than at the end.
+    """
+
+    html = "<p>avant</p><![FOO[x]]><p>apres SECRET</p>"
+
+    assert "avant" in _strip_tags(html)
+    assert "SECRET" in _strip_tags(html)
+    assert "SECRET" in GlpiContentConverter.from_transport(html)
+
+
+def test_stripping_a_document_with_no_closing_bracket_keeps_all_of_it() -> None:
+    """The degraded path needs the same guard the depth scan needs.
+
+    ``html.parser`` cannot complete a tag that never closes, so
+    ``close()`` flushes it one character at a time and rescans the tail
+    at each step: measured, 32 KB of ``'<div a="'`` costs it 13 seconds.
+    The whole document is that unfinished tag's text, which is the answer
+    the guard returns directly.
+    """
+
+    html = '<div a="' * 4000 + "le serveur ne repond plus"
+
+    assert _strip_tags(html).endswith("le serveur ne repond plus")
+    assert _strip_tags(html).startswith('<div a="')
