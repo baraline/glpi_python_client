@@ -38,6 +38,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - An attribute value may contain `<` and `>`, so
     `'<div title="</div>">' * 600` also measured 0 against a real 600
     until the scan learned to skip quoted values.
+  - A quote opens a value only as the first character after the `=`,
+    which is the parser's own rule, so `<p title=don't>` carries the
+    value `don't`. Reading that apostrophe as a quote printed the opening
+    tag verbatim at the reader — and an apostrophe needs no malice to
+    reach a French ticket body.
+  - `tagfind_tolerant` runs a tag *name* to whitespace, `/` or `>`, so
+    `<style=>` is an element named `style=` and never enters raw-text
+    mode; a self-closed `<script/>` does not either, because
+    `parse_starttag` enters it only on the branch that is not
+    self-closing. Reading either as raw text swallowed the rest of the
+    document: `"<style=>" + "<div>" * 600` measured 1 level against a
+    real 601 and raised.
+  - A declaration is text on neither path only when it is closed. A
+    `<!weird` left unterminated at end of input is flushed as character
+    data when the parser closes, so dropping it lost the tail of a body.
   - An unclosed tag counts, a childless node still occupies a level, and
     a bogus comment swallows the tags inside it.
   - The degraded path had to be measured against the converting path

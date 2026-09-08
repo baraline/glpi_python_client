@@ -620,3 +620,105 @@ def test_the_degraded_path_resolves_references_like_the_parser(
     html = "<div>" * 300 + f"<p>{raw}</p>" + "</div>" * 300
 
     assert GlpiContentConverter.from_transport(html) == expected
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<p title=don't>x</p>", id="apostrophe-in-bare-value"),
+        pytest.param('<p title=say"hi>x</p>', id="quote-in-bare-value"),
+        pytest.param("<p alt=P<0.05>x</p>", id="lt-in-bare-value"),
+        pytest.param("<p title=Etape 1>x</p>", id="space-in-bare-value"),
+        pytest.param("<style=>x", id="malformed-style-name"),
+        pytest.param("<script=>x", id="malformed-script-name"),
+        pytest.param("<div=x>y", id="malformed-name"),
+        pytest.param('<div"a">y', id="quote-in-name"),
+        pytest.param("<scripty>x</scripty>", id="raw-name-is-a-prefix"),
+        pytest.param("<script/>x", id="self-closed-script"),
+        pytest.param("<style />x", id="self-closed-style"),
+        pytest.param('<li y=">mot<script data-x="</div>">tail', id="lt-after-value"),
+        pytest.param("<div a=1 <p>text", id="tag-inside-a-tag"),
+        pytest.param("<div class=a<b>text", id="lt-in-unquoted-value"),
+    ],
+)
+def test_the_depth_scan_reads_a_malformed_tag_like_the_parser(html: str) -> None:
+    """Malformed markup is the common case, and its rules are the parser's.
+
+    Every expectation here was read off ``html.parser`` rather than
+    reasoned about, and each rule below was wrong in an earlier revision:
+
+    * A quote opens a value only as the first character after the ``=``,
+      so ``title=don't`` is the value ``don't`` and an unquoted value may
+      hold ``<`` too.
+    * ``tagfind_tolerant`` runs the *name* to whitespace, ``/`` or ``>``,
+      so ``<style=>`` is an element named ``style=`` -- which is why it
+      never enters raw-text mode, however much it looks like ``<style>``.
+    * A self-closed ``<script/>`` does not enter raw-text mode either:
+      ``parse_starttag`` calls ``set_cdata_mode`` only on the branch that
+      is not self-closing.
+    * An attribute name may contain ``<``, so after a quoted value the
+      parser keeps scanning to the next ``>``.
+    """
+
+    assert _html_nesting_depth(html) == _parser_depth(html)
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("<style=>", id="malformed-style-name"),
+        pytest.param("<script=>", id="malformed-script-name"),
+        pytest.param("<script/>", id="self-closed-script"),
+        pytest.param("<style />", id="self-closed-style"),
+        pytest.param("<p title=don't>", id="apostrophe-in-bare-value"),
+        pytest.param("<p alt=P<0.05>", id="lt-in-bare-value"),
+    ],
+)
+def test_a_malformed_tag_cannot_hide_the_depth_below_it(prefix: str) -> None:
+    """One malformed tag must not conceal a whole document's nesting.
+
+    The dangerous direction is under-counting, and each of these
+    under-counted without bound: read as raw text, ``"<style=>"`` and
+    ``"<script/>"`` swallowed everything after them, so
+    ``"<style=>" + "<div>" * 600`` measured **1** level against a real
+    601, went to ``markdownify`` and raised the ``RecursionError`` the
+    ceiling exists to prevent.
+    """
+
+    html = prefix + "<div>" * 600 + "the printer is offline"
+
+    assert _html_nesting_depth(html) == _parser_depth(html)
+    assert GlpiContentConverter.from_transport(html) == "the printer is offline"
+
+
+def test_the_degraded_path_does_not_emit_a_tag_it_could_not_read() -> None:
+    """A tag the scan mis-read used to be printed at the reader.
+
+    Measured: the body below degraded to ``"<p title=don't>Le serveur ne
+    repond plus."`` -- the opening tag verbatim in text a person reads,
+    from a path whose whole promise is text. An apostrophe is ordinary in
+    French, so this needs no malice to reach a ticket.
+    """
+
+    html = "<div>" * 300 + "<p title=don't>Le serveur ne repond plus.</p>"
+
+    degraded = GlpiContentConverter.from_transport(html)
+
+    assert degraded == "Le serveur ne repond plus."
+    assert "<" not in degraded
+
+
+def test_an_unterminated_declaration_at_end_of_input_is_kept() -> None:
+    """``close()`` flushes an incomplete declaration as text, so this does.
+
+    A declaration is text on neither path only when it is *closed*: a
+    ``"<!weird"`` that never completes is flushed as character data when
+    the parser closes, and the converting path prints it. Dropping it lost
+    the tail of the body.
+    """
+
+    shallow = "<p>keep this</p><!weird"
+    deep = "<div>" * 300 + "<p>keep this</p>" + "</div>" * 300 + "<!weird"
+
+    assert GlpiContentConverter.from_transport(shallow) == "keep this\n\n<!weird"
+    assert GlpiContentConverter.from_transport(deep) == "keep this\n\n<!weird"

@@ -182,15 +182,42 @@ MAX_HTML_DEPTH = 200
 #: the parser builds 600, because the quoted ``</div>`` was read as a real
 #: close. That document went to ``markdownify`` and raised -- the one
 #: direction of error the ceiling exists to prevent.
-_ATTRIBUTES = r"""(?:"[^"]*"|'[^']*'|[^<>"'])*"""
+#:
+#: Two further rules, both taken from the parser rather than guessed, and
+#: both wrong in an earlier revision of this module.
+#:
+#: A quote only opens a value when it is the first character after the
+#: ``=``: ``attrfind_tolerant`` spells the bare alternative
+#: ``(?!['"])[^>\s]*``, so ``<p title=don't>`` carries the value ``don't``
+#: and ends at its ``>``, and an unquoted value may hold ``<`` as well.
+#: Reading that apostrophe as an opening quote ran the value on to the next
+#: apostrophe in the document and the tag then failed to match at all:
+#: measured, ``"<div>" * 300 + "<p title=don't>Le serveur ne repond
+#: plus.</p>"`` degraded to ``"<p title=don't>Le serveur ne repond plus."``
+#: -- the opening tag emitted verbatim into text a reader sees, and markup
+#: in an output this module promises holds none. Apostrophes are ordinary
+#: in the French an editor types.
+#:
+#: The leading lookahead is the other half: the parser will not read a tag
+#: at all unless whitespace, ``/`` or ``>`` follows the name, because
+#: ``attrfind_tolerant`` only starts an attribute after ``['"\s/]`` and
+#: ``parse_starttag`` then discards a start tag whose remainder is not
+#: ``>`` or ``/>``. So ``<style=>`` is *data* to the parser, not an
+#: element. Accepting it here was the worse direction of the same mistake:
+#: it entered raw-text mode, swallowed the rest of the document, and
+#: ``"<style=>" + "<div>" * 600`` measured **1** level against a real 601
+#: -- through ``markdownify`` and into the ``RecursionError`` the ceiling
+#: exists to prevent. A malformed ``<custom=>`` costs nothing, but the
+#: raw-text names make it unbounded, so the gate belongs on both branches.
+_ATTRIBUTES = r"""(?=[\s/>])(?:[^>=]|=\s*"[^"]*"|=\s*'[^']*'|=\s*(?!["'])[^\s>]*)*"""
 
 _MARKUP = re.compile(
     r"<!--.*?-->"
     r"|<!\[CDATA\[(?P<cdata>.*?)\]\]>"
     r"|(?P<decl><[!?][^>]*>?)"
-    r"|<(?P<raw>script|style)\b" + _ATTRIBUTES + r">"
+    r"|<(?P<raw>script|style)" + _ATTRIBUTES + r"(?<!/)>"
     r"(?P<rawbody>.*?)(?:</(?P=raw)\s*>|(?P<rawcut>$))"
-    r"|</?(?P<name>[a-zA-Z][a-zA-Z0-9]*)" + _ATTRIBUTES + r">",
+    r"|</?(?P<name>[a-zA-Z][^\t\n\r\f />\x00]*)" + _ATTRIBUTES + r">",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -301,7 +328,11 @@ def _html_nesting_depth(content: str) -> int:
     The result was checked against a ground-truth iterative walk of the
     tree ``bs4`` actually builds, over 15000 fuzzed documents mixing every
     construct above plus attribute values containing ``<``, ``>`` and
-    whole tags: **worst error 0 in either direction.** Where the two could
+    whole tags, unquoted values holding quotes, malformed tag names such
+    as ``<style=>``, self-closed raw-text elements and declarations left
+    unterminated at end of input: **worst error 0 in either direction**,
+    and no document deep enough to matter reached ``markdownify`` in 4000
+    further trials built from those same shapes. Where the two could
     still disagree, over-counting is the direction to err in -- it costs a
     document that degrades when it need not have, while under-counting is
     a crash.
@@ -366,9 +397,12 @@ def _strip_tags(content: str) -> str:
     path would have produced also appears here, in order. A superset, not
     an equality -- so no body says less because of the path it took, which
     is the only guarantee worth making about a fallback. Checked as a
-    subsequence over 15000 fuzzed documents mixing tags, quoted
-    attributes, entities, comments, marked sections, declarations,
-    processing instructions and raw-text elements: **0 losing text.**
+    subsequence over 15000 fuzzed documents mixing tags, quoted and
+    unquoted attributes, malformed tag names, entities, comments, marked
+    sections, declarations left unterminated, processing instructions and
+    raw-text elements both closed and self-closed: **0 losing text**, and
+    the only documents that differ at all are the character-reference case
+    listed below.
 
     Establishing that meant measuring what the converting path really
     keeps, construct by construct, rather than assuming. Three answers
@@ -435,12 +469,17 @@ def _strip_tags(content: str) -> str:
                 pieces.append("\n" + (match.group("rawbody") or "") + "\n")
             continue
         decl = match.group("decl")
-        if decl is not None and not _RESOLVED_DECLARATION.match(decl):
+        if decl is not None and (
+            not _RESOLVED_DECLARATION.match(decl) or not decl.endswith(">")
+        ):
             # An unterminated comment, an unterminated marked section, or
             # a processing instruction. ``html.parser`` resolves none of
             # them, gives up, and emits the region as character data --
             # so the converting path prints it and this keeps it. Only a
-            # resolvable declaration is text on neither path.
+            # resolvable declaration is text on neither path, and only
+            # when it is closed: ``"<!weird"`` at end of input never
+            # completes, so ``close()`` flushes it as text and dropping it
+            # lost the tail of the body.
             pieces.append(decl)
     pieces.append(content[cursor:])
 
