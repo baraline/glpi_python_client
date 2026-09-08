@@ -1,10 +1,10 @@
 """Public exception hierarchy raised by :mod:`glpi_python_client`.
 
 Every exception the client raises for a bad argument, an unexpected HTTP
-status, an unusable response body, or a network-level fault deliberately
-derives from :class:`GlpiError`, so callers can catch the library's failure
-surface with a single ``except`` clause and never need to import the
-underlying HTTP library.
+status, an unusable response body, a network-level fault, or content it
+cannot convert deliberately derives from :class:`GlpiError`, so callers can
+catch the library's failure surface with a single ``except`` clause and
+never need to import the underlying HTTP library.
 
 Two deliberate exceptions to that rule remain:
 
@@ -17,6 +17,8 @@ Two deliberate exceptions to that rule remain:
 :class:`GlpiStatusError`, :class:`GlpiValidationError` and
 :class:`GlpiProtocolError` also inherit :class:`ValueError` so code written
 against earlier releases — which raised bare ``ValueError`` — keeps working.
+:class:`GlpiContentError` and :class:`GlpiTransportError` do not, for the
+reason given on each: nothing was passed in wrongly.
 """
 
 from __future__ import annotations
@@ -137,6 +139,34 @@ class GlpiProtocolError(GlpiError, ValueError):
     """
 
 
+class GlpiContentError(GlpiError):
+    """A rich-text content value could not be converted.
+
+    Raised when :class:`~glpi_python_client.content.GlpiContentConverter`
+    cannot translate a value between GLPI's HTML transport format and the
+    package's canonical Markdown — in either direction. The underlying
+    fault is always attached as ``__cause__``.
+
+    This exists so that no failure of the content layer escapes the
+    package's taxonomy. The conversion runs third-party parsers
+    (``markdownify`` inbound, ``markdown`` outbound), and a parser fault
+    used to reach the caller as a bare builtin — most visibly a
+    ``RecursionError``, which ``except GlpiError`` does not catch and which
+    a caller reading a ticket has no reason to expect from
+    ``get_ticket``. Deeply nested HTML is handled before it gets that far
+    (see :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`);
+    this is the backstop for everything else.
+
+    Unlike :class:`GlpiStatusError`, :class:`GlpiValidationError` and
+    :class:`GlpiProtocolError` this does **not** inherit ``ValueError``.
+    Those three do so for back-compatibility with releases that raised
+    bare ``ValueError`` at the same sites; there was never a
+    ``ValueError`` here to be compatible with, and a parser exhausting the
+    interpreter's stack is not a value the caller got wrong. The reasoning
+    matches :class:`GlpiTransportError`.
+    """
+
+
 def status_error_class(status_code: int) -> type[GlpiStatusError]:
     """Return the most specific status-error class for one status code.
 
@@ -164,6 +194,7 @@ def status_error_class(status_code: int) -> type[GlpiStatusError]:
 
 __all__ = [
     "GlpiAuthError",
+    "GlpiContentError",
     "GlpiError",
     "GlpiNotFoundError",
     "GlpiProtocolError",

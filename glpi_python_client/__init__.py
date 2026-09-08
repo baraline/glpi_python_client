@@ -20,6 +20,7 @@ from __future__ import annotations
 from glpi_python_client._async.clients import AsyncGlpiClient
 from glpi_python_client._errors import (
     GlpiAuthError,
+    GlpiContentError,
     GlpiError,
     GlpiNotFoundError,
     GlpiProtocolError,
@@ -145,6 +146,7 @@ __all__ = [
     "GetUser",
     "GlpiAuthError",
     "GlpiClient",
+    "GlpiContentError",
     "GlpiEnum",
     "GlpiError",
     "GlpiGlobalValidation",

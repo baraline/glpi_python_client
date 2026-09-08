@@ -1,12 +1,19 @@
 """Audit every raise statement in library code against the error contract.
 
 This is a structural guard, not a behavioural one. It exists because the
-0.4.0 error migration is a mechanical sweep across raise sites in
-non-test library code -- as of this writing 24 ``GlpiValidationError``,
-9 ``GlpiProtocolError``, 4 ``RuntimeError``, 2 ``TypeError``,
-1 ``GlpiServerError``, plus 2 ``status_error_class(...)`` dispatch sites
-(42 total) -- and a missed one is invisible: a bare ValueError still
-passes every existing ``pytest.raises(ValueError)`` test.
+0.4.0 error migration was a mechanical sweep across every raise site in
+non-test library code, and a missed one is invisible: a bare
+``ValueError`` still passes every existing ``pytest.raises(ValueError)``
+test. The same goes for a raise site added later, which is what makes this
+worth keeping rather than a one-off checklist.
+
+(There used to be a per-class tally of the raise sites here. It was prose
+asserted by nothing and it rotted -- by 0.5.0 it was out by a third. The
+allow-list below is the part that has to be right, and the suite enforces
+it.)
+
+The module also guards one thing the library must *never* call. See
+:func:`test_the_library_never_touches_the_recursion_limit`.
 
 The RuntimeError and TypeError sites are deliberately exempt. Converting
 them to GlpiValidationError -- which inherits ValueError, not TypeError --
@@ -25,6 +32,7 @@ _PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _ALLOWED = {
     "GlpiValidationError",
     "GlpiProtocolError",
+    "GlpiContentError",
     "GlpiServerError",
     "GlpiStatusError",
     "error_class",  # status_error_class(...) dispatch result
@@ -136,3 +144,46 @@ def test_every_raise_site_uses_an_allowed_exception() -> None:
 
     offenders = [site for site in _raise_sites() if site[2] not in _ALLOWED]
     assert offenders == [], f"unexpected raise sites: {offenders}"
+
+
+def test_the_library_never_touches_the_recursion_limit() -> None:
+    """``sys.setrecursionlimit`` is a rejected option, not an unused one.
+
+    The content converter has a recursion ceiling -- ``markdownify``
+    recurses about twice per level of HTML nesting -- and raising the
+    interpreter's limit is the obvious-looking way to move it. It is the
+    wrong way twice over, so the prohibition is asserted rather than left
+    as a comment for the next person to weigh up again:
+
+    * The limit is process-global state belonging to the application, not
+      to a library the application imported. Writing it changes the
+      behaviour of code that never asked.
+    * Past what the C stack can actually hold, it converts a catchable
+      ``RecursionError`` into a hard interpreter crash -- on Windows, an
+      access violation with no traceback. It moves the cliff and makes
+      falling off it worse.
+
+    Bounding the input instead is
+    :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`, and the
+    backstop for anything that gets past it is
+    :class:`glpi_python_client.GlpiContentError`.
+
+    Matched on the AST rather than the text, so that the module docstrings
+    which explain the prohibition do not trip the guard that enforces it.
+    """
+
+    offenders: list[tuple[str, int]] = []
+    for path in _library_modules():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            named = (
+                isinstance(node, ast.Attribute) and node.attr == "setrecursionlimit"
+            ) or (isinstance(node, ast.Name) and node.id == "setrecursionlimit")
+            if named:
+                offenders.append(
+                    (path.relative_to(_PACKAGE_ROOT).as_posix(), node.lineno)
+                )
+    assert offenders == [], (
+        "the library must not write the interpreter's recursion limit; "
+        f"bound the input instead. Sites: {offenders}"
+    )
