@@ -66,14 +66,33 @@ nor any ``model_dump`` shows it. Treat a read model as immutable once
 validated; if something really must rewrite the raw value, drop the cache
 with ``obj.__dict__.pop("content", None)`` or rebuild the model through
 ``model_validate``.
+
+``model_copy(update={"content": ...})`` -- the 0.4.x spelling, when
+``content`` was still a field -- is worse and worth naming outright: it
+updates **nothing**. ``content`` resolves to the class-level
+``cached_property``, so the attribute keeps the body it already had, while
+``extra="allow"`` files the value as a model extra that ``model_dump``
+then emits beside the real one. A caller redacting a body that way gets an
+object whose ``.content`` still holds the original text. Nothing warns,
+because from Pydantic's side nothing is wrong. Re-validating such a dump
+does at least keep the real body, since ``content_html`` is the first
+choice in the alias list and
+:func:`glpi_python_client.models._base._alias_groups` drops the loser
+before it can shadow the field -- but the copy itself is not a redaction.
+Rewrite the raw field, or rebuild through ``model_validate``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Annotated
 
 from pydantic import AliasChoices, BeforeValidator, Field, PlainSerializer
+from pydantic_core import PydanticSerializationError
 
+from glpi_python_client._errors import GlpiContentError, GlpiValidationError
 from glpi_python_client.content.conversion import GlpiContentConverter
 
 
@@ -131,17 +150,83 @@ def markdown_view(raw: str | None) -> str | None:
     return GlpiContentConverter.from_transport(raw)
 
 
+#: The last content fault raised inside a serializer, for
+#: :func:`restoring_content_faults` to hand back.
+#:
+#: A ``ContextVar`` rather than a module global so two concurrent writes
+#: cannot read each other's fault; it is set immediately before the raise
+#: and cleared on the way into every dump.
+_LAST_CONTENT_FAULT: ContextVar[GlpiContentError | None] = ContextVar(
+    "glpi_last_content_fault", default=None
+)
+
+
 def _to_transport(value: str | None) -> str | None:
     """Render an outbound Markdown content value as the HTML GLPI expects.
 
     ``None`` is preserved so ``model_dump(exclude_none=True)`` continues to
     drop unset fields from request bodies. Empty Markdown is rendered as an
     empty string to stay consistent with the inbound converter behaviour.
+
+    A failure is recorded in :data:`_LAST_CONTENT_FAULT` before it is
+    raised, because raising it is not enough on its own: see
+    :func:`restoring_content_faults`.
     """
 
     if value is None:
         return None
-    return GlpiContentConverter.to_transport(value)
+    try:
+        return GlpiContentConverter.to_transport(value)
+    except GlpiContentError as exc:
+        _LAST_CONTENT_FAULT.set(exc)
+        raise
+
+
+@contextmanager
+def restoring_content_faults() -> Iterator[None]:
+    """Put a content fault raised inside ``model_dump`` back in the taxonomy.
+
+    Outbound conversion runs in a ``PlainSerializer``, and pydantic-core
+    catches everything a serializer function raises and re-raises its own
+    ``PydanticSerializationError``. The type is lost -- that class derives
+    from ``ValueError``, not from :class:`GlpiError`, so ``except
+    GlpiError`` does not fire -- and so is the chain: ``__cause__`` and
+    ``__context__`` both arrive as ``None``, leaving only the message text
+    embedded in a foreign exception.
+
+    Both halves of the package's error contract break there, on every write
+    that carries a body, which is every ``create_*`` and ``update_*`` with
+    ``content``. So the fault is stashed on the way out and re-raised here,
+    with its own traceback and its own ``__cause__`` -- the
+    ``RecursionError``, or whatever else the renderer hit -- intact. The
+    pydantic exception becomes its ``__context__``, which is where a
+    reader would look for the serializer detail anyway.
+
+    A ``PydanticSerializationError`` with no stashed fault is something
+    else entirely -- an unserialisable field, not a content problem -- so
+    it is wrapped as :class:`GlpiValidationError` rather than mislabelled.
+
+    Yields
+    ------
+    None
+        The block runs with content faults restored on the way out.
+    """
+
+    _LAST_CONTENT_FAULT.set(None)
+    try:
+        yield
+    except PydanticSerializationError as exc:
+        fault = _LAST_CONTENT_FAULT.get()
+        if fault is not None:
+            _LAST_CONTENT_FAULT.set(None)
+            # Rebuilt rather than re-raised so the raise-site audit can see
+            # the type. The chain is what matters and it survives: the
+            # original fault's own cause is carried across, and the
+            # pydantic wrapper becomes the context.
+            raise GlpiContentError(str(fault)) from fault.__cause__
+        raise GlpiValidationError(
+            f"Could not serialise the request body ({exc})."
+        ) from exc
 
 
 GlpiMarkdownContent = Annotated[
@@ -165,7 +250,7 @@ directions differ.
 GlpiRawContent = Annotated[
     str | None,
     Field(
-        validation_alias=AliasChoices("content", "content_html"),
+        validation_alias=AliasChoices("content_html", "content"),
         serialization_alias="content",
     ),
 ]
@@ -187,7 +272,7 @@ the base model allows extra keys.
 GlpiRawDescription = Annotated[
     str | None,
     Field(
-        validation_alias=AliasChoices("description", "description_html"),
+        validation_alias=AliasChoices("description_html", "description"),
         serialization_alias="description",
     ),
 ]
@@ -203,4 +288,5 @@ __all__ = [
     "GlpiRawContent",
     "GlpiRawDescription",
     "markdown_view",
+    "restoring_content_faults",
 ]

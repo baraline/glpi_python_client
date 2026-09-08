@@ -11,9 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Deeply nested HTML raised `RecursionError` while a model was being
   validated.** `markdownify` walks the parsed document recursively and
   spends about two CPython frames per nesting level, so roughly 494 levels
-  exhausted the default 1000-frame limit — measured, and the same 494
-  whether the nesting is `<div>`, `<p>`, `<blockquote>`, `<ul><li>` or
-  `<table><tr><td>`, which is what identifies the cost as per-level. An
+  exhausted the default 1000-frame limit — measured, and the same 494 for
+  `<div>`, `<p>`, `<blockquote>` and `<table><tr><td>`, 495 for
+  `<ul><li>`, which is what identifies the cost as per-level. An
   unclosed tag counts too: `html.parser` does not auto-close `<p>` or
   `<li>`, so `"<p>" * 5000` really is 5000 levels.
 
@@ -73,15 +73,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `?a=1©right=2` under `unescape` and is left alone by the parser. A
   semicolon-less reference resolves only when its whole name is known.
 
-  The ceiling is 200 rather than 492 because the budget is not 1000
+  The ceiling is 200 rather than 494 because the budget is not 1000
   frames, it is whatever is left of the stack when conversion starts, and
-  that belongs to the caller. Measured at the call site: 8 frames through
-  the synchronous client, 16 through the asynchronous one, 37 from twenty
-  nested awaits. The library's own contribution is negligible; an
-  application converting from inside a request handler or a recursive
-  walk is not. Converting a 200-level document peaks at a measured 403
-  frames, so it stays safe until the caller's own stack passes roughly
-  590 — and no document a human wrote nests 200 elements deep.
+  that belongs to the caller. The package's own contribution is small,
+  and since conversion moved to the attribute it no longer depends on how
+  the record was fetched: measured, 5 frames below the caller when
+  `.content` is read — the same 5 whether the model came from
+  `model_validate` or from `client.get_ticket` — and 9 on the write path,
+  where the renderer runs inside `model_dump`. What is not small is an
+  application reading `.content` from inside a request handler or a
+  recursive walk. Converting a 200-level document peaks at a measured 412
+  frames, so it stays safe until the caller's own stack passes about
+  588 — and no document a human wrote nests 200 elements deep.
 
   **`sys.setrecursionlimit` was considered and rejected.** It is
   process-global state belonging to the application, not to a library the
@@ -91,6 +94,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   falling off it worse. The prohibition is asserted by
   `testing/tests/test_raise_site_audit.py` rather than left as a comment
   for the next person to weigh up again.
+
+- **Where a tag *ends* was read with start-tag rules, twice.** Both were
+  unbounded depth under-counts, which is the one direction the ceiling
+  exists to prevent, and both also deleted prose from the degraded path at
+  any depth.
+
+  `parse_endtag` falls back to `rawdata.find(">")`, so an end tag skips
+  nothing — CPython's own comment concedes the case: "this is not 100%
+  correct, since we might have things like `</tag attr=">">`". Reading one
+  with attribute rules made `'</x a="><div>">' * 600` measure **0**
+  against a real 600.
+
+  `locatestarttagend_tolerant` reaches a quoted value only through an
+  attribute *name*, and a name may itself begin with `=`. So in
+  `<div ="<p><p>">` the parser reads the name `="<p` and ends the tag at
+  the first `>`, where treating any `=` before a quote as a value
+  indicator swallowed the rest: `'<div ="' + "<p>" * 600` measured **1**
+  against a real 600.
+
+  The attribute pattern is now a sequence of attributes rather than a run
+  of permitted characters, and end tags have their own branch. The
+  attribute name carries the parser's own "starts after a quote,
+  whitespace or `/`" rule, which is load-bearing twice over: without it
+  `<div ="` reads as a value, *and* the pattern backtracks
+  catastrophically — a 400-byte `'<div a="' * 50` did not finish.
+
+- **A body of nothing but `<div a="` cost O(n²).** 32 KB took 6.6 s. `re`
+  restarts at every `<` where `html.parser` buffers an incomplete tag and
+  never looks back. No `>` anywhere means no element anywhere, so that is
+  now answered in constant time. The remaining non-linear shape is
+  documented rather than papered over: bounding the attribute repetition
+  would make a tag past the bound fail to match, which is an *under*-count
+  and unbounded once such tags nest.
+
+- **`GlpiContentError` did not survive the write path.** Outbound
+  conversion runs in a `PlainSerializer`, and pydantic-core catches
+  everything a serializer raises and re-raises `PydanticSerializationError`
+  — a `ValueError`, not a `GlpiError`, with `__cause__` and `__context__`
+  both `None`. So on every `create_*`/`update_*` carrying a body,
+  `except GlpiError` did not fire and the underlying fault was
+  unrecoverable. The fault is now stashed as it is raised and restored
+  around `model_dump`, with its own `__cause__` intact; a serialisation
+  failure that is *not* content becomes `GlpiValidationError` rather than
+  being mislabelled.
+
+- **One field spelled two ways shadowed itself in `model_dump`.** Pydantic
+  consumes the first alias and `extra="allow"` files the rest as model
+  extras — and an extra named after a field is emitted *instead of* that
+  field, so the attribute reported one body and the object's own dump
+  reported the other. The redundant spelling is now dropped before
+  Pydantic resolves anything, and `content_html` is the first choice, so a
+  dump carrying both round-trips back to the raw body.
+
+  Worth knowing about the read models: `model_copy(update={"content": ...})`
+  — the 0.4.x spelling — updates **nothing**, because `content` is now a
+  `cached_property`. A caller redacting a body that way gets an object
+  whose `.content` still holds the original. Rewrite `content_html`, or
+  rebuild through `model_validate`.
 
 - **A body that used both spellings of `<br>` lost everything after the
   second one.** `<p>line1<br>line2</p><p>para2<br />line4</p>` converted

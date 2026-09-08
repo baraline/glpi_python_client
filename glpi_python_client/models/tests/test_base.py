@@ -13,7 +13,7 @@ from typing import Annotated
 import pytest
 from pydantic import AliasChoices, AliasPath, Field, ValidationError
 
-from glpi_python_client.models._base import GlpiModel
+from glpi_python_client.models._base import GlpiModel, _alias_groups
 
 _PARIS_SUMMER = timezone(timedelta(hours=2))
 _PARIS_WINTER = timezone(timedelta(hours=1))
@@ -297,3 +297,59 @@ def test_a_non_mapping_payload_is_passed_through_untouched() -> None:
 
     with pytest.raises(ValidationError):
         _Stamped.model_validate([1, 2, 3])
+
+
+def test_a_field_spelled_twice_drops_the_spelling_pydantic_ignores() -> None:
+    """Only one spelling of one field may survive validation.
+
+    Pydantic consumes the first alias it finds and leaves the rest to
+    ``extra="allow"``, which files them as model extras -- and a model
+    extra named after a field is emitted by ``model_dump`` *instead of*
+    that field. So the redundant spelling is removed here, before Pydantic
+    resolves anything.
+    """
+
+    class Twice(GlpiModel):
+        body: Annotated[
+            str | None,
+            Field(validation_alias=AliasChoices("body_raw", "body")),
+        ] = None
+
+    both = Twice.model_validate({"body_raw": "raw wins", "body": "legacy"})
+
+    assert both.body == "raw wins"
+    assert both.model_extra == {}
+    assert both.extra_payload == {}
+    assert both.model_dump()["body"] == "raw wins"
+
+
+def test_either_spelling_alone_still_populates_the_field() -> None:
+    """Dropping a duplicate must not turn into dropping the only value."""
+
+    class Twice(GlpiModel):
+        body: Annotated[
+            str | None,
+            Field(validation_alias=AliasChoices("body_raw", "body")),
+        ] = None
+
+    assert Twice.model_validate({"body_raw": "x"}).body == "x"
+    assert Twice.model_validate({"body": "y"}).body == "y"
+
+
+def test_alias_groups_lists_only_fields_with_a_choice() -> None:
+    """A field with one spelling has nothing to choose, so it is left out.
+
+    An ``AliasPath`` is left out too: it addresses a position inside a
+    nested structure rather than a key that could duplicate another.
+    """
+
+    class Mixed(GlpiModel):
+        one: Annotated[str | None, Field(validation_alias="only")] = None
+        two: Annotated[
+            str | None, Field(validation_alias=AliasChoices("a", "b", "c"))
+        ] = None
+        three: Annotated[
+            str | None, Field(validation_alias=AliasPath("nested", "deep"))
+        ] = None
+
+    assert _alias_groups(Mixed) == (("a", "b", "c"),)

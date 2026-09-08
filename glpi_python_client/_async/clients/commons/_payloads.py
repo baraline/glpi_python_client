@@ -14,6 +14,7 @@ from glpi_python_client.models._base import (
     SERVER_TIMEZONE_CONTEXT_KEY,
     GlpiModel,
 )
+from glpi_python_client.models.api_schema._content import restoring_content_faults
 
 ModelT = TypeVar("ModelT", bound=GlpiModel)
 
@@ -54,12 +55,13 @@ def model_to_payload(
         if server_timezone is not None
         else None
     )
-    body = model.model_dump(
-        mode="json",
-        exclude_none=True,
-        exclude={"extra_payload"},
-        context=context,
-    )
+    with restoring_content_faults():
+        body = model.model_dump(
+            mode="json",
+            exclude_none=True,
+            exclude={"extra_payload"},
+            context=context,
+        )
     if model.extra_payload:
         body.update(model.extra_payload)
     return body

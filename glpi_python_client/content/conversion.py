@@ -82,9 +82,11 @@ _CANDIDATE_TAG = re.compile(r"</?([a-zA-Z][a-zA-Z0-9]*)\b[^<>]*>")
 #: costs an unnecessary degradation, while a name wrongly *in* here hides
 #: real nesting, which is a ``RecursionError``. Listing the legacy names
 #: only makes the count exact on old markup. Copied rather than imported --
-#: it lives in ``bs4.builder._htmlparser``, which is private -- and the
-#: subset invariant is asserted against a real parse in the unit tests, so
-#: a future ``bs4`` cannot quietly break it.
+#: it lives in ``bs4.builder`` as
+#: ``HTMLTreeBuilder.DEFAULT_EMPTY_ELEMENT_TAGS``, which ``bs4``'s own
+#: documentation marks ``:meta private:`` -- and the subset invariant is
+#: asserted against a real parse in the unit tests, so a future ``bs4``
+#: cannot quietly break it. The two sets currently hold the same 24 names.
 _VOID_ELEMENTS = frozenset(
     """
     area base basefont bgsound br col command embed frame hr image img
@@ -115,20 +117,23 @@ _BLOCK_ELEMENTS = frozenset(
 #: ``markdownify`` walks the parsed tree recursively and spends about two
 #: CPython frames per nesting level. Measured against the default
 #: 1000-frame limit, from a shallow stack, the deepest document that
-#: converts is 492 levels -- and the same 492 whether the nesting is
-#: ``<div>``, ``<p>``, ``<blockquote>``, ``<ul><li>`` or
-#: ``<table><tr><td>``, which is what identifies the cost as per-level.
-#: One level past it raises ``RecursionError``.
+#: converts is 494 levels: the same 494 for ``<div>``, ``<p>``,
+#: ``<blockquote>`` and ``<table><tr><td>``, and 495 for ``<ul><li>``,
+#: which is what identifies the cost as per-level. One level past it
+#: raises ``RecursionError``.
 #:
-#: The ceiling is 200 rather than 492 because the budget is not 1000 frames,
+#: The ceiling is 200 rather than 494 because the budget is not 1000 frames,
 #: it is whatever is left of the stack when the conversion starts, and that
-#: belongs to the caller. Measured at the conversion call site: 8 frames
-#: through the synchronous client, 16 through the asynchronous one, 37 from
-#: twenty nested awaits. The library's own contribution is negligible; an
-#: application calling from inside a request handler, a template render or a
-#: recursive walk is not. Converting a 200-level document was measured to
-#: peak at 403 frames, so it stays safe until the caller's own stack passes
-#: roughly 590 -- and no document a human wrote nests 200 elements deep.
+#: belongs to the caller. The package's own contribution is small and, since
+#: conversion moved to the attribute, no longer depends on how the record
+#: was fetched: measured, 5 frames below the caller when ``.content`` is
+#: read -- the same 5 whether the model came from ``model_validate`` or from
+#: ``client.get_ticket`` -- and 9 on the write path, where the renderer runs
+#: inside ``model_dump``. What is not small is an application reading
+#: ``.content`` from inside a request handler, a template render or a
+#: recursive walk. Converting a 200-level document was measured to peak at
+#: 412 frames, so it stays safe until the caller's own stack passes about
+#: 588 -- and no document a human wrote nests 200 elements deep.
 #:
 #: **``sys.setrecursionlimit`` is deliberately not called, here or anywhere
 #: in the package.** It is process-global state that belongs to the
@@ -170,12 +175,23 @@ MAX_HTML_DEPTH = 200
 #:    ``strip=["script", "style"]`` discards both on the normal path, so
 #:    the degraded path discards them too. The ``$`` alternative covers an
 #:    unclosed one, whose body the parser also reads to the end as text.
-#: 5. A tag. The ``<`` must abut the name, matching what the parser
+#: 5. An end tag, which runs to its **first** ``>`` and skips nothing.
+#:    ``parse_endtag`` falls back to ``rawdata.find(">", ...)`` when its
+#:    strict pattern fails, and CPython's own comment there concedes the
+#:    consequence: "this is not 100% correct, since we might have things
+#:    like ``</tag attr=">">``". So the parser makes three tokens of
+#:    ``</x a="><div>">`` -- an end tag, a real ``<div>`` and some text --
+#:    where reading it with attribute rules makes one. That mattered:
+#:    every repetition closed nothing and opened a ``<div>`` that never
+#:    closed, so ``'</x a="><div>">' * 600`` measured **0** against a real
+#:    600 and raised. It also has to allow ``</ p>``, since the strict
+#:    pattern starts ``</\s*``.
+#: 6. A start tag. The ``<`` must abut the name, matching what the parser
 #:    accepts -- which is what keeps ``2 < 3 > 1`` and ``x <= y`` text: a
 #:    space after ``<`` means no tag, so arithmetic never reaches the HTML
 #:    path in the first place.
 #:
-#: Branches 4 and 5 read attributes with :data:`_ATTRIBUTES` rather than
+#: Branches 4 and 6 read attributes with :data:`_ATTRIBUTES` rather than
 #: ``[^<>]*``, because an attribute value may legally contain ``<`` and
 #: ``>``. Skipping over quotes is not cosmetic: measured,
 #: ``'<div title="</div>">' * 600`` used to measure **0** levels deep when
@@ -209,7 +225,38 @@ MAX_HTML_DEPTH = 200
 #: -- through ``markdownify`` and into the ``RecursionError`` the ceiling
 #: exists to prevent. A malformed ``<custom=>`` costs nothing, but the
 #: raw-text names make it unbounded, so the gate belongs on both branches.
-_ATTRIBUTES = r"""(?=[\s/>])(?:[^>=]|=\s*"[^"]*"|=\s*'[^']*'|=\s*(?!["'])[^\s>]*)*"""
+#:
+#: Which makes the shape below a *sequence of attributes* rather than a
+#: run of permitted characters, because only a real attribute can open a
+#: quoted value. The authority is ``locatestarttagend_tolerant``, which is
+#: what decides where a start tag ends; a value is reachable only through
+#: the name group ``(?<=['"\s/])[^\s/>][^\s/=>]*``, and an attribute name
+#: may itself begin with ``=`` and contain ``"`` and ``<``. So in
+#: ``<div ="<p><p>">`` the parser reads the attribute *name* ``="<p``,
+#: opens no value at all, and ends the tag at the first ``>``. Treating
+#: any ``=`` before a quote as a value indicator swallowed the rest:
+#: measured, ``'<div ="' + "<p>" * 600`` gave **1** level against a real
+#: 600, cleared the ceiling and raised. Whitespace between name and ``=``
+#: is fine (``<div a ="x>y">`` really does quote its value), which is why
+#: the name has to be matched rather than approximated by a lookbehind.
+#: One attribute value, as ``locatestarttagend_tolerant`` reads one.
+_ATTRIBUTE_VALUE = r"""(?:"[^"]*"|'[^']*'|(?!["'])[^\s>]*)"""
+
+#: One attribute: a name, then optionally ``=`` and a value.
+#:
+#: The leading lookbehind is the parser's own -- an attribute name starts
+#: only after a quote, whitespace or ``/`` -- and it is load-bearing twice
+#: over. It is what makes ``<div ="`` read as a name rather than a value,
+#: and it is what keeps this pattern from backtracking catastrophically:
+#: without it, ``[^\s/>][^\s/=>]*`` under the outer ``*`` below can split
+#: one run of name characters in exponentially many ways, and a 400-byte
+#: ``'<div a="' * 50`` did not finish. With it, a name can only begin
+#: where a delimiter precedes it, so there is nothing to split.
+_ATTRIBUTE = (
+    r"""(?<=['"\s/])[^\s/>][^\s/=>]*(?:\s*=+\s*""" + _ATTRIBUTE_VALUE + r""")?"""
+)
+
+_ATTRIBUTES = r"""(?=[\s/>])(?:[\s/]+|""" + _ATTRIBUTE + r""")*"""
 
 _MARKUP = re.compile(
     r"<!--.*?-->"
@@ -217,7 +264,8 @@ _MARKUP = re.compile(
     r"|(?P<decl><[!?][^>]*>?)"
     r"|<(?P<raw>script|style)" + _ATTRIBUTES + r"(?<!/)>"
     r"(?P<rawbody>.*?)(?:</(?P=raw)\s*>|(?P<rawcut>$))"
-    r"|</?(?P<name>[a-zA-Z][^\t\n\r\f />\x00]*)" + _ATTRIBUTES + r">",
+    r"|</\s*(?P<close>[a-zA-Z][^\t\n\r\f />\x00]*)[^>]*>"
+    r"|<(?P<name>[a-zA-Z][^\t\n\r\f />\x00]*)" + _ATTRIBUTES + r">",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -291,11 +339,27 @@ def _looks_like_html(content: str) -> bool:
 def _html_nesting_depth(content: str) -> int:
     """Return how deeply ``content`` nests, without recursing to find out.
 
-    One linear pass over the tag candidates, keeping the open elements on a
-    list and its high-water mark. Linear in the length of the input and flat
-    in the stack, which is the point: the number this returns decides
-    whether a recursive parser is safe to run, so computing it must not need
-    one. Measured, it costs 4-6% of the ``markdownify`` call it guards.
+    One pass over the tag candidates, keeping the open elements on a list
+    and its high-water mark. Flat in the stack, which is the point: the
+    number this returns decides whether a recursive parser is safe to run,
+    so computing it must not need one.
+
+    Linear on any content a client or a mail gateway produces, and measured
+    at 4-6% of the ``markdownify`` call it guards: 148 KB of well-formed
+    HTML in 19 ms, the same body truncated mid-attribute in 22 ms, 296 KB
+    with an unpaired quote in the middle in 41 ms.
+
+    Not linear in the worst case, which is worth stating plainly rather
+    than claiming a bound this does not have. ``re`` restarts at every
+    ``<`` where ``html.parser`` buffers an incomplete tag and never looks
+    back, so a document whose every tag leaves an unpaired quote and which
+    carries no ``>`` until the very end -- ``'<div a="b" c="' * n`` --
+    costs O(n**2): 28 KB in 3 s. The simplest such shape, no ``>`` at all,
+    is answered in constant time by the guard below; the rest is a crafted
+    string rather than a truncation, and the obvious fix is worse than the
+    problem, since bounding the attribute repetition would make a tag past
+    the bound fail to match, which is an *under*-count, and unbounded
+    again once such tags nest.
 
     Four rules make the count match the tree ``html.parser`` will actually
     build. The first two are what an open/close counter would get wrong:
@@ -349,7 +413,12 @@ def _html_nesting_depth(content: str) -> int:
         text with no tags at all.
     """
 
-    if "<" not in content:
+    if "<" not in content or ">" not in content:
+        # No ``>`` anywhere means no element anywhere: the parser buffers an
+        # incomplete tag and flushes it as text when it closes. Checking is
+        # also what keeps a body of nothing but ``'<div a="'`` cheap -- this
+        # scan restarts at every ``<`` where the parser never backtracks, so
+        # that shape costs it O(n) and would cost this O(n**2).
         return 0
     stack: list[str] = []
     open_names: Counter[str] = Counter()
@@ -360,20 +429,23 @@ def _html_nesting_depth(content: str) -> int:
             # node one level below whatever is open around it.
             deepest = max(deepest, len(stack) + 1)
             continue
+        closing = match.group("close")
+        if closing is not None:
+            closing = closing.lower()
+            if not open_names[closing]:
+                continue  # nothing of that name is open, so bs4 pops nothing
+            while True:
+                popped = stack.pop()
+                open_names[popped] -= 1
+                if popped == closing:
+                    break
+            continue
         name = match.group("name")
         if name is None:
             continue  # a comment, a declaration or a processing instruction
         name = name.lower()
         token = match.group(0)
-        if token[1] == "/":
-            if not open_names[name]:
-                continue  # nothing of that name is open, so bs4 pops nothing
-            while True:
-                popped = stack.pop()
-                open_names[popped] -= 1
-                if popped == name:
-                    break
-        elif token.endswith("/>") or name in _VOID_ELEMENTS:
+        if token.endswith("/>") or name in _VOID_ELEMENTS:
             deepest = max(deepest, len(stack) + 1)
         else:
             stack.append(name)
@@ -389,8 +461,11 @@ def _strip_tags(content: str) -> str:
     of :data:`_MARKUP` -- the same scanner the depth measurement uses, so
     the two agree about what is markup -- then whitespace tidying. No tree,
     no recursion, no depth ceiling of its own, so it answers for input of
-    any shape. Measured at 4-8 MB/s depending on tag density, roughly ten
-    times faster than the ``markdownify`` call it stands in for.
+    any shape. Tag density decides the rest, and decides it over a wide
+    range: measured at 2.2 MB/s on 128 KB of table cells and 11.5 MB/s on
+    217 KB of sparse prose, which is 18x and 2.3x faster respectively than
+    the ``markdownify`` call it stands in for. Dense markup is where it
+    pays best, which is the shape a document at this depth has.
 
     It **degrades and never truncates.** The property, stated as something
     checkable: after collapsing whitespace, every character the converting
@@ -444,14 +519,17 @@ def _strip_tags(content: str) -> str:
 
     pieces: list[str] = []
     cursor = 0
-    for match in _MARKUP.finditer(content):
+    # ``>`` gates the scan for the reason given in :func:`_html_nesting_depth`:
+    # without one there is no markup to skip, and the whole document is the
+    # text the parser would flush on ``close()``.
+    for match in _MARKUP.finditer(content) if ">" in content else ():
         pieces.append(content[cursor : match.start()])
         cursor = match.end()
         cdata = match.group("cdata")
         if cdata is not None:
             pieces.append(cdata)
             continue
-        name = match.group("name")
+        name = match.group("name") or match.group("close")
         if name is not None:
             if name.lower() in _BLOCK_ELEMENTS:
                 pieces.append("\n")
@@ -549,7 +627,7 @@ def _canonicalise_void_elements(content: str) -> str:
         if name is None or name.lower() not in _VOID_ELEMENTS:
             continue
         token = match.group(0)
-        if token.startswith("</") or not token.endswith("/>"):
+        if not token.endswith("/>"):
             continue
         pieces.append(content[cursor : match.start()])
         pieces.append(_VOID_SELF_CLOSE.sub(">", token))

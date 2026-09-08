@@ -102,6 +102,54 @@ def _payload_keys(model_class: type[BaseModel]) -> frozenset[str]:
     return resolved
 
 
+#: Cache for :func:`_alias_groups`, keyed the same way as
+#: :data:`_PAYLOAD_KEYS`.
+_ALIAS_GROUPS: dict[type[BaseModel], tuple[tuple[str, ...], ...]] = {}
+
+
+def _alias_groups(model_class: type[BaseModel]) -> tuple[tuple[str, ...], ...]:
+    """Return the payload keys of every field that accepts more than one.
+
+    Each group is one field's accepted spellings **in the order Pydantic
+    tries them**, which for ``AliasChoices`` is the order they were
+    declared. Fields accepting a single key are left out, since there is
+    nothing to choose between.
+
+    Only plain string choices are listed. An ``AliasPath`` addresses a
+    position inside a nested structure rather than a key that could
+    duplicate another, so it is not a member of any group.
+
+    Parameters
+    ----------
+    model_class : type[BaseModel]
+        The concrete model being validated.
+
+    Returns
+    -------
+    tuple of tuple of str
+        One tuple per multi-spelling field, most-preferred spelling first.
+    """
+
+    cached = _ALIAS_GROUPS.get(model_class)
+    if cached is not None:
+        return cached
+    groups: list[tuple[str, ...]] = []
+    for field in model_class.model_fields.values():
+        keys: list[str] = []
+        alias = field.validation_alias
+        if isinstance(alias, AliasChoices):
+            keys.extend(choice for choice in alias.choices if isinstance(choice, str))
+        elif isinstance(alias, str):
+            keys.append(alias)
+        if field.alias is not None and field.alias not in keys:
+            keys.append(field.alias)
+        if len(keys) > 1:
+            groups.append(tuple(keys))
+    resolved = tuple(groups)
+    _ALIAS_GROUPS[model_class] = resolved
+    return resolved
+
+
 class GlpiModel(BaseModel):
     """Base class for field-validated GLPI data models.
 
@@ -128,11 +176,24 @@ class GlpiModel(BaseModel):
         "Can consume" means field names *and* validation aliases -- see
         :func:`_payload_keys`. This validator runs before Pydantic resolves
         aliases, so a key it removes is a key the alias never gets to see.
+
+        A payload that spells one field two ways keeps only the spelling
+        Pydantic would have used, per :func:`_alias_groups`. The redundant
+        one is dropped rather than kept, because keeping it was worse than
+        it sounds: Pydantic consumes the winning alias, and ``extra="allow"``
+        then files the loser as a model extra, which ``model_dump`` emits
+        *over* the field it duplicates. Measured on ``GetTicket`` given both
+        ``content`` and ``content_html``, the attribute reported one body
+        and the object's own dump reported the other.
         """
 
         if not isinstance(data, dict):
             return data
         known = _payload_keys(cls)
+        for group in _alias_groups(cls):
+            present = [key for key in group if key in data]
+            for redundant in present[1:]:
+                del data[redundant]
         existing_extras = data.get("extra_payload")
         captured: dict[str, Any] = {}
         for key in list(data.keys()):

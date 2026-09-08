@@ -840,3 +840,106 @@ def test_both_paths_agree_on_a_body_using_both_spellings() -> None:
     for word in ("one", "two", "three"):
         assert word in converted
         assert word in degraded
+
+
+@pytest.mark.parametrize(
+    ("html", "reason"),
+    [
+        pytest.param(
+            '</x a="><div>">',
+            "an end tag skips nothing, so the <div> after it is real",
+            id="end-tag-with-a-quoted-attribute",
+        ),
+        pytest.param(
+            '<div ="<p><p>">',
+            "a name-less = starts an attribute NAME, not a quoted value",
+            id="name-less-equals-quote",
+        ),
+        pytest.param(
+            '<div a ="x>y">',
+            "whitespace before = still leaves a quoted value",
+            id="space-before-equals",
+        ),
+        pytest.param(
+            "</ p>x",
+            "the strict end-tag pattern allows space after </",
+            id="space-in-end-tag",
+        ),
+        pytest.param("</p/>x", "a trailing slash on an end tag", id="slash-in-end-tag"),
+        pytest.param(
+            '<li y=">mot<script data-x="</div>">tail',
+            "< inside a tag",
+            id="lt-after-a-value",
+        ),
+    ],
+)
+def test_the_depth_scan_reads_tag_ends_like_the_parser(html: str, reason: str) -> None:
+    """Where a tag *ends* is decided by three different parser functions.
+
+    Each of these was read with start-tag rules until it was measured, and
+    two of them under-counted without bound:
+
+    * ``parse_endtag`` falls back to ``rawdata.find(">")``, so an end tag
+      skips nothing -- ``'</x a="><div>">' * 600`` measured **0** against a
+      real 600 and raised.
+    * ``locatestarttagend_tolerant`` reaches a quoted value only through an
+      attribute *name*, and a name may itself start with ``=`` -- so
+      ``'<div ="' + "<p>" * 600`` measured **1** against a real 600.
+
+    ``reason`` is carried only to say why each case is here.
+    """
+
+    assert _html_nesting_depth(html) == _parser_depth(html)
+
+
+@pytest.mark.parametrize(
+    "fragment",
+    [
+        pytest.param('</x a="><div>">', id="end-tag-with-a-quoted-attribute"),
+        pytest.param('<div ="<p>', id="name-less-equals-quote"),
+        pytest.param('<p title="><span>">', id="quoted-gt-then-tag"),
+    ],
+)
+def test_a_misread_tag_end_cannot_hide_the_depth_below_it(fragment: str) -> None:
+    """Scaled past the ceiling: degrades, and does not raise.
+
+    The under-counts these come from were 1:1 with the repetition, so the
+    deficit grew without bound and the document cleared the ceiling.
+    """
+
+    html = fragment * 600 + "the printer is offline"
+
+    assert _html_nesting_depth(html) >= _parser_depth(html)
+    assert "the printer is offline" in GlpiContentConverter.from_transport(html)
+
+
+def test_a_misread_tag_end_does_not_delete_prose() -> None:
+    """The other half of the same defect, and it needs no depth at all.
+
+    Reading an end tag with attribute rules consumed everything between
+    the opening quote and its partner, so a degraded body said less than
+    the converting one -- the divergence the parity test forbids.
+    """
+
+    body = '<p>Bonjour</p title="> Le serveur ne repond plus. SECRET ">fin'
+    deep = "<div>" * 300 + body + "</div>" * 300
+
+    assert "SECRET" in GlpiContentConverter.from_transport(body)
+    assert "SECRET" in GlpiContentConverter.from_transport(deep)
+
+
+def test_a_document_with_no_closing_bracket_is_answered_without_scanning() -> None:
+    """No ``>`` means no element, and saying so keeps a bad shape cheap.
+
+    ``re`` restarts at every ``<`` where ``html.parser`` buffers an
+    incomplete tag and never looks back, so ``'<div a="' * n`` cost this
+    scan O(n**2) -- 32 KB in 6.6 s -- while the parser answers it in one
+    pass. The guard makes it constant time, and the text still survives,
+    because the parser flushes an unfinished tag as data when it closes.
+    """
+
+    html = '<div a="' * 4000
+
+    assert _html_nesting_depth(html) == 0
+    assert GlpiContentConverter.from_transport(html).startswith('<div a="')
+    assert "the printer" in GlpiContentConverter.from_transport(html + "the printer")
