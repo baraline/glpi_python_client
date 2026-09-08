@@ -27,11 +27,13 @@ from it, so neither wraps the other and the two cannot drift apart.
 Exceptions
 ----------
 
-Exceptions raised for a bad argument, an unexpected HTTP status, or an
-unusable response body derive from :class:`GlpiError`.
-:class:`GlpiStatusError`, :class:`GlpiValidationError` and
-:class:`GlpiProtocolError` also inherit :class:`ValueError` for backwards
-compatibility with releases that raised bare ``ValueError``.
+Exceptions raised for a bad argument, an unexpected HTTP status, an
+unusable response body, or content that cannot be converted derive from
+:class:`GlpiError`. :class:`GlpiStatusError`, :class:`GlpiValidationError`
+and :class:`GlpiProtocolError` also inherit :class:`ValueError` for
+backwards compatibility with releases that raised bare ``ValueError``;
+:class:`GlpiContentError` and :class:`GlpiTransportError` do not, because
+nothing was passed in wrongly in either case.
 
 Network-level faults (connection failures, DNS errors, timeouts) are
 raised as :class:`GlpiTransportError`, or its :class:`GlpiTimeoutError`
@@ -79,6 +81,53 @@ guide for the full picture, including which methods raise which type.
 .. autoexception:: GlpiProtocolError
    :members:
    :show-inheritance:
+
+.. autoexception:: GlpiContentError
+   :members:
+   :show-inheritance:
+
+Rich-text content
+-----------------
+
+GLPI exchanges ticket, followup, task, solution and knowledge-base bodies
+as HTML. The package's surface is Markdown in both directions, but the two
+directions work differently, and the difference is visible.
+
+A **write** model (``Post*``, ``Patch*``) takes Markdown in ``content`` and
+renders it to HTML when the request is built. Nothing to think about.
+
+A **read** model (``Get*``) keeps two views of the same body:
+
+``content_html``
+   what GLPI sent, verbatim. Also accepts the wire spelling ``content`` on
+   construction.
+
+``content``
+   the same body as Markdown, converted on the first read and cached.
+   :class:`GetKBArticle` has ``description`` / ``description_html`` as
+   well.
+
+Reading ``.content`` is what a caller wants and what earlier releases
+returned, so no read-side code needs changing. What changed is *when* the
+conversion happens, which buys two things: listing records costs nothing
+per body, and a body that cannot be converted no longer stops the rest of
+its page being read.
+
+Very deeply nested HTML is the case worth knowing about.
+``markdownify`` walks the document recursively and runs out of stack at
+around 494 levels of nesting, so past
+:data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH` (200) the
+converter strips tags instead of parsing. It degrades, it never
+truncates, and it does not raise: every character the normal rendering
+would have produced still appears. What is lost is structure rather than
+words — link targets and image alt text, code fencing and ``<pre>``
+indentation, ``&nbsp;`` alignment. Anything else that goes wrong in
+either direction raises :class:`GlpiContentError`.
+
+Because the conversion is cached on first read, a read model should be
+treated as immutable afterwards: assigning to ``content_html``, or
+``model_copy(update={"content_html": ...})``, leaves the cached Markdown
+in place. Rebuild through ``model_validate`` if you need to change it.
 
 Aggregated Models
 -----------------

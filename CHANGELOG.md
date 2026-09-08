@@ -4,6 +4,152 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.0 — 2026-09-08
+
+### Fixed
+
+- **Deeply nested HTML raised `RecursionError` while a model was being
+  validated.** `markdownify` walks the parsed document recursively and
+  spends about two CPython frames per nesting level, so roughly 494 levels
+  exhausted the default 1000-frame limit — measured, and the same 494
+  whether the nesting is `<div>`, `<p>`, `<blockquote>`, `<ul><li>` or
+  `<table><tr><td>`, which is what identifies the cost as per-level. An
+  unclosed tag counts too: `html.parser` does not auto-close `<p>` or
+  `<li>`, so `"<p>" * 5000` really is 5000 levels.
+
+  Because the converter was wired as a Pydantic `BeforeValidator`, the
+  failure landed inside `model_validate` — that is, inside `get_ticket` —
+  as a bare builtin from a library whose whole error surface is supposed
+  to derive from `GlpiError`.
+
+  `from_transport` now measures nesting first, with a flat non-recursive
+  O(n) scan, and past `MAX_HTML_DEPTH` (200) strips tags instead of
+  parsing. **It degrades, it never truncates, and it does not raise for
+  depth**: every character the converting path would have produced also
+  appears in the degraded rendering.
+
+  Both halves were fuzzed against the real parser over 15000 documents,
+  with zero under-counts, zero over-counts and zero text losses. Getting
+  there took several rules that are not the obvious ones:
+
+  - A closing tag pops by name or is ignored — `bs4` pops nothing when no
+    element of that name is open, so `"<div></p>" * 600` really is 600
+    deep where a naive counter says 1.
+  - An attribute value may contain `<` and `>`, so
+    `'<div title="</div>">' * 600` also measured 0 against a real 600
+    until the scan learned to skip quoted values.
+  - An unclosed tag counts, a childless node still occupies a level, and
+    a bogus comment swallows the tags inside it.
+  - The degraded path had to be measured against the converting path
+    construct by construct rather than reasoned about. Three answers came
+    back the opposite way round: a `<script>`/`<style>` body is *kept*
+    (`markdownify`'s `strip=` removes an element's markup and still walks
+    its children), so is a `CDATA` body, and so is the inside of any
+    `<!`/`<?` construct the parser could not resolve.
+
+  What the degraded rendering does not reproduce, none of it prose: link
+  targets and image alt text, fenced-block and `<pre>` indentation,
+  `&nbsp;`-padded alignment, and a processing instruction's `<?`/`>`
+  delimiters, which survive as literal text.
+
+  Character references are resolved by the parser's rule rather than by
+  `html.unescape`, which implements HTML5's longest-known-*prefix* rule
+  and would rewrite a pasted URL: `?a=1&copyright=2` becomes
+  `?a=1©right=2` under `unescape` and is left alone by the parser. A
+  semicolon-less reference resolves only when its whole name is known.
+
+  The ceiling is 200 rather than 492 because the budget is not 1000
+  frames, it is whatever is left of the stack when conversion starts, and
+  that belongs to the caller. Measured at the call site: 8 frames through
+  the synchronous client, 16 through the asynchronous one, 37 from twenty
+  nested awaits. The library's own contribution is negligible; an
+  application converting from inside a request handler or a recursive
+  walk is not. Converting a 200-level document peaks at a measured 403
+  frames, so it stays safe until the caller's own stack passes roughly
+  590 — and no document a human wrote nests 200 elements deep.
+
+  **`sys.setrecursionlimit` was considered and rejected.** It is
+  process-global state belonging to the application, not to a library the
+  application imported; and past what the C stack can hold it converts a
+  catchable `RecursionError` into a hard interpreter crash — on Windows,
+  an access violation with no traceback. It moves the cliff and makes
+  falling off it worse. The prohibition is asserted by
+  `testing/tests/test_raise_site_audit.py` rather than left as a comment
+  for the next person to weigh up again.
+
+- **`GlpiModel` now recognises validation aliases when it captures unknown
+  keys.** `_capture_unknown_fields` runs before Pydantic resolves aliases
+  and compared incoming keys against field *names* only, so an aliased key
+  was diverted into `extra_payload` before its field could see it — HTTP
+  200, no warning, and the value silently `None`. Latent until this
+  release, which introduces the package's first alias.
+
+### Added
+
+- **`GlpiContentError`** — a new `GlpiError` leaf for a rich-text body
+  that could not be converted, in either direction, with the underlying
+  fault attached as `__cause__`. Exported from the package root and
+  documented in the API reference.
+
+  Content conversion previously sat outside the taxonomy altogether: a
+  parser fault escaped `except GlpiError` and reached the caller as a bare
+  builtin. The depth ceiling above means no ordinary input gets here, so
+  this is the backstop — including for the outbound direction, where
+  `markdown` has its own cliff at around 500 levels of list indentation.
+
+  Unlike `GlpiStatusError`, `GlpiValidationError` and `GlpiProtocolError`
+  it does **not** inherit `ValueError`. Those three carry it for
+  compatibility with releases that raised bare `ValueError` at the same
+  sites; there was never a `ValueError` at a conversion site, and a parser
+  exhausting the stack is not a value the caller got wrong. Same reasoning
+  as `GlpiTransportError`.
+
+- **`content_html` on the read models**, holding the wire value verbatim:
+  `GetTicket`, `GetFollowup`, `GetTicketTask`, `GetSolution`,
+  `GetKBArticleRevision`, and `GetKBArticle` (which also gains
+  `description_html`).
+
+### Changed (breaking)
+
+- **Read models convert to Markdown on first access instead of during
+  validation.** `content` is now a `functools.cached_property` over
+  `content_html`:
+
+  ```python
+  ticket = client.get_ticket(42)
+  ticket.content_html   # '<p>Printer is <strong>offline</strong></p>'
+  ticket.content        # 'Printer is **offline**'  (converted here, once)
+  ```
+
+  **Callers that read `.content` need no change.** The field carries the
+  validation alias `content`, so a GLPI payload and a hand-written
+  `GetTicket(content=...)` both still populate it, and `.content` still
+  returns Markdown. What changes is *when*.
+
+  Two things follow. A caller who wants only `id` and `date_mod` no longer
+  pays HTML-to-Markdown on every record of every page. And a body that
+  cannot be converted no longer takes its page-mates with it:
+  `TransportMixin._resource_list` builds every item of a page in one
+  comprehension, so one unconvertible record used to make the whole page
+  unreadable — the failure is now scoped to the record whose body is
+  actually read.
+
+  Write models (`Post*`, `Patch*`) are deliberately unchanged: they keep
+  the plain `content` field and convert eagerly, so a caller's own
+  Markdown is still checked where it was supplied, and there is no list
+  path on a write model to make lazy.
+
+  What does break: `content` is no longer in `GetTicket.model_fields`, and
+  `GetTicket(...).model_dump()` emits `content_html` holding HTML where it
+  used to emit `content` holding Markdown (`by_alias=True` gives a dump
+  keyed the way GLPI keys it).
+
+  One sharp edge comes with the cache. Assigning to `content_html` after
+  `.content` has been read leaves the stale Markdown in place, and so does
+  `model_copy(update={"content_html": ...})` — and neither equality,
+  `repr` nor any `model_dump` reveals it. Treat a read model as immutable
+  once validated, or rebuild it through `model_validate`.
+
 ## 0.4.3 — 2026-08-13
 
 ### Changed (breaking)

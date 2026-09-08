@@ -586,7 +586,11 @@ Knowledge base
 The knowledge base mixins map to ``/Knowledgebase``. Articles and
 categories expose the ``search_ / get_ / create_ / update_ / delete_``
 shape; comments are nested under an article; revisions are read-only.
-Article ``content`` and ``description`` accept and return Markdown. An
+Article ``content`` and ``description`` accept and return Markdown; on
+:class:`~glpi_python_client.GetKBArticle` they are properties over
+``content_html`` and ``description_html``, converted on first read -- see
+:ref:`content-conversion`, which matters here because searching the
+knowledge base returns whole article bodies. An
 article's ``categories`` association is read-only in the v2 GLPI contract,
 so the client sets it through a legacy fallback — see
 `Assigning categories`_.
@@ -1429,9 +1433,9 @@ Example output::
 -----------------
 
 Exceptions the client raises for a bad argument, an unexpected HTTP
-status, or an unusable response body derive from
-:class:`~glpi_python_client.GlpiError`, so one handler covers that part
-of the library surface:
+status, an unusable response body, or content it cannot convert derive
+from :class:`~glpi_python_client.GlpiError`, so one handler covers that
+part of the library surface:
 
 .. code-block:: python
 
@@ -1474,15 +1478,17 @@ The hierarchy lets you narrow as far as you need:
 .. code-block:: text
 
    GlpiError
-   ├── GlpiTransportError      reserved for the httpx transport swap;
-   │   └── GlpiTimeoutError    not raised yet -- see the note above
+   ├── GlpiTransportError      the request never produced a response
+   │   └── GlpiTimeoutError    GLPI was too slow
    ├── GlpiStatusError         GLPI answered with an unexpected status
    │   ├── GlpiAuthError       401 / 403
    │   ├── GlpiNotFoundError   404
    │   └── GlpiServerError     5xx (retried up to 3 attempts before it
    │                           reaches you)
    ├── GlpiValidationError     the client rejected your argument
-   └── GlpiProtocolError       GLPI answered 2xx with an unusable body
+   ├── GlpiProtocolError       GLPI answered 2xx with an unusable body
+   └── GlpiContentError        a rich-text body could not be converted
+                               between HTML and Markdown
 
 :class:`~glpi_python_client.GlpiStatusError` carries the diagnostics you
 usually want:
@@ -1505,6 +1511,74 @@ usually want:
    :class:`~glpi_python_client.GlpiProtocolError` also inherit
    :class:`ValueError`. Code written against earlier releases, which
    raised bare ``ValueError``, keeps working unchanged.
+   :class:`~glpi_python_client.GlpiContentError` and
+   :class:`~glpi_python_client.GlpiTransportError` do not inherit it:
+   there was never a bare ``ValueError`` at either kind of site, and
+   neither is a value the caller got wrong.
+
+.. _content-conversion:
+
+Rich-text content: Markdown in, Markdown out
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Ticket, followup, task, solution and knowledge-base bodies travel to GLPI
+as HTML. You work in Markdown in both directions and the package handles
+the translation, but the two directions are not symmetric and the
+difference shows up in the field names.
+
+Writing is the simple half: give ``content`` Markdown and it is rendered
+to HTML when the request is built.
+
+Reading gives you two views of the same body:
+
+.. code-block:: python
+
+   ticket = client.get_ticket(42)
+
+   ticket.content_html  # '<p>The printer is <strong>offline</strong>.</p>'
+   ticket.content       # 'The printer is **offline**.'
+
+``.content`` is what you want and what earlier releases gave you, so
+read-side code needs no change. What changed is *when* the conversion
+runs: on the first read of ``.content``, cached afterwards, rather than
+while the model is being built. Two things follow.
+
+Listing records is cheap. ``client.search_tickets()`` used to convert
+every body on the page whether or not you looked at one; now a search
+that only reads ``id`` and ``date_mod`` converts nothing at all.
+
+A body that cannot be converted no longer takes its page down with it.
+The whole page is built in one pass, so a single unconvertible record used
+to make its page-mates unreadable too. The failure is now scoped to the
+record whose body you actually read.
+
+.. note::
+
+   Deeply nested HTML is the case worth knowing about. The HTML-to-Markdown
+   converter walks the document recursively and exhausts the interpreter's
+   stack at around 494 levels of nesting. Past
+   :data:`~glpi_python_client.content.conversion.MAX_HTML_DEPTH` (200,
+   chosen to leave the rest of the stack for your code) ``.content``
+   strips the tags rather than parsing them. **It degrades, it never
+   truncates, and it does not raise**: every character the normal
+   rendering would have produced still appears, so a body never says less
+   because of how deeply it happened to nest. What you lose is structure,
+   not words — link targets and image alt text, code-block fencing and
+   ``<pre>`` indentation, and ``&nbsp;``-padded alignment. Anything else
+   that goes wrong raises
+   :class:`~glpi_python_client.GlpiContentError`.
+
+   Because the result is cached on first read, treat a read model as
+   immutable afterwards. Assigning to ``content_html`` -- or
+   ``model_copy(update={"content_html": ...})`` -- leaves the cached
+   Markdown in place, and nothing in ``repr``, ``==`` or ``model_dump``
+   will tell you. Rebuild through ``model_validate`` instead.
+
+Two smaller consequences, if you are upgrading from 0.4.x: ``content`` is
+no longer in ``GetTicket.model_fields``, and ``GetTicket(...).model_dump()``
+emits ``content_html`` holding HTML where it used to emit ``content``
+holding Markdown. Pass ``by_alias=True`` for a dump keyed the way GLPI
+keys it.
 
 Retry behaviour
 ~~~~~~~~~~~~~~~

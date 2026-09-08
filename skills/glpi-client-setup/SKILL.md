@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
 metadata:
   package: glpi-python-client
-  version: "0.4.3"
+  version: "0.5.0"
 ---
 
 # GLPI Client Setup
@@ -197,9 +197,18 @@ with GlpiClient.from_env(
   raise `GlpiAuthError` (401/403), `GlpiNotFoundError` (404),
   `GlpiServerError` (persistent 5xx),
   `GlpiTransportError`/`GlpiTimeoutError` (network fault) or
-  `GlpiProtocolError` (unusable 2xx body). Do not catch `requests`
-  exceptions — `requests` is not a dependency — and do not catch
-  `tenacity.RetryError`; the retry decorators re-raise the real error.
+  `GlpiProtocolError` (unusable 2xx body). Reading a rich-text body that
+  cannot be converted raises `GlpiContentError` — note that this comes
+  from the attribute read (`ticket.content`), not from the call that
+  fetched the record, because response models convert on first read. Do
+  not catch `requests` exceptions — `requests` is not a dependency — and
+  do not catch `tenacity.RetryError`; the retry decorators re-raise the
+  real error.
+- `GlpiContentError` and `GlpiTransportError` are the two leaves that do
+  **not** also inherit `ValueError`; `GlpiStatusError`,
+  `GlpiValidationError` and `GlpiProtocolError` do, for compatibility
+  with releases that raised bare `ValueError`. So `except ValueError:`
+  catches most of the hierarchy but not all of it — catch `GlpiError`.
 - A small set of raise sites is deliberately **outside** that hierarchy,
   so `except GlpiError:` will not catch them. Plain `RuntimeError`:
   using a closed client; a v1-backed call on a client built without

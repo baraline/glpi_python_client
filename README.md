@@ -12,7 +12,11 @@ The goal is to let GLPI integrations work with domain objects instead of raw
 JSON payloads. The package exposes Pydantic models for tickets, users,
 followups, documents, locations, and related records, while converting GLPI
 HTML content into Markdown for Python-side workflows and rendering Markdown
-back to HTML for outgoing payloads.
+back to HTML for outgoing payloads. On a response model that conversion is
+lazy — `.content` converts on first read and caches, so listing records
+costs nothing per body — and it degrades to plain text rather than failing
+on pathologically nested HTML. See
+[Rich-text content](https://glpi-python-client.readthedocs.io/en/latest/user_guide.html#content-conversion).
 
 It currently focuses on ticket-centric workflows and exposes two high-level
 clients built on top of the GLPI v2 REST API:
