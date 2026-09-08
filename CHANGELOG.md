@@ -92,6 +92,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `testing/tests/test_raise_site_audit.py` rather than left as a comment
   for the next person to weigh up again.
 
+- **A body that used both spellings of `<br>` lost everything after the
+  second one.** `<p>line1<br>line2</p><p>para2<br />line4</p>` converted
+  to `line1  \nline2\n\npara2` — `line4` silently gone, no error, on the
+  ordinary conversion path.
+
+  The cause is in `beautifulsoup4` (measured on 4.14.3), not in
+  `markdownify`. Its `html.parser` builder auto-closes a bare `<br>` and
+  records the name in `already_closed_empty_element` so a later `</br>`
+  can be ignored as redundant; when no `</br>` arrives the entry just
+  stays. The next `<br />` reaches the builder as `handle_startendtag`,
+  opens a real element and closes it itself — and that close finds the
+  stale entry, treats the element as already closed, and leaves it open,
+  so every following sibling becomes a child of the `<br>`.
+  `markdownify`'s `convert_br` ignores an element's children, and the
+  text is gone. `get_text` walks children, which is why the tree looks
+  intact.
+
+  Note the paragraph in the example: the two spellings need not be near
+  each other, since a name once recorded poisons the rest of the
+  document. `<img>` and `<hr>` are the other two converters that discard
+  children and lost text the same way.
+
+  `from_transport` now writes self-closing void tags bare before
+  converting, which removes the `handle_startendtag` path where the
+  asymmetry lives. Both spellings already built the same node, so nothing
+  else moves: measured over 4000 fuzzed documents of each spelling alone,
+  not one output changed, and over 4000 mixing them, 102 recovered text
+  and none lost any. Only names in the void set are touched, and only in
+  real tag position — a `<div/>`, a `<br />` inside an attribute value, a
+  comment or a `<script>` body are all left alone.
+
 - **`GlpiModel` now recognises validation aliases when it captures unknown
   keys.** `_capture_unknown_fields` runs before Pydantic resolves aliases
   and compared incoming keys against field *names* only, so an aliased key

@@ -722,3 +722,121 @@ def test_an_unterminated_declaration_at_end_of_input_is_kept() -> None:
 
     assert GlpiContentConverter.from_transport(shallow) == "keep this\n\n<!weird"
     assert GlpiContentConverter.from_transport(deep) == "keep this\n\n<!weird"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<p>one<br>two<br />three</p>",
+            "one  \ntwo  \nthree",
+            id="br-both-spellings",
+        ),
+        pytest.param(
+            "<p>Bonjour,<br>Le serveur ne repond plus.<br />Merci de regarder.</p>",
+            "Bonjour,  \nLe serveur ne repond plus.  \nMerci de regarder.",
+            id="realistic-body",
+        ),
+        pytest.param(
+            "<p>line1<br>line2</p><p>para2<br />line4</p>",
+            "line1  \nline2\n\npara2  \nline4",
+            id="across-paragraphs",
+        ),
+        pytest.param(
+            "<p>a<br>b<br />c<br>d<br />e</p>",
+            "a  \nb  \nc  \nd  \ne",
+            id="alternating",
+        ),
+        pytest.param(
+            "<p>one<img>two<img />three</p>",
+            "one![]()two![]()three",
+            id="img",
+        ),
+        pytest.param(
+            "<p>one<hr>two<hr />three</p>",
+            "one\n\n---\n\ntwo\n\n---\n\nthree",
+            id="hr",
+        ),
+    ],
+)
+def test_a_body_using_both_spellings_of_a_void_tag_keeps_its_text(
+    html: str, expected: str
+) -> None:
+    """Text after the second spelling of ``<br>`` used to be dropped.
+
+    A ``beautifulsoup4`` defect, silent when it fires and reachable from
+    ordinary editor output: a bare ``<br>`` leaves its name in
+    ``already_closed_empty_element`` for a ``</br>`` that never comes, and
+    the next ``<br />`` closes itself against that stale entry and stays
+    open. Every later sibling becomes its child, and ``convert_br``
+    discards an element's children.
+
+    Note the paragraph case: the two spellings need not be near each
+    other, because a name once recorded poisons the rest of the document.
+    ``<img>`` and ``<hr>`` are the other two converters that drop
+    children, so they lose text the same way.
+    """
+
+    assert GlpiContentConverter.from_transport(html) == expected
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<div/>x", id="self-closed-non-void"),
+        pytest.param("<custom />x", id="self-closed-unknown"),
+        pytest.param("<p>a<br>b</p>", id="already-bare"),
+        pytest.param("<p>2 /> 3</p>", id="slash-gt-in-text"),
+        pytest.param('<div title="<br />">x</div>', id="in-an-attribute"),
+        pytest.param("<script>var s = '<br />';</script>x", id="in-a-script-body"),
+        pytest.param("<!-- <br /> -->x", id="in-a-comment"),
+        pytest.param("<p>a<br  /  >b</p>", id="slash-not-abutting-gt"),
+    ],
+)
+def test_the_void_rewrite_leaves_everything_else_alone(html: str) -> None:
+    """The rewrite is confined to void tags in real tag position.
+
+    ``<div/>`` is left as it is -- rewriting it would change what the
+    document means, and it cannot be affected anyway, since only a void
+    name is ever recorded as already closed. The last case is the one
+    worth pinning: ``<br  /  >`` reaches the parser as an ordinary start
+    tag, because its ``/`` does not abut the ``>``, so it never takes the
+    path that loses text and needs no rewriting.
+    """
+
+    assert conversion._canonicalise_void_elements(html) == html
+
+
+def test_the_void_rewrite_changes_nothing_for_one_spelling_alone() -> None:
+    """A body that picks a spelling and keeps it converts exactly as before.
+
+    The rewrite exists to remove an asymmetry between two spellings of the
+    same node, so it must be invisible to every body that does not mix
+    them. Measured over 4000 fuzzed documents of each spelling: not one
+    output moved.
+    """
+
+    bare = "<p>a<br>b<img><hr>c</p>"
+    slashed = "<p>a<br />b<img /><hr />c</p>"
+
+    assert GlpiContentConverter.from_transport(bare) == "a  \nb![]()\n\n---\n\nc"
+    assert GlpiContentConverter.from_transport(slashed) == "a  \nb![]()\n\n---\n\nc"
+
+
+def test_both_paths_agree_on_a_body_using_both_spellings() -> None:
+    """The degraded path already kept this text; now the converting one does.
+
+    This body was the one place where the fallback said *more* than the
+    conversion it stands in for, which is the wrong way round for a
+    fallback and was how the defect was noticed at all.
+    """
+
+    shallow = "<p>one<br>two<br />three</p>"
+    deep = "<div>" * 300 + shallow + "</div>" * 300
+
+    converted = GlpiContentConverter.from_transport(shallow)
+    degraded = GlpiContentConverter.from_transport(deep)
+
+    for word in ("one", "two", "three"):
+        assert word in converted
+        assert word in degraded

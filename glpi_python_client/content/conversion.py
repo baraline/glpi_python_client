@@ -490,6 +490,76 @@ def _strip_tags(content: str) -> str:
     return text.strip()
 
 
+#: The ``/`` of a self-closing tag, with any space around it.
+_VOID_SELF_CLOSE = re.compile(r"\s*/\s*>$")
+
+
+def _canonicalise_void_elements(content: str) -> str:
+    """Rewrite ``<br />`` as ``<br>``, so the text after it is not lost.
+
+    A workaround for a ``beautifulsoup4`` defect (measured on 4.14.3),
+    reachable from ordinary editor output and silent when it fires.
+
+    ``bs4``'s ``html.parser`` builder auto-closes a bare ``<br>`` and
+    records the name in ``already_closed_empty_element``, a list keyed by
+    name alone, so that a later ``</br>`` can be ignored as redundant. If
+    no ``</br>`` ever arrives the entry simply stays there. The next
+    ``<br />`` -- which reaches the builder as ``handle_startendtag`` --
+    opens a real element and then closes it itself, and *that* close finds
+    the stale entry, treats the element as already closed, and leaves it
+    open. Every following sibling becomes a child of the ``<br>``.
+
+    ``get_text`` still walks those children, which is why the tree looks
+    intact, but ``markdownify``'s ``convert_br`` ignores an element's
+    children and returns a line break. The text is gone:
+
+    ``"<p>line1<br>line2</p><p>para2<br />line4</p>"`` converted to
+    ``"line1  \\nline2\\n\\npara2"`` -- and note the two spellings are in
+    different paragraphs, because a name once recorded poisons the rest of
+    the document. ``<img>`` and ``<hr>`` lose text the same way; they are
+    the other two converters that discard children. One bare ``<br>``
+    anywhere before one ``<br />`` is the whole precondition, and GLPI
+    bodies are edited by more than one client.
+
+    Rewriting to the bare spelling removes the ``handle_startendtag`` path
+    for void elements, which is where the asymmetry lives; both spellings
+    already build the same node, so nothing else about the output moves.
+    Only the names in :data:`_VOID_ELEMENTS` are touched, and only in real
+    tag position: a self-closed ``<div/>`` is left alone, and cannot be
+    affected anyway, since only a void name is ever recorded.
+
+    Parameters
+    ----------
+    content : str
+        Raw HTML.
+
+    Returns
+    -------
+    str
+        The same HTML with self-closing void tags written bare.
+    """
+
+    if "/>" not in content:
+        return content
+
+    pieces: list[str] = []
+    cursor = 0
+    for match in _MARKUP.finditer(content):
+        name = match.group("name")
+        if name is None or name.lower() not in _VOID_ELEMENTS:
+            continue
+        token = match.group(0)
+        if token.startswith("</") or not token.endswith("/>"):
+            continue
+        pieces.append(content[cursor : match.start()])
+        pieces.append(_VOID_SELF_CLOSE.sub(">", token))
+        cursor = match.end()
+    if not pieces:
+        return content
+    pieces.append(content[cursor:])
+    return "".join(pieces)
+
+
 class GlpiContentConverter:
     """Convert content between GLPI HTML payloads and canonical Markdown.
 
@@ -518,6 +588,11 @@ class GlpiContentConverter:
         caller gets a readable body either way; **this method degrades, it
         does not truncate, and it does not raise for depth.**
 
+        Self-closing void tags are written bare before conversion, which
+        works around a ``beautifulsoup4`` defect that silently dropped
+        everything after the second spelling of ``<br>`` in a body that
+        used both -- see :func:`_canonicalise_void_elements`.
+
         Raises
         ------
         GlpiContentError
@@ -537,7 +612,7 @@ class GlpiContentConverter:
 
         try:
             markdown = html_to_markdown(
-                content,
+                _canonicalise_void_elements(content),
                 heading_style="ATX",
                 bullets="-",
                 strip=["script", "style"],
