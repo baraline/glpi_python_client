@@ -82,7 +82,18 @@ python -m pytest
 - `glpi_python_client.models` contains typed request and response
   models.
 - `glpi_python_client.content` handles HTML/Markdown conversion for
-  ticket descriptions, followups, tasks, and solutions.
+  ticket descriptions, followups, tasks, solutions, knowledge-base
+  articles (`content` and `description`) and article revisions. It is
+  wired into the models by `models/api_schema/_content.py`, eagerly on
+  the write models and through a cached property on the read ones.
+  Inbound HTML too deep for `markdownify` to walk is tag-stripped
+  rather than parsed. The depth is not predicted: the conversion is
+  attempted and the `RecursionError` answered, because the budget is the
+  caller's remaining stack and no bound computed in advance can know it.
+  The module docstring carries the derivation and the rejected
+  alternatives (`sys.setrecursionlimit`, and a thread with a larger
+  stack, which needs the same global). The prohibition is enforced by
+  `testing/tests/test_raise_site_audit.py`, not just written down.
 - `glpi_python_client.testing` exposes `make_client` and
   `make_async_client` factories that produce in-memory clients with no
   real HTTP plumbing for downstream test suites, plus the shared

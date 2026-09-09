@@ -4,6 +4,361 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.5.0 — 2026-09-08
+
+### Fixed
+
+- **Deeply nested HTML raised `RecursionError` while a model was being
+  validated.** `markdownify` walks the parsed document recursively and
+  spends about two CPython frames per nesting level, so roughly 494 levels
+  exhausted the default 1000-frame limit — measured, and the same 494 for
+  `<div>`, `<p>`, `<blockquote>` and `<table><tr><td>`, 495 for
+  `<ul><li>`, which is what identifies the cost as per-level. An
+  unclosed tag counts too: `html.parser` does not auto-close `<p>` or
+  `<li>`, so `"<p>" * 5000` really is 5000 levels.
+
+  Because the converter was wired as a Pydantic `BeforeValidator`, the
+  failure landed inside `model_validate` — that is, inside `get_ticket` —
+  as a bare builtin from a library whose whole error surface is supposed
+  to derive from `GlpiError`.
+
+  `from_transport` now *attempts* the conversion and answers the
+  `RecursionError` by stripping the document to its text instead.
+  **It degrades, it never truncates, and it does not raise for depth**:
+  every character of prose the converting path would have produced also
+  appears in the degraded rendering.
+
+  Attempting it rather than predicting it is the whole design, and it
+  replaced a fixed `MAX_HTML_DEPTH = 200` bound that was wrong in both
+  directions. Too low, because the budget is not 1000 frames but whatever
+  is left of the stack when the conversion starts, and that belongs to
+  the caller — so the bound had to assume the worst and flattened every
+  body between 200 and the real cliff of about 494. Measured, a
+  300-level and a 400-level body now come back as **Markdown with their
+  links, emphasis and lists intact** where they used to come back as
+  plain text, with no error to notice and no way to ask for better. And
+  too fragile, because predicting the depth meant reproducing the
+  parser's idea of the tree: three rounds of adversarial review found
+  seven ways for that estimate to land *under* the real depth, each of
+  which sent a document to `markdownify` and into the very
+  `RecursionError` the bound existed to prevent.
+
+  Trying the conversion cannot be wrong about whether the conversion
+  fits. `MAX_HTML_DEPTH` and the scan behind it are gone; the constant
+  was introduced in this same unreleased cycle and never shipped.
+
+  Two consequences worth knowing. The outcome now depends on the caller's
+  remaining stack, so the same body can convert from one call site and
+  degrade from a deeper one — nothing is lost either way, but a caller
+  comparing two renderings of one body should know which knob moved it.
+  And a body too deep to convert now pays the failed attempt before it
+  degrades: measured, 2.0x to 2.6x the old cost at 600 and 5000 levels.
+  Ordinary bodies got *faster*, at 0.87x to 0.90x, because the scan they
+  used to pay for on every read is gone.
+
+  A document `html.parser` refuses outright — `<![FOO[`, an unknown
+  marked-section keyword, which `bs4` re-raises as
+  `ParserRejectedMarkup` — takes the same degraded path, where it used
+  to raise and give the caller none of their text.
+
+  Both halves were fuzzed against the real parser over 15000 documents,
+  with zero under-counts, zero over-counts and zero text losses. Getting
+  there took several rules that are not the obvious ones:
+
+  - A closing tag pops by name or is ignored — `bs4` pops nothing when no
+    element of that name is open, so `"<div></p>" * 600` really is 600
+    deep where a naive counter says 1.
+  - An attribute value may contain `<` and `>`, so
+    `'<div title="</div>">' * 600` also measured 0 against a real 600
+    until the scan learned to skip quoted values.
+  - A quote opens a value only as the first character after the `=`,
+    which is the parser's own rule, so `<p title=don't>` carries the
+    value `don't`. Reading that apostrophe as a quote printed the opening
+    tag verbatim at the reader — and an apostrophe needs no malice to
+    reach a French ticket body.
+  - `tagfind_tolerant` runs a tag *name* to whitespace, `/` or `>`, so
+    `<style=>` is an element named `style=` and never enters raw-text
+    mode; a self-closed `<script/>` does not either, because
+    `parse_starttag` enters it only on the branch that is not
+    self-closing. Reading either as raw text swallowed the rest of the
+    document: `"<style=>" + "<div>" * 600` measured 1 level against a
+    real 601 and raised.
+  - A declaration is text on neither path only when it is closed. A
+    `<!weird` left unterminated at end of input is flushed as character
+    data when the parser closes, so dropping it lost the tail of a body.
+  - An unclosed tag counts, a childless node still occupies a level, and
+    a bogus comment swallows the tags inside it.
+  - The degraded path had to be measured against the converting path
+    construct by construct rather than reasoned about. Three answers came
+    back the opposite way round: a `<script>`/`<style>` body is *kept*
+    (`markdownify`'s `strip=` removes an element's markup and still walks
+    its children), so is a `CDATA` body, and so is the inside of any
+    `<!`/`<?` construct the parser could not resolve.
+
+  What the degraded rendering does not reproduce, none of it prose: link
+  targets and image alt text, fenced-block and `<pre>` indentation,
+  `&nbsp;`-padded alignment, and a processing instruction's `<?`/`>`
+  delimiters, which survive as literal text.
+
+  Character references are resolved by the parser's rule rather than by
+  `html.unescape`, which implements HTML5's longest-known-*prefix* rule
+  and would rewrite a pasted URL: `?a=1&copyright=2` becomes
+  `?a=1©right=2` under `unescape` and is left alone by the parser. A
+  semicolon-less reference resolves only when its whole name is known.
+
+  The ceiling is 200 rather than 494 because the budget is not 1000
+  frames, it is whatever is left of the stack when conversion starts, and
+  that belongs to the caller. The package's own contribution is small,
+  and since conversion moved to the attribute it no longer depends on how
+  the record was fetched: measured, 5 frames below the caller when
+  `.content` is read — the same 5 whether the model came from
+  `model_validate` or from `client.get_ticket` — and 9 on the write path,
+  where the renderer runs inside `model_dump`. What is not small is an
+  application reading `.content` from inside a request handler or a
+  recursive walk. Converting a 200-level document peaks at a measured 412
+  frames, so it stays safe until the caller's own stack passes about
+  588 — and no document a human wrote nests 200 elements deep.
+
+  **`sys.setrecursionlimit` was considered and rejected.** It is
+  process-global state belonging to the application, not to a library the
+  application imported; and past what the C stack can hold it converts a
+  catchable `RecursionError` into a hard interpreter crash — on Windows,
+  an access violation with no traceback. It moves the cliff and makes
+  falling off it worse. The prohibition is asserted by
+  `testing/tests/test_raise_site_audit.py` rather than left as a comment
+  for the next person to weigh up again.
+
+- **Where a tag *ends* was read with start-tag rules, twice.** Both were
+  unbounded depth under-counts, which is the one direction the ceiling
+  exists to prevent, and both also deleted prose from the degraded path at
+  any depth.
+
+  `parse_endtag` falls back to `rawdata.find(">")`, so an end tag skips
+  nothing — CPython's own comment concedes the case: "this is not 100%
+  correct, since we might have things like `</tag attr=">">`". Reading one
+  with attribute rules made `'</x a="><div>">' * 600` measure **0**
+  against a real 600.
+
+  `locatestarttagend_tolerant` reaches a quoted value only through an
+  attribute *name*, and a name may itself begin with `=`. So in
+  `<div ="<p><p>">` the parser reads the name `="<p` and ends the tag at
+  the first `>`, where treating any `=` before a quote as a value
+  indicator swallowed the rest: `'<div ="' + "<p>" * 600` measured **1**
+  against a real 600.
+
+  The attribute pattern is now a sequence of attributes rather than a run
+  of permitted characters, and end tags have their own branch. The
+  attribute name carries the parser's own "starts after a quote,
+  whitespace or `/`" rule, which is load-bearing twice over: without it
+  `<div ="` reads as a value, *and* the pattern backtracks
+  catastrophically — a 400-byte `'<div a="' * 50` did not finish.
+
+- **A body of nothing but `<div a="` cost O(n²).** 32 KB took 6.6 s. `re`
+  restarts at every `<` where `html.parser` buffers an incomplete tag and
+  never looks back. No `>` anywhere means no element anywhere, so that is
+  now answered in constant time. The pattern's remaining non-linear
+  shapes turned out to be exponential rather than quadratic, and are gone
+  with the pattern itself — see the entry below.
+
+- **The markup scan imitated `html.parser` instead of using it, and was
+  wrong in five unbounded ways at once.** A third adversarial round found
+  that the pattern reproducing the parser's dispatch disagreed with the
+  parser on: a comment closing on `--\s*>` rather than only `-->`; `</
+  script>` ending raw text; `<![IGNORE[` opening a marked section; `</ div
+  foo>` being a bogus comment rather than an end tag; and `<a href=/>` —
+  an ordinary root-relative link — leaving the element *open*, because the
+  unquoted value swallows the `/`. Each made a document measure one level
+  deep where the real tree was hundreds, so `'<a href=/>' * 494` cleared
+  the ceiling and raised. Two further findings were cost: a run of
+  whitespace inside a failing tag made the attribute pattern backtrack as
+  `(a+)*`, and a 39-byte body took 20.8 s.
+
+  The pattern is gone. Depth, void-tag canonicalisation and the degraded
+  rendering now come from one pass of an `html.parser` subclass — the same
+  parser `bs4` uses, so this cannot be wrong about the parser and is not a
+  new dependency or a new risk. Every pathology `html.parser` has was
+  already in the pipeline: measured on the shapes that made the pattern
+  backtrack, the `markdownify` call costs what the scan costs, to within a
+  few per cent.
+
+  Three consequences beyond the five defects:
+
+  - **A derailed scan silently reinstated the `<br>` data loss fixed
+    below**, because the void-tag workaround read the same pattern.
+    Measured, `"<p>one<br>two</p><script>x</ script><p>three<br
+    />TAIL</p>"` lost `TAIL` outright, and `<img>` and `<hr>` lost their
+    tails the same way.
+  - **A document the parser rejects now degrades instead of raising.**
+    `<![FOO[` makes `_markupbase` raise `AssertionError` on the
+    interpreters where that keyword is unknown — 3.10 through 3.12.11 as
+    measured, no longer 3.12.14 — and `bs4` re-raises it as
+    `ParserRejectedMarkup`. Where it happens, the caller used to get a
+    `GlpiContentError` and none of their text, and now gets their words.
+
+  Note that `html.parser`'s reading of a *malformed* construct is not
+  stable across CPython patch releases: the same three builds disagree
+  about an unterminated `<script>`, a comment with no `-->` and an end
+  tag carrying a quoted `>`. The scan tracks the parser rather than a
+  snapshot of it, so the depth decision stays correct on every version,
+  but the exact text a broken construct contributes to a degraded body is
+  the interpreter's. Well-formed content is unaffected.
+  - **A processing instruction no longer leaves `<?` and `>` in the
+    degraded text.** The converting path prints the body alone, so this
+    does too.
+
+  Cost, end to end and on identical output: 0.77x to 1.52x of the previous
+  implementation on realistic bodies. The exponential shapes are flat: 39
+  bytes of the whitespace bomb went from 20.8 s to 0.12 ms, and 20 KB of
+  it costs 0.67 ms. The depth scan those defects were found in has since
+  been removed altogether — see the entry above — but the same parser now
+  backs the void-tag rewrite and the degraded renderer, which inherited
+  every one of the misreadings and the backtracking too.
+
+  The one shape where `html.parser` is worse than linear is a document
+  carrying no `>` at all, where `close()` advances a character at a time
+  and rescans the tail: 32 KB costs it 13 s. That is answered in constant
+  time by the guard already present for the pattern's own O(n²) on the
+  same input, and is unreachable from `from_transport`, which needs a `>`
+  to find an element at all.
+
+  Re-fuzzed against a ground-truth walk of the tree `bs4` really builds,
+  over an alphabet carrying every construct all three rounds raised —
+  including the four whose absence is why the previous 10.5M-document
+  corpus could not have found these: `-- >`, `</ script>`, `<![IGNORE[`
+  and runs of whitespace and quotes inside a tag. **470000 documents, 0
+  depth under-counts, 0 prose losses, 0 crashes**, plus 60000 hostile
+  documents through `from_transport` with nothing but `GlpiError`
+  escaping.
+
+- **`GlpiContentError` did not survive the write path.** Outbound
+  conversion runs in a `PlainSerializer`, and pydantic-core catches
+  everything a serializer raises and re-raises `PydanticSerializationError`
+  — a `ValueError`, not a `GlpiError`, with `__cause__` and `__context__`
+  both `None`. So on every `create_*`/`update_*` carrying a body,
+  `except GlpiError` did not fire and the underlying fault was
+  unrecoverable. The fault is now stashed as it is raised and restored
+  around `model_dump`, with its own `__cause__` intact; a serialisation
+  failure that is *not* content becomes `GlpiValidationError` rather than
+  being mislabelled.
+
+- **One field spelled two ways shadowed itself in `model_dump`.** Pydantic
+  consumes the first alias and `extra="allow"` files the rest as model
+  extras — and an extra named after a field is emitted *instead of* that
+  field, so the attribute reported one body and the object's own dump
+  reported the other. The redundant spelling is now dropped before
+  Pydantic resolves anything, and `content_html` is the first choice, so a
+  dump carrying both round-trips back to the raw body.
+
+  Worth knowing about the read models: `model_copy(update={"content": ...})`
+  — the 0.4.x spelling — updates **nothing**, because `content` is now a
+  `cached_property`. A caller redacting a body that way gets an object
+  whose `.content` still holds the original. Rewrite `content_html`, or
+  rebuild through `model_validate`.
+
+- **A body that used both spellings of `<br>` lost everything after the
+  second one.** `<p>line1<br>line2</p><p>para2<br />line4</p>` converted
+  to `line1  \nline2\n\npara2` — `line4` silently gone, no error, on the
+  ordinary conversion path.
+
+  The cause is in `beautifulsoup4` (measured on 4.14.3), not in
+  `markdownify`. Its `html.parser` builder auto-closes a bare `<br>` and
+  records the name in `already_closed_empty_element` so a later `</br>`
+  can be ignored as redundant; when no `</br>` arrives the entry just
+  stays. The next `<br />` reaches the builder as `handle_startendtag`,
+  opens a real element and closes it itself — and that close finds the
+  stale entry, treats the element as already closed, and leaves it open,
+  so every following sibling becomes a child of the `<br>`.
+  `markdownify`'s `convert_br` ignores an element's children, and the
+  text is gone. `get_text` walks children, which is why the tree looks
+  intact.
+
+  Note the paragraph in the example: the two spellings need not be near
+  each other, since a name once recorded poisons the rest of the
+  document. `<img>` and `<hr>` are the other two converters that discard
+  children and lost text the same way.
+
+  `from_transport` now writes self-closing void tags bare before
+  converting, which removes the `handle_startendtag` path where the
+  asymmetry lives. Both spellings already built the same node, so nothing
+  else moves: measured over 4000 fuzzed documents of each spelling alone,
+  not one output changed, and over 4000 mixing them, 102 recovered text
+  and none lost any. Only names in the void set are touched, and only in
+  real tag position — a `<div/>`, a `<br />` inside an attribute value, a
+  comment or a `<script>` body are all left alone.
+
+- **`GlpiModel` now recognises validation aliases when it captures unknown
+  keys.** `_capture_unknown_fields` runs before Pydantic resolves aliases
+  and compared incoming keys against field *names* only, so an aliased key
+  was diverted into `extra_payload` before its field could see it — HTTP
+  200, no warning, and the value silently `None`. Latent until this
+  release, which introduces the package's first alias.
+
+### Added
+
+- **`GlpiContentError`** — a new `GlpiError` leaf for a rich-text body
+  that could not be converted, in either direction, with the underlying
+  fault attached as `__cause__`. Exported from the package root and
+  documented in the API reference.
+
+  Content conversion previously sat outside the taxonomy altogether: a
+  parser fault escaped `except GlpiError` and reached the caller as a bare
+  builtin. The depth ceiling above means no ordinary input gets here, so
+  this is the backstop — including for the outbound direction, where
+  `markdown` has its own cliff at around 500 levels of list indentation.
+
+  Unlike `GlpiStatusError`, `GlpiValidationError` and `GlpiProtocolError`
+  it does **not** inherit `ValueError`. Those three carry it for
+  compatibility with releases that raised bare `ValueError` at the same
+  sites; there was never a `ValueError` at a conversion site, and a parser
+  exhausting the stack is not a value the caller got wrong. Same reasoning
+  as `GlpiTransportError`.
+
+- **`content_html` on the read models**, holding the wire value verbatim:
+  `GetTicket`, `GetFollowup`, `GetTicketTask`, `GetSolution`,
+  `GetKBArticleRevision`, and `GetKBArticle` (which also gains
+  `description_html`).
+
+### Changed (breaking)
+
+- **Read models convert to Markdown on first access instead of during
+  validation.** `content` is now a `functools.cached_property` over
+  `content_html`:
+
+  ```python
+  ticket = client.get_ticket(42)
+  ticket.content_html   # '<p>Printer is <strong>offline</strong></p>'
+  ticket.content        # 'Printer is **offline**'  (converted here, once)
+  ```
+
+  **Callers that read `.content` need no change.** The field carries the
+  validation alias `content`, so a GLPI payload and a hand-written
+  `GetTicket(content=...)` both still populate it, and `.content` still
+  returns Markdown. What changes is *when*.
+
+  Two things follow. A caller who wants only `id` and `date_mod` no longer
+  pays HTML-to-Markdown on every record of every page. And a body that
+  cannot be converted no longer takes its page-mates with it:
+  `TransportMixin._resource_list` builds every item of a page in one
+  comprehension, so one unconvertible record used to make the whole page
+  unreadable — the failure is now scoped to the record whose body is
+  actually read.
+
+  Write models (`Post*`, `Patch*`) are deliberately unchanged: they keep
+  the plain `content` field and convert eagerly, so a caller's own
+  Markdown is still checked where it was supplied, and there is no list
+  path on a write model to make lazy.
+
+  What does break: `content` is no longer in `GetTicket.model_fields`, and
+  `GetTicket(...).model_dump()` emits `content_html` holding HTML where it
+  used to emit `content` holding Markdown (`by_alias=True` gives a dump
+  keyed the way GLPI keys it).
+
+  One sharp edge comes with the cache. Assigning to `content_html` after
+  `.content` has been read leaves the stale Markdown in place, and so does
+  `model_copy(update={"content_html": ...})` — and neither equality,
+  `repr` nor any `model_dump` reveals it. Treat a read model as immutable
+  once validated, or rebuild it through `model_validate`.
+
 ## 0.4.3 — 2026-08-13
 
 ### Changed (breaking)

@@ -20,6 +20,7 @@ from __future__ import annotations
 from glpi_python_client._async.clients import AsyncGlpiClient
 from glpi_python_client._errors import (
     GlpiAuthError,
+    GlpiContentError,
     GlpiError,
     GlpiNotFoundError,
     GlpiProtocolError,
@@ -109,7 +110,7 @@ from glpi_python_client.rsql import (
     date_window,
 )
 
-__version__ = "0.4.3"
+__version__ = "0.5.0"
 
 __all__ = [
     "AsyncGlpiClient",
@@ -145,6 +146,7 @@ __all__ = [
     "GetUser",
     "GlpiAuthError",
     "GlpiClient",
+    "GlpiContentError",
     "GlpiEnum",
     "GlpiError",
     "GlpiGlobalValidation",

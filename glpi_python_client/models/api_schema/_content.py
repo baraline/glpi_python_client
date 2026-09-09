@@ -2,19 +2,47 @@
 
 GLPI exchanges rich-text fields (ticket ``content``, followup ``content``,
 task ``content``, solution ``content``, ...) over the wire as HTML
-(``format: html`` in the OpenAPI contract), but the public package surface
-is intentionally Markdown-only: callers should never need to author or read
-HTML. The annotated type defined here wires
-:class:`glpi_python_client.content.conversion.GlpiContentConverter` into
-Pydantic so the conversion happens transparently on every model boundary:
+(``format: html`` in the OpenAPI contract), while the public package
+surface is Markdown: a caller never has to author HTML, and reading
+``.content`` on any model gives Markdown back. The annotated types here
+wire :class:`glpi_python_client.content.conversion.GlpiContentConverter`
+into Pydantic to make that so, and they are deliberately not symmetric.
 
-* On validation (incoming HTML payloads from GLPI) the value is normalised
-  to canonical Markdown before being assigned to the field, so attribute
-  access always returns Markdown.
+**Write models** (``Post*``, ``Patch*``) use :data:`GlpiMarkdownContent`,
+which converts eagerly:
+
+* On validation the caller's Markdown is normalised, so it is checked at
+  the point the caller supplied it rather than somewhere later.
 * On serialisation (outgoing request bodies built via
   :func:`glpi_python_client._sync.clients.commons._payloads.model_to_payload`)
   the Markdown value is rendered back to HTML so GLPI receives the format
   it expects.
+
+**Read models** (``Get*``) use :data:`GlpiRawContent` or
+:data:`GlpiRawDescription` on a field named ``content_html`` /
+``description_html``, which holds exactly what GLPI sent and converts
+nothing. Each read model pairs that field with a ``cached_property`` --
+``content``, ``description`` -- that converts on first access and caches
+the result, over :func:`markdown_view`.
+
+The asymmetry is the point. Conversion used to run inside the Pydantic
+validator, which cost two things a caller could not opt out of:
+
+* **A list read converted every body.** Someone who wanted only ``id``
+  and ``date_mod`` still paid HTML-to-Markdown on every record of every
+  page.
+* **A failure took its page-mates with it.**
+  ``TransportMixin._resource_list`` builds every item of a page in one
+  comprehension, so one unconvertible body made the whole page
+  unreadable. Conversion now happens at the attribute, so whatever can go
+  wrong is scoped to the attribute.
+
+The field keeps ``content`` as a validation alias, so a GLPI payload and a
+hand-written ``GetTicket(content=...)`` both still populate it -- which is
+why :class:`glpi_python_client.models._base.GlpiModel` has to know about
+aliases when it captures unknown keys: that validator runs *before*
+Pydantic resolves them, and would otherwise divert the wire's ``content``
+into ``extra_payload``.
 
 Plain-text content is preserved verbatim on the inbound path and rendered
 as HTML paragraphs on the outbound path, matching the converter's default
@@ -29,28 +57,108 @@ Note that the inbound converter also runs on **outbound** content: the
 so caller-authored Markdown passes through it before the serializer renders
 it. That is why the plain-text path has to stay verbatim -- routing Markdown
 through the HTML normaliser escapes it, and GLPI receives literal asterisks.
+
+One sharp edge comes with the read side, from ``functools.cached_property``:
+assigning to ``content_html`` after ``content`` has been read leaves the
+cached Markdown in place, and so does
+``model_copy(update={"content_html": ...})``. Neither equality, ``repr``
+nor any ``model_dump`` shows it. Treat a read model as immutable once
+validated; if something really must rewrite the raw value, drop the cache
+with ``obj.__dict__.pop("content", None)`` or rebuild the model through
+``model_validate``.
+
+``model_copy(update={"content": ...})`` -- the 0.4.x spelling, when
+``content`` was still a field -- is worse and worth naming outright: it
+updates **nothing**. ``content`` resolves to the class-level
+``cached_property``, so the attribute keeps the body it already had, while
+``extra="allow"`` files the value as a model extra that ``model_dump``
+then emits beside the real one. A caller redacting a body that way gets an
+object whose ``.content`` still holds the original text. Nothing warns,
+because from Pydantic's side nothing is wrong. Re-validating such a dump
+does at least keep the real body, since ``content_html`` is the first
+choice in the alias list and
+:func:`glpi_python_client.models._base._alias_groups` drops the loser
+before it can shadow the field -- but the copy itself is not a redaction.
+Rewrite the raw field, or rebuild through ``model_validate``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Annotated
 
-from pydantic import BeforeValidator, PlainSerializer
+from pydantic import AliasChoices, BeforeValidator, Field, PlainSerializer
+from pydantic_core import PydanticSerializationError
 
+from glpi_python_client._errors import GlpiContentError, GlpiValidationError
 from glpi_python_client.content.conversion import GlpiContentConverter
 
 
 def _from_transport(value: object) -> str | None:
-    """Normalise an inbound GLPI content value into canonical Markdown.
+    """Normalise a content value supplied to a write model into Markdown.
 
     Pydantic invokes this before validation, so the field type stays ``str``
     while the caller-visible value is always Markdown. ``None`` is preserved
     unchanged so optional content fields keep their tri-state semantics.
+
+    Only write models still normalise on validation; a read model stores
+    what GLPI sent and converts at the attribute instead, through
+    :func:`markdown_view`.
     """
 
     if value is None:
         return None
     return GlpiContentConverter.from_transport(value)
+
+
+def markdown_view(raw: str | None) -> str | None:
+    """Convert one stored raw transport value into Markdown.
+
+    The body of every ``content`` / ``description`` ``cached_property`` on
+    the read models. It is a plain function rather than a method so the
+    seven properties share one implementation while each keeps its own
+    docstring and its own cache slot.
+
+    ``None`` passes through, so a field GLPI never sent reads back as
+    ``None`` rather than as an empty string.
+
+    Parameters
+    ----------
+    raw : str or None
+        The raw transport value as stored, normally HTML.
+
+    Returns
+    -------
+    str or None
+        Canonical Markdown, or ``None``.
+
+    Raises
+    ------
+    GlpiContentError
+        The value could not be converted. Content too deeply nested
+        for the converter to walk is degraded to text instead of
+        raising, so this is a backstop rather than an expected outcome
+        -- but note that it surfaces from the attribute read, not from
+        ``model_validate``, which is the deliberate difference from the
+        write-model path.
+    """
+
+    if raw is None:
+        return None
+    return GlpiContentConverter.from_transport(raw)
+
+
+#: The last content fault raised inside a serializer, for
+#: :func:`restoring_content_faults` to hand back.
+#:
+#: A ``ContextVar`` rather than a module global so two concurrent writes
+#: cannot read each other's fault; it is set immediately before the raise
+#: and cleared on the way into every dump.
+_LAST_CONTENT_FAULT: ContextVar[GlpiContentError | None] = ContextVar(
+    "glpi_last_content_fault", default=None
+)
 
 
 def _to_transport(value: str | None) -> str | None:
@@ -59,11 +167,66 @@ def _to_transport(value: str | None) -> str | None:
     ``None`` is preserved so ``model_dump(exclude_none=True)`` continues to
     drop unset fields from request bodies. Empty Markdown is rendered as an
     empty string to stay consistent with the inbound converter behaviour.
+
+    A failure is recorded in :data:`_LAST_CONTENT_FAULT` before it is
+    raised, because raising it is not enough on its own: see
+    :func:`restoring_content_faults`.
     """
 
     if value is None:
         return None
-    return GlpiContentConverter.to_transport(value)
+    try:
+        return GlpiContentConverter.to_transport(value)
+    except GlpiContentError as exc:
+        _LAST_CONTENT_FAULT.set(exc)
+        raise
+
+
+@contextmanager
+def restoring_content_faults() -> Iterator[None]:
+    """Put a content fault raised inside ``model_dump`` back in the taxonomy.
+
+    Outbound conversion runs in a ``PlainSerializer``, and pydantic-core
+    catches everything a serializer function raises and re-raises its own
+    ``PydanticSerializationError``. The type is lost -- that class derives
+    from ``ValueError``, not from :class:`GlpiError`, so ``except
+    GlpiError`` does not fire -- and so is the chain: ``__cause__`` and
+    ``__context__`` both arrive as ``None``, leaving only the message text
+    embedded in a foreign exception.
+
+    Both halves of the package's error contract break there, on every write
+    that carries a body, which is every ``create_*`` and ``update_*`` with
+    ``content``. So the fault is stashed on the way out and re-raised here,
+    with its own traceback and its own ``__cause__`` -- the
+    ``RecursionError``, or whatever else the renderer hit -- intact. The
+    pydantic exception becomes its ``__context__``, which is where a
+    reader would look for the serializer detail anyway.
+
+    A ``PydanticSerializationError`` with no stashed fault is something
+    else entirely -- an unserialisable field, not a content problem -- so
+    it is wrapped as :class:`GlpiValidationError` rather than mislabelled.
+
+    Yields
+    ------
+    None
+        The block runs with content faults restored on the way out.
+    """
+
+    _LAST_CONTENT_FAULT.set(None)
+    try:
+        yield
+    except PydanticSerializationError as exc:
+        fault = _LAST_CONTENT_FAULT.get()
+        if fault is not None:
+            _LAST_CONTENT_FAULT.set(None)
+            # Rebuilt rather than re-raised so the raise-site audit can see
+            # the type. The chain is what matters and it survives: the
+            # original fault's own cause is carried across, and the
+            # pydantic wrapper becomes the context.
+            raise GlpiContentError(str(fault)) from fault.__cause__
+        raise GlpiValidationError(
+            f"Could not serialise the request body ({exc})."
+        ) from exc
 
 
 GlpiMarkdownContent = Annotated[
@@ -73,11 +236,57 @@ GlpiMarkdownContent = Annotated[
 ]
 """Annotated ``str | None`` that round-trips Markdown through GLPI's HTML wire format.
 
-Use this annotation on every model field that maps to a GLPI ``format: html``
-content slot (ticket descriptions, followup bodies, task bodies, solution
-bodies). The conversion is invisible to package users: the field accepts
-Markdown on construction, exposes Markdown on attribute access, and emits
-HTML on serialisation.
+Use this annotation on a **write** model field that maps to a GLPI
+``format: html`` content slot (ticket descriptions, followup bodies, task
+bodies, solution bodies). The conversion is invisible to package users: the
+field accepts Markdown on construction, exposes Markdown on attribute
+access, and emits HTML on serialisation.
+
+A read model wants :data:`GlpiRawContent` instead, and a
+``cached_property`` beside it. See the module docstring for why the two
+directions differ.
 """
 
-__all__ = ["GlpiMarkdownContent"]
+GlpiRawContent = Annotated[
+    str | None,
+    Field(
+        validation_alias=AliasChoices("content_html", "content"),
+        serialization_alias="content",
+    ),
+]
+"""Annotated ``str | None`` holding one raw GLPI ``content`` value, unconverted.
+
+Use this on a **read** model field named ``content_html``, paired with a
+``content`` ``cached_property`` over :func:`markdown_view`. Nothing is
+converted on validation, so building a page of records costs nothing per
+body and no body can spoil another.
+
+The validation alias accepts both spellings, so a GLPI payload
+(``content``) and a hand-written ``GetTicket(content_html=...)`` both
+populate the field. The name must be listed in the alias alongside the
+wire key: a bare ``validation_alias="content"`` would silently divert
+by-name construction into ``extra_payload`` rather than raising, because
+the base model allows extra keys.
+"""
+
+GlpiRawDescription = Annotated[
+    str | None,
+    Field(
+        validation_alias=AliasChoices("description_html", "description"),
+        serialization_alias="description",
+    ),
+]
+""":data:`GlpiRawContent` for the second content slot on a knowledge-base article.
+
+``KBArticle`` carries both ``content`` and ``description`` as
+``format: html``, and an alias names one wire key, so the two need
+separate annotations.
+"""
+
+__all__ = [
+    "GlpiMarkdownContent",
+    "GlpiRawContent",
+    "GlpiRawDescription",
+    "markdown_view",
+    "restoring_content_faults",
+]

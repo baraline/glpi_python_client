@@ -287,6 +287,10 @@ def test_from_env(
     monkeypatch.setenv("GLPI_USERNAME", live_config.username)
     monkeypatch.setenv("GLPI_PASSWORD", live_config.password)
     monkeypatch.setenv("GLPI_VERIFY_SSL", str(live_config.verify_ssl).lower())
+    # from_env requires it: GLPI does not advertise its own timezone, and
+    # the client refuses to guess one. Missing here, this test failed
+    # before it reached the network.
+    monkeypatch.setenv("GLPI_SERVER_TIMEZONE", live_config.server_timezone)
 
     glpi_client = GlpiClient.from_env()
     try:

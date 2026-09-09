@@ -8,8 +8,12 @@ and a payload carrying both kinds is what makes a plain comparison raise.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-from glpi_python_client.models._base import GlpiModel
+import pytest
+from pydantic import AliasChoices, AliasPath, Field, ValidationError
+
+from glpi_python_client.models._base import GlpiModel, _alias_groups
 
 _PARIS_SUMMER = timezone(timedelta(hours=2))
 _PARIS_WINTER = timezone(timedelta(hours=1))
@@ -181,3 +185,171 @@ def test_the_serialisation_timezone_reaches_a_nested_model() -> None:
     dumped = nested.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
 
     assert dumped["inner"]["date"] == "2024-01-01T13:00:00"
+
+
+# ---------------------------------------------------------------------------
+# Alias-aware capture of unknown keys
+# ---------------------------------------------------------------------------
+#
+# ``_capture_unknown_fields`` runs before Pydantic resolves aliases, so a key
+# it removes is a key the alias never gets to see. That made the read models'
+# ``content`` -> ``content_html`` rename fail in the worst possible way:
+# HTTP 200, no warning, no error, and every ticket body reading back as
+# ``None`` with the HTML sitting in ``extra_payload``. These tests pin both
+# halves -- an aliased key must reach its field, and a genuinely unknown key
+# must still be captured.
+
+
+class _Aliased(GlpiModel):
+    """Model whose field is fed by a validation alias, like the read models."""
+
+    id: int | None = None
+    body_html: Annotated[
+        str | None,
+        Field(validation_alias=AliasChoices("body", "body_html")),
+    ] = None
+
+
+class _PathAliased(GlpiModel):
+    """Model fed through an ``AliasPath``, where only segment 0 is a key."""
+
+    inner: Annotated[
+        str | None, Field(validation_alias=AliasPath("wrapper", "value"))
+    ] = None
+
+
+def test_an_aliased_payload_key_reaches_its_field() -> None:
+    """The wire spelling populates the field instead of ``extra_payload``."""
+
+    parsed = _Aliased.model_validate({"id": 1, "body": "<p>hello</p>"})
+
+    assert parsed.body_html == "<p>hello</p>"
+    assert parsed.extra_payload == {}
+
+
+def test_the_field_name_spelling_also_reaches_the_field() -> None:
+    """Listing the field's own name in ``AliasChoices`` is what allows this.
+
+    A bare ``validation_alias="body"`` would not raise on by-name
+    construction -- the base model allows extra keys, so the value would go
+    quietly to ``extra_payload`` and the field would stay ``None``.
+    """
+
+    parsed = _Aliased.model_validate({"body_html": "<p>hello</p>"})
+
+    assert parsed.body_html == "<p>hello</p>"
+    assert parsed.extra_payload == {}
+
+
+def test_a_genuinely_unknown_key_is_still_captured() -> None:
+    """Widening the known set must not stop the escape hatch working.
+
+    The other direction of the same fix: if ``known`` became "any key at
+    all", the ``extra_payload`` contract would silently stop collecting the
+    helper fields GLPI adds outside the contract.
+    """
+
+    parsed = _Aliased.model_validate({"body": "<p>x</p>", "href": "/Ticket/1"})
+
+    assert parsed.body_html == "<p>x</p>"
+    assert parsed.extra_payload == {"href": "/Ticket/1"}
+
+
+def test_only_the_first_segment_of_an_alias_path_is_a_payload_key() -> None:
+    """``AliasPath("wrapper", "value")`` consumes ``wrapper``, not ``value``.
+
+    The remaining segments index into the value, so treating them as keys
+    would exempt names that really are unknown.
+    """
+
+    parsed = _PathAliased.model_validate({"wrapper": {"value": "deep"}, "junk": 1})
+
+    assert parsed.inner == "deep"
+    assert parsed.extra_payload == {"junk": 1}
+
+
+class _PlainAliased(GlpiModel):
+    """Model using the ``alias=`` spelling rather than ``validation_alias=``."""
+
+    value: Annotated[str | None, Field(alias="wire_value")] = None
+
+
+def test_the_plain_alias_spelling_is_also_recognised() -> None:
+    """``alias=`` is a validation spelling too, so it has to be collected.
+
+    Pydantic mirrors ``alias=`` into ``validation_alias`` today, which makes
+    reading both belt and braces -- but the belt is one line and the braces
+    are an undocumented implementation detail of another library.
+    """
+
+    parsed = _PlainAliased.model_validate({"wire_value": "x", "junk": 1})
+
+    assert parsed.value == "x"
+    assert parsed.extra_payload == {"junk": 1}
+
+
+def test_a_non_mapping_payload_is_passed_through_untouched() -> None:
+    """The capture validator only has work to do on a mapping.
+
+    Anything else is handed straight to Pydantic, which produces the real
+    error. Capturing keys from a list would mean inventing them.
+    """
+
+    with pytest.raises(ValidationError):
+        _Stamped.model_validate([1, 2, 3])
+
+
+def test_a_field_spelled_twice_drops_the_spelling_pydantic_ignores() -> None:
+    """Only one spelling of one field may survive validation.
+
+    Pydantic consumes the first alias it finds and leaves the rest to
+    ``extra="allow"``, which files them as model extras -- and a model
+    extra named after a field is emitted by ``model_dump`` *instead of*
+    that field. So the redundant spelling is removed here, before Pydantic
+    resolves anything.
+    """
+
+    class Twice(GlpiModel):
+        body: Annotated[
+            str | None,
+            Field(validation_alias=AliasChoices("body_raw", "body")),
+        ] = None
+
+    both = Twice.model_validate({"body_raw": "raw wins", "body": "legacy"})
+
+    assert both.body == "raw wins"
+    assert both.model_extra == {}
+    assert both.extra_payload == {}
+    assert both.model_dump()["body"] == "raw wins"
+
+
+def test_either_spelling_alone_still_populates_the_field() -> None:
+    """Dropping a duplicate must not turn into dropping the only value."""
+
+    class Twice(GlpiModel):
+        body: Annotated[
+            str | None,
+            Field(validation_alias=AliasChoices("body_raw", "body")),
+        ] = None
+
+    assert Twice.model_validate({"body_raw": "x"}).body == "x"
+    assert Twice.model_validate({"body": "y"}).body == "y"
+
+
+def test_alias_groups_lists_only_fields_with_a_choice() -> None:
+    """A field with one spelling has nothing to choose, so it is left out.
+
+    An ``AliasPath`` is left out too: it addresses a position inside a
+    nested structure rather than a key that could duplicate another.
+    """
+
+    class Mixed(GlpiModel):
+        one: Annotated[str | None, Field(validation_alias="only")] = None
+        two: Annotated[
+            str | None, Field(validation_alias=AliasChoices("a", "b", "c"))
+        ] = None
+        three: Annotated[
+            str | None, Field(validation_alias=AliasPath("nested", "deep"))
+        ] = None
+
+    assert _alias_groups(Mixed) == (("a", "b", "c"),)

@@ -9,6 +9,7 @@ import pytest
 
 from glpi_python_client import (
     GlpiAuthError,
+    GlpiContentError,
     GlpiError,
     GlpiNotFoundError,
     GlpiProtocolError,
@@ -33,6 +34,7 @@ def test_every_public_error_derives_from_glpi_error() -> None:
         GlpiServerError,
         GlpiValidationError,
         GlpiProtocolError,
+        GlpiContentError,
     ):
         assert issubclass(cls, GlpiError)
 
@@ -47,6 +49,19 @@ def test_transport_errors_are_not_value_errors() -> None:
     """A transport fault is not a caller mistake, so it is not a ``ValueError``."""
 
     assert not issubclass(GlpiTransportError, ValueError)
+
+
+def test_content_errors_are_not_value_errors() -> None:
+    """A parser exhausting the stack is not a value the caller got wrong.
+
+    The three ``ValueError`` inheritors below carry that base only for
+    back-compatibility with releases that raised bare ``ValueError`` at the
+    same sites. There was never a ``ValueError`` at a conversion site, so
+    inheriting one here would widen the contract for no one's benefit --
+    the same reasoning as :class:`GlpiTransportError`.
+    """
+
+    assert not issubclass(GlpiContentError, ValueError)
 
 
 @pytest.mark.parametrize(

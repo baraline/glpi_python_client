@@ -1,8 +1,15 @@
 """GLPI ``KBArticle`` schemas for the ``/Knowledgebase/Article`` endpoints.
 
 The field layout mirrors ``components.schemas.KBArticle`` from the GLPI
-OpenAPI contract (2.3.0). ``content`` and ``description`` are exchanged as
-HTML (``format: html``) and use the transparent Markdown annotation.
+OpenAPI contract (2.3.0). ``content`` and ``description`` are both
+exchanged as HTML (``format: html``). :class:`PostKBArticle` and
+:class:`PatchKBArticle` accept Markdown and render it on serialisation;
+:class:`GetKBArticle` stores the wire values in ``content_html`` and
+``description_html`` and exposes Markdown through the ``content`` and
+``description`` properties, converting on first read. See
+:mod:`glpi_python_client.models.api_schema._content` for why the two
+directions differ.
+
 Server-managed fields (``id``, ``views``, ``revisions``, ``translations``)
 are excluded from the request models; revisions and translations are
 managed through the dedicated revision endpoints.
@@ -11,10 +18,16 @@ managed through the dedicated revision endpoints.
 from __future__ import annotations
 
 from datetime import datetime
+from functools import cached_property
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
-from glpi_python_client.models.api_schema._content import GlpiMarkdownContent
+from glpi_python_client.models.api_schema._content import (
+    GlpiMarkdownContent,
+    GlpiRawContent,
+    GlpiRawDescription,
+    markdown_view,
+)
 
 
 class _KBArticleRevisionRef(GlpiModel):
@@ -37,13 +50,20 @@ class _KBArticleTranslationRef(GlpiModel):
 class GetKBArticle(GlpiModel):
     """Response shape returned by ``GET /Knowledgebase/Article`` endpoints.
 
-    Mirrors ``components.schemas.KBArticle``. ``content`` and
-    ``description`` round-trip Markdown through GLPI's HTML wire format.
+    Mirrors ``components.schemas.KBArticle``. ``content_html`` and
+    ``description_html`` hold the HTML exactly as GLPI sent it, and both
+    accept their wire spellings (``content``, ``description``) as well; the
+    :attr:`content` and :attr:`description` properties convert to Markdown
+    on first read.
+
+    An article body is the largest content GLPI serves, and searching the
+    knowledge base returns whole articles, so this is the model where
+    converting only what is read matters most.
     """
 
     id: int | None = None
     name: str | None = None
-    content: GlpiMarkdownContent = None
+    content_html: GlpiRawContent = None
     categories: list[IdNameRef] | None = None
     is_faq: bool | None = None
     entity: IdNameRef | None = None
@@ -51,7 +71,7 @@ class GetKBArticle(GlpiModel):
     user: IdNameRef | None = None
     views: int | None = None
     show_in_service_catalog: bool | None = None
-    description: GlpiMarkdownContent = None
+    description_html: GlpiRawDescription = None
     illustration: str | None = None
     is_pinned: bool | None = None
     date_creation: datetime | None = None
@@ -60,6 +80,28 @@ class GetKBArticle(GlpiModel):
     date_end: datetime | None = None
     revisions: list[_KBArticleRevisionRef] | None = None
     translations: list[_KBArticleTranslationRef] | None = None
+
+    @cached_property
+    def content(self) -> str | None:
+        """The article body as Markdown, or ``None`` if GLPI sent none.
+
+        Converted from ``content_html`` on the first read and cached, so
+        searching the knowledge base costs nothing per body and a body that
+        cannot be converted affects only this record. ``content_html``
+        holds the HTML exactly as it arrived.
+        """
+
+        return markdown_view(self.content_html)
+
+    @cached_property
+    def description(self) -> str | None:
+        """The article summary as Markdown, or ``None`` if GLPI sent none.
+
+        The short counterpart to :attr:`content`, converted from
+        ``description_html`` on the first read and cached the same way.
+        """
+
+        return markdown_view(self.description_html)
 
 
 class PostKBArticle(GlpiModel):

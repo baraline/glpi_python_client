@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read tickets, tasks, users, entities, and timeline records."
 metadata:
   package: glpi-python-client
-  version: "0.4.3"
+  version: "0.5.0"
 ---
 
 # GLPI Reporting And Context
@@ -25,7 +25,7 @@ Returned identifiers are raw GLPI numeric values; resolve them with the appropri
 ## Procedure
 
 1. Create a client (`GlpiClient` or `AsyncGlpiClient`) with the correct entity/profile scope.
-2. For one ticket, call `await client.get_ticket_context(ticket_id)` and read `bundle.ticket`, `bundle.tasks`, `bundle.followups`, `bundle.solutions`, and `bundle.documents`. To render the whole bundle as one Markdown transcript (ticket title, subtitle metadata, description, chronologically sorted timeline, linked documents), call `bundle.to_markdown()`. Pass a `TicketMarkdownOptions` to drop sections or metadata, e.g. `bundle.to_markdown(TicketMarkdownOptions(include_documents=False, show_dates=False))`; all 17 flags default to `True`, so a bare `to_markdown()` emits everything. Both `GlpiTicketContext` and `TicketMarkdownOptions` are exported from `glpi_python_client`.
+2. For one ticket, call `await client.get_ticket_context(ticket_id)` and read `bundle.ticket`, `bundle.tasks`, `bundle.followups`, `bundle.solutions`, and `bundle.documents`. To render the whole bundle as one Markdown transcript (ticket title, subtitle metadata, description, chronologically sorted timeline, linked documents), call `bundle.to_markdown()`. Pass a `TicketMarkdownOptions` to drop sections or metadata, e.g. `bundle.to_markdown(TicketMarkdownOptions(include_documents=False, show_dates=False))`; all 17 flags default to `True`, so a bare `to_markdown()` emits everything. Both `GlpiTicketContext` and `TicketMarkdownOptions` are exported from `glpi_python_client`. Note that `to_markdown()` is where the bodies are actually converted from GLPI's HTML — the read models convert on first read — so it is the call that pays for that and the call a `GlpiContentError` would surface from, not `get_ticket_context`.
 3. For ticket counts, call `await client.get_ticket_statistics(start_date=..., end_date=..., default_days=..., entity_id=..., entity_name=..., extra_filter=...)`. All keyword arguments are optional; the default window is the last 30 days ending today.
 4. For task duration totals on a known ticket list, call `await client.get_task_statistics(ticket_ids)`. For an end-to-end "duration over a window with filters" report, call `await client.get_task_durations(...)` instead; it gathers the ticket IDs internally.
 5. For a per-user activity report, call `await client.get_user_activity(username=..., start_date=..., end_date=...)`. Supply at least one of `user_id`, `username`, `realname`, `firstname`.
