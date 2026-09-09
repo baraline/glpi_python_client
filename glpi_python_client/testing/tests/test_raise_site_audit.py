@@ -163,9 +163,10 @@ def test_the_library_never_touches_the_recursion_limit() -> None:
       access violation with no traceback. It moves the cliff and makes
       falling off it worse.
 
-    Bounding the input instead is
-    :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`, and the
-    backstop for anything that gets past it is
+    Answering the ``RecursionError`` instead of preventing it is what
+    :meth:`glpi_python_client.content.conversion.GlpiContentConverter.from_transport`
+    does -- it attempts the conversion and degrades the body to its text
+    if the walk does not fit -- and the backstop for anything else is
     :class:`glpi_python_client.GlpiContentError`.
 
     Matched on the AST rather than the text, so that the module docstrings

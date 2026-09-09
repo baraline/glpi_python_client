@@ -137,12 +137,12 @@ def markdown_view(raw: str | None) -> str | None:
     Raises
     ------
     GlpiContentError
-        The value could not be converted. Content nested past
-        :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH` is
-        degraded to text instead, so this is a backstop rather than an
-        expected outcome -- but note that it surfaces from the attribute
-        read, not from ``model_validate``, which is the deliberate
-        difference from the write-model path.
+        The value could not be converted. Content too deeply nested
+        for the converter to walk is degraded to text instead of
+        raising, so this is a backstop rather than an expected outcome
+        -- but note that it surfaces from the attribute read, not from
+        ``model_validate``, which is the deliberate difference from the
+        write-model path.
     """
 
     if raw is None:

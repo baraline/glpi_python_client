@@ -115,14 +115,16 @@ its page being read.
 
 Very deeply nested HTML is the case worth knowing about.
 ``markdownify`` walks the document recursively and runs out of stack at
-around 494 levels of nesting, so past
-:data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH` (200) the
-converter strips tags instead of parsing. It degrades, it never
-truncates, and it does not raise: every character the normal rendering
-would have produced still appears. What is lost is structure rather than
-words — link targets and image alt text, code fencing and ``<pre>``
-indentation, ``&nbsp;`` alignment. Anything else that goes wrong in
-either direction raises :class:`GlpiContentError`.
+around 494 levels of nesting. The converter does not try to predict
+that: it attempts the conversion and, if the walk does not fit, strips
+tags instead. It degrades, it never truncates, and it does not raise:
+every character the normal rendering would have produced still appears.
+What is lost is structure rather than words — link targets and image alt
+text, code fencing and ``<pre>`` indentation, ``&nbsp;`` alignment.
+Because the budget is the stack left when the conversion starts, the
+same body can convert from one call site and degrade from a deeper one.
+Anything else that goes wrong in either direction raises
+:class:`GlpiContentError`.
 
 Because the conversion is cached on first read, a read model should be
 treated as immutable afterwards: assigning to ``content_html``, or

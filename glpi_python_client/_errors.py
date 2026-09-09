@@ -153,8 +153,9 @@ class GlpiContentError(GlpiError):
     used to reach the caller as a bare builtin — most visibly a
     ``RecursionError``, which ``except GlpiError`` does not catch and which
     a caller reading a ticket has no reason to expect from
-    ``get_ticket``. Deeply nested HTML is handled before it gets that far
-    (see :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`);
+    ``get_ticket``. Deeply nested HTML is caught and answered with the
+    body's text instead of raising at all (see
+    :meth:`glpi_python_client.content.conversion.GlpiContentConverter.from_transport`);
     this is the backstop for everything else.
 
     Unlike :class:`GlpiStatusError`, :class:`GlpiValidationError` and

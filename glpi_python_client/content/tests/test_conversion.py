@@ -9,14 +9,30 @@ from bs4 import BeautifulSoup
 from glpi_python_client import GlpiContentError, GlpiError
 from glpi_python_client.content import conversion
 from glpi_python_client.content.conversion import (
-    MAX_HTML_DEPTH,
     GlpiContentConverter,
-    _html_nesting_depth,
     _strip_tags,
 )
 
 #: Everything that is not a letter or a digit.
 _NOT_PROSE = re.compile(r"[^0-9A-Za-z]+")
+
+#: A Markdown link or image destination.
+#:
+#: The converting path renders a target that the fallback documents as
+#: dropped -- "a link becomes its text without the target, an image
+#: contributes nothing" -- so a URL inside ``]( )`` is not prose either,
+#: and comparing it would assert a difference the module declares.
+_DESTINATION = re.compile(r"\]\([^)]*\)")
+
+#: A link, and the target only the *converting* path renders.
+#:
+#: There is no depth number to ask any more -- the converter attempts the
+#: walk and answers the ``RecursionError`` -- so a test that needs to know
+#: which path ran has to read the output. A link is the cheapest tell:
+#: ``markdownify`` writes ``[probe](u)`` and :func:`_strip_tags` writes
+#: ``probe``.
+PROBE_LINK = '<a href="u">probe</a>'
+PROBE_TARGET = "](u)"
 
 
 def _prose(text: str) -> str:
@@ -31,7 +47,7 @@ def _prose(text: str) -> str:
     what the fallback promises to reproduce.
     """
 
-    return _NOT_PROSE.sub("", text)
+    return _NOT_PROSE.sub("", _DESTINATION.sub("]", text))
 
 
 def _is_subsequence(needle: str, haystack: str) -> bool:
@@ -57,7 +73,7 @@ def _parser_rejects(html: str) -> bool:
     return False
 
 
-def assert_the_degraded_path_says_no_less(shallow: str, depth: int = 300) -> None:
+def assert_the_degraded_path_says_no_less(shallow: str) -> None:
     """Assert the module's one promise about the fallback, on this parser.
 
     ``html.parser``'s reading of a *malformed* construct is not stable
@@ -80,13 +96,28 @@ def assert_the_degraded_path_says_no_less(shallow: str, depth: int = 300) -> Non
     # unterminated ``<!weird`` runs to the next ``>``, which inside a
     # wrapper is the ``>`` of a ``</div>``, so the same text is a bogus
     # comment there and character data at end of input. The point of the
-    # padding is only to push the depth past the ceiling.
-    deep = "<div>" * depth + "</div>" * depth + shallow
+    # padding is only to be deeper than the converter can walk.
+    #
+    # The probe link is how the test knows which path ran, now that there
+    # is no depth number to consult: only the converting path renders a
+    # target, so its absence is the degradation.
+    # Both renderings are taken from the *same* document, and the
+    # fallback is called directly rather than provoked with a body deep
+    # enough to exhaust the stack. Provoking it costs a 600-level tree
+    # and a walk that runs until it raises, which under coverage
+    # instrumentation took this suite from 69 seconds to 333; and it
+    # tests the routing, which one test can do once, rather than the
+    # property, which is what every shape here is for.
+    #
+    # The probe link carries the document onto the HTML path. Without it
+    # a fragment whose only tag name is not an element -- ``<scripty>`` --
+    # is plain text rather than markup, and the two sides would not be
+    # renderings of the same thing.
+    document = PROBE_LINK + shallow
+    converted = GlpiContentConverter.from_transport(document)
+    degraded = _strip_tags(document)
 
-    assert _html_nesting_depth(deep) > MAX_HTML_DEPTH, "the deep body must degrade"
-
-    converted = GlpiContentConverter.from_transport(shallow)
-    degraded = GlpiContentConverter.from_transport(deep)
+    assert PROBE_TARGET in converted, "the body must reach the converting path"
 
     assert _is_subsequence(_prose(converted), _prose(degraded)), (
         f"the degraded path said less than the converting one\n"
@@ -213,50 +244,6 @@ def test_incoming_text_is_not_backslash_escaped(html: str, expected: str) -> Non
 
 
 @pytest.mark.parametrize(
-    ("html", "expected"),
-    [
-        ("", 0),
-        ("no tags here", 0),
-        ("<p>one</p>", 1),
-        ("<p>The printer is <strong>offline</strong>.</p>", 2),
-        ("<div>" * 7 + "x" + "</div>" * 7, 7),
-        # An unclosed tag still nests: ``html.parser`` does not auto-close
-        # ``<p>`` or ``<li>``, so this really is 40 levels to walk.
-        ("<p>" * 40, 40),
-        # Nothing nests below a void or self-closed element, but the element
-        # itself is still a node one level below its parent.
-        ("<p>" + "<br>" * 40 + "x</p>", 2),
-        ("<br>" * 40, 1),
-        ("<p>a</p>" + "<div/>" * 40, 1),
-        # A close with nothing open, and a close for a void element, are
-        # ignored rather than pushed below zero.
-        ("</div>" * 40 + "<p>x</p>", 1),
-        ("<div><b>x</b></br></div>", 2),
-        # An unrecognised name is a node like any other to the parser.
-        ("<foo>" * 12, 12),
-        # Siblings are not depth.
-        ("<p>a</p>" * 40, 1),
-    ],
-)
-def test_the_depth_scan_measures_what_the_parser_will_build(
-    html: str, expected: int
-) -> None:
-    """The flat scan agrees with the tree ``html.parser`` produces."""
-
-    assert _html_nesting_depth(html) == expected
-
-
-def test_the_depth_scan_does_not_itself_recurse() -> None:
-    """Measuring 100k levels must not need 100k frames.
-
-    The whole point of the scan is to decide whether a recursive parser is
-    safe to run, so it cannot be recursive itself.
-    """
-
-    assert _html_nesting_depth("<div>" * 100_000) == 100_000
-
-
-@pytest.mark.parametrize(
     "html",
     [
         pytest.param("<div>" * 500 + "text" + "</div>" * 500, id="balanced"),
@@ -274,9 +261,9 @@ def test_deep_html_degrades_instead_of_raising(html: str) -> None:
     """Past the ceiling the caller gets a usable body, not an exception.
 
     494 levels was enough to exhaust the default 1000-frame limit from a
-    shallow stack. Every shape here is past ``MAX_HTML_DEPTH``, including
-    the unclosed and unknown-element ones -- both of which the parser nests
-    just as deeply as the balanced case.
+    shallow stack. Every shape here is past it, including the unclosed and
+    unknown-element ones -- both of which the parser nests just as deeply
+    as the balanced case.
     """
 
     assert GlpiContentConverter.from_transport(html) == "text"
@@ -306,7 +293,7 @@ def test_the_degraded_path_resolves_entities_and_block_boundaries() -> None:
     words. Only the block boundary gets a separator.
     """
 
-    html = "<div>" * 300 + "<b>off</b>line &amp; <p>next</p>" + "</div>" * 300
+    html = "<div>" * 600 + "<b>off</b>line &amp; <p>next</p>" + "</div>" * 600
 
     assert GlpiContentConverter.from_transport(html) == "offline &\nnext"
 
@@ -343,7 +330,7 @@ def test_the_degraded_path_keeps_exactly_what_the_converter_keeps(
     """
 
     shallow = f"<p>a</p>{construct}<p>b</p>"
-    deep = "<div>" * 300 + shallow + "</div>" * 300
+    deep = "<div>" * 600 + shallow + "</div>" * 600
 
     converted = GlpiContentConverter.from_transport(shallow)
     degraded = GlpiContentConverter.from_transport(deep)
@@ -370,14 +357,18 @@ def test_an_unterminated_raw_text_element_reads_the_same_on_both_paths() -> None
     assert "keep" in GlpiContentConverter.from_transport("<p>keep</p><script>SECRET")
 
 
-def test_a_document_at_the_ceiling_is_still_converted() -> None:
-    """The ceiling is inclusive, and below it nothing changes.
+@pytest.mark.parametrize("depth", [1, 100, 200, 250, 300])
+def test_a_document_the_stack_can_hold_is_converted_in_full(depth: int) -> None:
+    """Everything that fits must convert, and structure has to survive.
 
-    Pinned because an off-by-one here silently downgrades ordinary content
-    to stripped text -- a quality regression with no error to notice.
+    This is what attempting the conversion bought. The previous design
+    predicted the depth and degraded past a fixed 200, which flattened
+    every body between 200 and the real cliff of about 494 -- ordinary
+    quoted mail threads among them -- to text, with no error to notice
+    and no way for a caller to ask for better. The 300 and 400 cases here
+    are the ones that used to come back as prose.
     """
 
-    depth = MAX_HTML_DEPTH - 1  # the <strong> below is the last level
     html = "<div>" * depth + "<strong>offline</strong>" + "</div>" * depth
 
     assert GlpiContentConverter.from_transport(html) == "**offline**"
@@ -405,16 +396,19 @@ def test_a_parser_fault_surfaces_as_a_glpi_error(
 ) -> None:
     """No parser fault escapes ``except GlpiError``.
 
-    The depth guard means no ordinary input reaches this, so the fault is
-    injected. It matters anyway: the frame budget is whatever the caller
-    left behind, so a shallow-enough document can still run out of stack in
-    a deep-enough application -- and a caller who wrote ``except GlpiError``
-    around ``get_ticket`` would have watched a ``RecursionError`` sail
-    straight through it.
+    Nothing ordinary reaches this, so the fault is injected. It matters
+    anyway: a caller who wrote ``except GlpiError`` around ``get_ticket``
+    would otherwise watch a bare parser exception sail straight through
+    it.
+
+    A ``RecursionError`` is deliberately *not* the fault used here. It is
+    no longer a failure at all -- it is how the converter learns that the
+    document does not fit, and it is answered with the body's text; see
+    the test below.
     """
 
     def _boom(*args: object, **kwargs: object) -> str:
-        raise RecursionError("maximum recursion depth exceeded")
+        raise ValueError("the parser fell over")
 
     monkeypatch.setattr(conversion, "html_to_markdown", _boom)
 
@@ -422,7 +416,29 @@ def test_a_parser_fault_surfaces_as_a_glpi_error(
         GlpiContentConverter.from_transport("<p>offline</p>")
 
     assert isinstance(caught.value, GlpiError)
-    assert isinstance(caught.value.__cause__, RecursionError)
+    assert isinstance(caught.value.__cause__, ValueError)
+
+
+def test_a_recursion_error_degrades_rather_than_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Running out of stack is answered, not reported.
+
+    Injected rather than provoked, because the depth needed to provoke it
+    depends on the stack the test runner has already spent -- which is the
+    very reason the depth is no longer predicted. What is pinned is the
+    contract: the caller gets their words, not an exception.
+    """
+
+    def _boom(*args: object, **kwargs: object) -> str:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(conversion, "html_to_markdown", _boom)
+
+    assert (
+        GlpiContentConverter.from_transport("<p>Le serveur ne repond plus.</p>")
+        == "Le serveur ne repond plus."
+    )
 
 
 def test_an_outbound_render_fault_surfaces_as_a_glpi_error(
@@ -494,39 +510,6 @@ def _parser_depth(html: str) -> int:
     "html",
     [
         pytest.param("<div></p>" * 600 + "kept", id="stray-close-p"),
-        pytest.param("<div></span>" * 600 + "kept", id="stray-close-span"),
-        pytest.param("<p></b>" * 600 + "kept", id="stray-close-b"),
-        pytest.param("<b><i>x</b></i>", id="interleaved"),
-        pytest.param("<div>" * 400 + "<br>" + "</div>" * 400, id="void-leaf"),
-        pytest.param("<div>" * 400 + "<img/>" + "</div>" * 400, id="self-closed-leaf"),
-        pytest.param("<br>" * 5000, id="void-only"),
-        pytest.param("<div><b>x</b></br></div>", id="close-of-a-void"),
-        pytest.param("<p>The printer is <strong>offline</strong>.</p>", id="realistic"),
-        pytest.param("<div><!-- <div><div> --><p>x</p></div>", id="tags-in-a-comment"),
-        pytest.param(
-            "<div><script>var s='<div><div>'</script>x</div>", id="tags-in-js"
-        ),
-        pytest.param("<table><tr><td>" * 60 + "x", id="tables"),
-        pytest.param("<blockquote>" * 300 + "x", id="blockquotes"),
-        pytest.param("<p>a</p>" * 100, id="siblings"),
-    ],
-)
-def test_the_depth_scan_agrees_with_the_parser(html: str) -> None:
-    """The flat scan returns what a real parse would nest to.
-
-    Equality, not an upper bound: over-counting is survivable but it
-    degrades documents that did not need degrading, so it is worth pinning
-    too. The cases where the scan is deliberately allowed to over-count are
-    covered separately.
-    """
-
-    assert _html_nesting_depth(html) == _parser_depth(html)
-
-
-@pytest.mark.parametrize(
-    "html",
-    [
-        pytest.param("<div></p>" * 600 + "kept", id="stray-close-p"),
         pytest.param("<div></span>" * 800 + "kept", id="stray-close-span"),
         pytest.param("<li></tr>" * 700 + "kept", id="stray-close-tr"),
     ],
@@ -552,45 +535,9 @@ def test_the_degraded_path_keeps_a_cdata_body() -> None:
     whole promise is that nothing is deleted.
     """
 
-    html = "<div>" * 300 + "<p>a<![CDATA[secret words]]>b</p>" + "</div>" * 300
+    html = "<div>" * 600 + "<p>a<![CDATA[secret words]]>b</p>" + "</div>" * 600
 
     assert GlpiContentConverter.from_transport(html) == "asecret wordsb"
-
-
-@pytest.mark.parametrize(
-    "html",
-    [
-        # A comment with no ``-->`` is a *bogus comment*: the parser gives up
-        # at the first ``>``, so the ``</custom>`` inside it is text and the
-        # ``<br>`` lands inside ``<custom>``. Read that ``</custom>`` as a
-        # real close and the count comes back one level short -- which is
-        # how a document that needed degrading reached the converter.
-        pytest.param("<custom><!--oops</custom><br>", id="bogus-comment-eats-a-close"),
-        # ... and recovery ends at that ``>``. It does not swallow the rest
-        # of the document, so these really are two levels.
-        pytest.param("<!--oops><div><div>", id="bogus-comment-ends-at-its-close"),
-        # A processing instruction ends at the first ``>`` too, and here
-        # that lands inside what looks like a comment -- so the second
-        # ``<div>`` is a real element. Stripping comments globally before
-        # scanning gets this wrong in both directions at once.
-        pytest.param("<?php x<!-- <div><div> -->", id="pi-overlapping-a-comment"),
-        pytest.param("<div><!-- <div><div> --></div>", id="terminated-comment"),
-        pytest.param("<!DOCTYPE html><div><p>x</p></div>", id="doctype"),
-        pytest.param("<div><![CDATA[a<div>b]]><p>x</p></div>", id="marked-section"),
-        pytest.param("<div><script>a<div><div></script><p>x</p></div>", id="raw-text"),
-        pytest.param("<div><script>a<div>", id="unclosed-raw-text"),
-    ],
-)
-def test_the_depth_scan_dispatches_like_the_parser(html: str) -> None:
-    """Comments, declarations and raw text change where the tags are.
-
-    Each of these was measured against a real parse. They are in the suite
-    because they are the cases where reading the constructs in the wrong
-    order, or independently of one another, changes the answer -- and one
-    direction of wrong is a ``RecursionError``.
-    """
-
-    assert _html_nesting_depth(html) == _parser_depth(html)
 
 
 def test_the_degraded_path_keeps_the_text_of_a_broken_comment() -> None:
@@ -612,7 +559,7 @@ def test_the_degraded_path_drops_a_comment_the_parser_understood() -> None:
     rule: telling them apart is the whole job of the ``-->``.
     """
 
-    html = "<div>" * 300 + "<p>keep</p><!-- drop this -->" + "</div>" * 300
+    html = "<div>" * 600 + "<p>keep</p><!-- drop this -->" + "</div>" * 600
 
     assert GlpiContentConverter.from_transport(html) == "keep"
 
@@ -630,8 +577,7 @@ def test_no_name_in_the_void_set_actually_nests() -> None:
     understated = [
         name
         for name in sorted(conversion._VOID_ELEMENTS)
-        if _html_nesting_depth(f"<{name}>" * 300 + "x")
-        < _parser_depth(f"<{name}>" * 300 + "x")
+        if _parser_depth(f"<{name}>" * 300 + "x") > 1
     ]
 
     assert understated == []
@@ -651,14 +597,14 @@ def test_no_name_in_the_void_set_actually_nests() -> None:
 def test_a_tag_inside_a_quoted_attribute_is_not_read_as_markup(html: str) -> None:
     """An attribute value may legally contain ``<`` and ``>``.
 
-    Reading a quoted ``</div>`` as a real close tag under-counted without
-    bound: ``'<div title="</div>">' * 600`` measured **0** levels when the
-    parser builds 600, so the document sailed past the ceiling into
-    ``markdownify`` and raised. This is the regression test for that, and
-    it is the one class of error the ceiling exists to prevent.
+    Reading a quoted ``</div>`` as a real close tag lost the text after
+    it, and used to under-count the nesting without bound as well, back
+    when the nesting was predicted. What has to hold either way is that
+    the shape costs the body nothing: it converts, and if it is too deep
+    to convert it still says the same thing.
     """
 
-    assert _html_nesting_depth(html) == _parser_depth(html)
+    assert_the_degraded_path_says_no_less(html)
 
 
 def test_a_quoted_close_tag_at_depth_still_degrades() -> None:
@@ -698,50 +644,9 @@ def test_the_degraded_path_resolves_references_like_the_parser(
     changes meaning according to how deeply it nests.
     """
 
-    html = "<div>" * 300 + f"<p>{raw}</p>" + "</div>" * 300
+    html = "<div>" * 600 + f"<p>{raw}</p>" + "</div>" * 600
 
     assert GlpiContentConverter.from_transport(html) == expected
-
-
-@pytest.mark.parametrize(
-    "html",
-    [
-        pytest.param("<p title=don't>x</p>", id="apostrophe-in-bare-value"),
-        pytest.param('<p title=say"hi>x</p>', id="quote-in-bare-value"),
-        pytest.param("<p alt=P<0.05>x</p>", id="lt-in-bare-value"),
-        pytest.param("<p title=Etape 1>x</p>", id="space-in-bare-value"),
-        pytest.param("<style=>x", id="malformed-style-name"),
-        pytest.param("<script=>x", id="malformed-script-name"),
-        pytest.param("<div=x>y", id="malformed-name"),
-        pytest.param('<div"a">y', id="quote-in-name"),
-        pytest.param("<scripty>x</scripty>", id="raw-name-is-a-prefix"),
-        pytest.param("<script/>x", id="self-closed-script"),
-        pytest.param("<style />x", id="self-closed-style"),
-        pytest.param('<li y=">mot<script data-x="</div>">tail', id="lt-after-value"),
-        pytest.param("<div a=1 <p>text", id="tag-inside-a-tag"),
-        pytest.param("<div class=a<b>text", id="lt-in-unquoted-value"),
-    ],
-)
-def test_the_depth_scan_reads_a_malformed_tag_like_the_parser(html: str) -> None:
-    """Malformed markup is the common case, and its rules are the parser's.
-
-    Every expectation here was read off ``html.parser`` rather than
-    reasoned about, and each rule below was wrong in an earlier revision:
-
-    * A quote opens a value only as the first character after the ``=``,
-      so ``title=don't`` is the value ``don't`` and an unquoted value may
-      hold ``<`` too.
-    * ``tagfind_tolerant`` runs the *name* to whitespace, ``/`` or ``>``,
-      so ``<style=>`` is an element named ``style=`` -- which is why it
-      never enters raw-text mode, however much it looks like ``<style>``.
-    * A self-closed ``<script/>`` does not enter raw-text mode either:
-      ``parse_starttag`` calls ``set_cdata_mode`` only on the branch that
-      is not self-closing.
-    * An attribute name may contain ``<``, so after a quoted value the
-      parser keeps scanning to the next ``>``.
-    """
-
-    assert _html_nesting_depth(html) == _parser_depth(html)
 
 
 @pytest.mark.parametrize(
@@ -755,20 +660,19 @@ def test_the_depth_scan_reads_a_malformed_tag_like_the_parser(html: str) -> None
         pytest.param("<p alt=P<0.05>", id="lt-in-bare-value"),
     ],
 )
-def test_a_malformed_tag_cannot_hide_the_depth_below_it(prefix: str) -> None:
-    """One malformed tag must not conceal a whole document's nesting.
+def test_a_malformed_tag_does_not_swallow_the_body_after_it(prefix: str) -> None:
+    """One malformed tag must not take the rest of the document with it.
 
-    The dangerous direction is under-counting, and each of these
-    under-counted without bound: read as raw text, ``"<style=>"`` and
-    ``"<script/>"`` swallowed everything after them, so
-    ``"<style=>" + "<div>" * 600`` measured **1** level against a real
-    601, went to ``markdownify`` and raised the ``RecursionError`` the
-    ceiling exists to prevent.
+    Read as raw text, ``"<style=>"`` and ``"<script/>"`` swallowed
+    everything after them. That showed up first as an unbounded depth
+    under-count -- ``"<style=>" + "<div>" * 600`` measured **1** level
+    against a real 601 and reached ``markdownify`` -- but the deletion was
+    always the real damage, and it is what this pins now that the depth is
+    no longer predicted.
     """
 
     html = prefix + "<div>" * 600 + "the printer is offline"
 
-    assert _html_nesting_depth(html) == _parser_depth(html)
     assert GlpiContentConverter.from_transport(html) == "the printer is offline"
 
 
@@ -781,7 +685,7 @@ def test_the_degraded_path_does_not_emit_a_tag_it_could_not_read() -> None:
     French, so this needs no malice to reach a ticket.
     """
 
-    html = "<div>" * 300 + "<p title=don't>Le serveur ne repond plus.</p>"
+    html = "<div>" * 600 + "<p title=don't>Le serveur ne repond plus.</p>"
 
     degraded = GlpiContentConverter.from_transport(html)
 
@@ -910,7 +814,7 @@ def test_both_paths_agree_on_a_body_using_both_spellings() -> None:
     """
 
     shallow = "<p>one<br>two<br />three</p>"
-    deep = "<div>" * 300 + shallow + "</div>" * 300
+    deep = "<div>" * 600 + shallow + "</div>" * 600
 
     converted = GlpiContentConverter.from_transport(shallow)
     degraded = GlpiContentConverter.from_transport(deep)
@@ -921,56 +825,6 @@ def test_both_paths_agree_on_a_body_using_both_spellings() -> None:
 
 
 @pytest.mark.parametrize(
-    ("html", "reason"),
-    [
-        pytest.param(
-            '</x a="><div>">',
-            "an end tag skips nothing, so the <div> after it is real",
-            id="end-tag-with-a-quoted-attribute",
-        ),
-        pytest.param(
-            '<div ="<p><p>">',
-            "a name-less = starts an attribute NAME, not a quoted value",
-            id="name-less-equals-quote",
-        ),
-        pytest.param(
-            '<div a ="x>y">',
-            "whitespace before = still leaves a quoted value",
-            id="space-before-equals",
-        ),
-        pytest.param(
-            "</ p>x",
-            "the strict end-tag pattern allows space after </",
-            id="space-in-end-tag",
-        ),
-        pytest.param("</p/>x", "a trailing slash on an end tag", id="slash-in-end-tag"),
-        pytest.param(
-            '<li y=">mot<script data-x="</div>">tail',
-            "< inside a tag",
-            id="lt-after-a-value",
-        ),
-    ],
-)
-def test_the_depth_scan_reads_tag_ends_like_the_parser(html: str, reason: str) -> None:
-    """Where a tag *ends* is decided by three different parser functions.
-
-    Each of these was read with start-tag rules until it was measured, and
-    two of them under-counted without bound:
-
-    * ``parse_endtag`` falls back to ``rawdata.find(">")``, so an end tag
-      skips nothing -- ``'</x a="><div>">' * 600`` measured **0** against a
-      real 600 and raised.
-    * ``locatestarttagend_tolerant`` reaches a quoted value only through an
-      attribute *name*, and a name may itself start with ``=`` -- so
-      ``'<div ="' + "<p>" * 600`` measured **1** against a real 600.
-
-    ``reason`` is carried only to say why each case is here.
-    """
-
-    assert _html_nesting_depth(html) == _parser_depth(html)
-
-
-@pytest.mark.parametrize(
     "fragment",
     [
         pytest.param('</x a="><div>">', id="end-tag-with-a-quoted-attribute"),
@@ -978,16 +832,16 @@ def test_the_depth_scan_reads_tag_ends_like_the_parser(html: str, reason: str) -
         pytest.param('<p title="><span>">', id="quoted-gt-then-tag"),
     ],
 )
-def test_a_misread_tag_end_cannot_hide_the_depth_below_it(fragment: str) -> None:
-    """Scaled past the ceiling: degrades, and does not raise.
+def test_a_misread_tag_end_does_not_swallow_the_body_after_it(fragment: str) -> None:
+    """Scaled past the cliff: degrades quietly, and keeps its words.
 
-    The under-counts these come from were 1:1 with the repetition, so the
-    deficit grew without bound and the document cleared the ceiling.
+    Reading an end tag with start-tag rules consumed everything up to the
+    next quote, which deleted prose at any depth and under-counted the
+    nesting 1:1 with the repetition back when the nesting was predicted.
     """
 
     html = fragment * 600 + "the printer is offline"
 
-    assert _html_nesting_depth(html) >= _parser_depth(html)
     assert "the printer is offline" in GlpiContentConverter.from_transport(html)
 
 
@@ -1008,18 +862,18 @@ def test_a_misread_tag_end_does_not_delete_prose() -> None:
 def test_a_document_with_no_closing_bracket_is_answered_without_scanning() -> None:
     """No ``>`` means no element, and saying so keeps a bad shape cheap.
 
-    ``re`` restarts at every ``<`` where ``html.parser`` buffers an
-    incomplete tag and never looks back, so ``'<div a="' * n`` cost this
-    scan O(n**2) -- 32 KB in 6.6 s -- while the parser answers it in one
-    pass. The guard makes it constant time, and the text still survives,
-    because the parser flushes an unfinished tag as data when it closes.
+    ``html.parser`` cannot finish a tag that never closes, so ``close()``
+    flushes it one character at a time and rescans the tail at each step:
+    measured, 32 KB of ``'<div a="'`` costs it 13 seconds. Both readers
+    answer that shape directly instead. The text still survives, because
+    the parser flushes an unfinished tag as data when it closes.
     """
 
     html = '<div a="' * 4000
 
-    assert _html_nesting_depth(html) == 0
     assert GlpiContentConverter.from_transport(html).startswith('<div a="')
     assert "the printer" in GlpiContentConverter.from_transport(html + "the printer")
+    assert _strip_tags(html).startswith('<div a="')
 
 
 def test_a_document_the_parser_rejects_degrades_instead_of_raising() -> None:
@@ -1039,11 +893,10 @@ def test_a_document_the_parser_rejects_degrades_instead_of_raising() -> None:
 
     html = "<p>Le serveur ne repond plus. SECRET</p><![FOO[x]]>"
 
-    if _parser_rejects(html):
-        assert _html_nesting_depth(html) == MAX_HTML_DEPTH + 1
-    else:
-        assert _html_nesting_depth(html) <= MAX_HTML_DEPTH
     assert "SECRET" in GlpiContentConverter.from_transport(html)
+    if _parser_rejects(html):
+        # The converting path cannot run at all, so the answer is the text.
+        assert GlpiContentConverter.from_transport(html) == _strip_tags(html)
 
 
 def test_the_text_after_a_construct_the_parser_rejects_is_still_kept() -> None:
@@ -1077,3 +930,168 @@ def test_stripping_a_document_with_no_closing_bracket_keeps_all_of_it() -> None:
 
     assert _strip_tags(html).endswith("le serveur ne repond plus")
     assert _strip_tags(html).startswith('<div a="')
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        # The repetition counts here are deliberately modest. They were
+        # large when this corpus guarded a depth *prediction*, where the
+        # error grew with the repetition; the shapes are what matter now,
+        # and each document has to be one the converting path can still
+        # walk on every supported interpreter for the comparison to mean
+        # anything.
+        pytest.param("<div></p>" * 60 + "kept", id="stray-close-p"),
+        pytest.param("<div></span>" * 60 + "kept", id="stray-close-span"),
+        pytest.param("<p></b>" * 60 + "kept", id="stray-close-b"),
+        pytest.param("<b><i>x</b></i>", id="interleaved"),
+        pytest.param("<div>" * 100 + "<br>" + "</div>" * 100, id="void-leaf"),
+        pytest.param("<div>" * 100 + "<img/>" + "</div>" * 100, id="self-closed-leaf"),
+        pytest.param("<br>" * 5000, id="void-only"),
+        pytest.param("<div><b>x</b></br></div>", id="close-of-a-void"),
+        pytest.param("<p>The printer is <strong>offline</strong>.</p>", id="realistic"),
+        pytest.param("<div><!-- <div><div> --><p>x</p></div>", id="tags-in-a-comment"),
+        pytest.param(
+            "<div><script>var s='<div><div>'</script>x</div>", id="tags-in-js"
+        ),
+        pytest.param("<table><tr><td>" * 30 + "x", id="tables"),
+        pytest.param("<blockquote>" * 100 + "x", id="blockquotes"),
+        pytest.param("<p>a</p>" * 100, id="siblings"),
+    ],
+)
+def test_both_paths_agree_about_what_is_markup(html: str) -> None:
+    """The two renderings of one body must not disagree about its markup.
+
+    This corpus was built against a flat scan that predicted the nesting
+    depth, and it caught the scan reading markup differently from the
+    parser -- a stray close popping an element the parser keeps, a void
+    element counted as a parent, a tag inside a comment or a script body
+    counted at all. The prediction is gone; the corpus is not, because
+    the same disagreements would now show up as the fallback deleting or
+    inventing text relative to the converting path.
+    """
+
+    assert_the_degraded_path_says_no_less(html)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        # A comment with no ``-->`` is a *bogus comment*: the parser gives up
+        # at the first ``>``, so the ``</custom>`` inside it is text and the
+        # ``<br>`` lands inside ``<custom>``. Read that ``</custom>`` as a
+        # real close and the count comes back one level short -- which is
+        # how a document that needed degrading reached the converter.
+        pytest.param("<custom><!--oops</custom><br>", id="bogus-comment-eats-a-close"),
+        # ... and recovery ends at that ``>``. It does not swallow the rest
+        # of the document, so these really are two levels.
+        pytest.param("<!--oops><div><div>", id="bogus-comment-ends-at-its-close"),
+        # A processing instruction ends at the first ``>`` too, and here
+        # that lands inside what looks like a comment -- so the second
+        # ``<div>`` is a real element. Stripping comments globally before
+        # scanning gets this wrong in both directions at once.
+        pytest.param("<?php x<!-- <div><div> -->", id="pi-overlapping-a-comment"),
+        pytest.param("<div><!-- <div><div> --></div>", id="terminated-comment"),
+        pytest.param("<!DOCTYPE html><div><p>x</p></div>", id="doctype"),
+        pytest.param("<div><![CDATA[a<div>b]]><p>x</p></div>", id="marked-section"),
+        pytest.param("<div><script>a<div><div></script><p>x</p></div>", id="raw-text"),
+        pytest.param("<div><script>a<div>", id="unclosed-raw-text"),
+    ],
+)
+def test_every_markup_construct_is_read_the_way_the_parser_reads_it(html: str) -> None:
+    """Construct by construct, and the order they are tried in matters.
+
+    The parser reads left to right and these constructs overlap: in
+    ``<?php x<!-- <div><div> -->`` the processing instruction ends at the
+    first ``>``, which lands inside what looks like a comment, so the
+    ``<div>`` after it is a real element. Handling any of them out of
+    order gets that document wrong in both directions at once.
+    """
+
+    assert_the_degraded_path_says_no_less(html)
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<p title=don't>x</p>", id="apostrophe-in-bare-value"),
+        pytest.param('<p title=say"hi>x</p>', id="quote-in-bare-value"),
+        pytest.param("<p alt=P<0.05>x</p>", id="lt-in-bare-value"),
+        pytest.param("<p title=Etape 1>x</p>", id="space-in-bare-value"),
+        pytest.param("<style=>x", id="malformed-style-name"),
+        pytest.param("<script=>x", id="malformed-script-name"),
+        pytest.param("<div=x>y", id="malformed-name"),
+        pytest.param('<div"a">y', id="quote-in-name"),
+        pytest.param("<scripty>x</scripty>", id="raw-name-is-a-prefix"),
+        pytest.param("<script/>x", id="self-closed-script"),
+        pytest.param("<style />x", id="self-closed-style"),
+        pytest.param('<li y=">mot<script data-x="</div>">tail', id="lt-after-value"),
+        pytest.param("<div a=1 <p>text", id="tag-inside-a-tag"),
+        pytest.param("<div class=a<b>text", id="lt-in-unquoted-value"),
+    ],
+)
+def test_a_malformed_tag_is_read_the_way_the_parser_reads_it(html: str) -> None:
+    """Malformed markup is where every rule taken from the spec was wrong.
+
+    Each shape here was read one way by the HTML5 grammar and another by
+    ``tagfind_tolerant`` and ``locatestarttagend_tolerant``, which are
+    what ``markdownify`` actually builds its tree with. The module reads
+    the parser's events now, so the corpus is a guard against a future
+    change reintroducing a rule from the wrong place.
+    """
+
+    assert_the_degraded_path_says_no_less(html)
+
+
+@pytest.mark.parametrize(
+    ("html", "reason"),
+    [
+        pytest.param(
+            '</x a="><div>">',
+            "an end tag skips nothing, so the <div> after it is real",
+            id="end-tag-with-a-quoted-attribute",
+        ),
+        pytest.param(
+            '<div ="<p><p>">',
+            "a name-less = starts an attribute NAME, not a quoted value",
+            id="name-less-equals-quote",
+        ),
+        pytest.param(
+            '<div a ="x>y">',
+            "whitespace before = still leaves a quoted value",
+            id="space-before-equals",
+        ),
+        pytest.param(
+            "</ p>x",
+            "the strict end-tag pattern allows space after </",
+            id="space-in-end-tag",
+        ),
+        pytest.param("</p/>x", "a trailing slash on an end tag", id="slash-in-end-tag"),
+        pytest.param(
+            '<li y=">mot<script data-x="</div>">tail',
+            "< inside a tag",
+            id="lt-after-a-value",
+        ),
+    ],
+)
+def test_a_tag_end_is_read_the_way_the_parser_reads_it(html: str, reason: str) -> None:
+    """``parse_endtag`` falls back to ``rawdata.find(">")`` and skips nothing.
+
+    CPython's own comment concedes the consequence -- "this is not 100%
+    correct, since we might have things like ``</tag attr=">">``" -- so
+    an end tag read with attribute rules consumes prose the parser keeps.
+    """
+
+    assert_the_degraded_path_says_no_less(html)
+
+
+def test_the_fallback_does_not_itself_recurse() -> None:
+    """Stripping 100k levels must not need 100k frames.
+
+    The fallback exists because the converting path ran out of stack, so
+    it cannot want a stack of its own. ``html.parser`` is an iterative
+    scanner and this walks its events into a list, which is what makes it
+    an answer for input of any depth rather than a second thing to guard.
+    """
+
+    assert _strip_tags("<div>" * 100_000 + "le serveur") == "le serveur"

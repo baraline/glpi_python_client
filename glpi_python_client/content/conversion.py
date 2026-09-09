@@ -1,24 +1,55 @@
 """Content conversion helpers for GLPI payloads.
 
-This module translates between GLPI's HTML transport format and the package's
-canonical Markdown representation used by the rich content models.
+This module translates between GLPI's HTML transport format and the
+package's canonical Markdown representation used by the rich content
+models.
 
-Both conversions run third-party parsers, and both walk the document
-recursively, so both have a nesting ceiling. Inbound content is measured
-before it is parsed and degraded past :data:`MAX_HTML_DEPTH` rather than
-allowed to hit that ceiling; anything else that goes wrong in either
-direction surfaces as :class:`~glpi_python_client.GlpiContentError` so no
-parser fault escapes the package's exception taxonomy.
+Neither *parse* recurses -- ``html.parser`` is an iterative scanner --
+but ``markdownify`` walks the finished tree recursively, at about two
+CPython frames per nesting level, so inbound conversion has a nesting
+ceiling. Measured from a shallow stack against the default 1000-frame
+limit, the deepest document that converts is 494 levels: the same 494
+for ``<div>``, ``<p>``, ``<blockquote>`` and ``<table><tr><td>``, and
+495 for ``<ul><li>``, which is what identifies the cost as per-level.
+
+**The ceiling is discovered rather than predicted.** Inbound conversion
+is attempted, and a ``RecursionError`` is caught and answered by
+stripping the document to its text instead -- see
+:meth:`GlpiContentConverter.from_transport`. Estimating the depth up
+front and degrading past a fixed bound was the previous design, and it
+was wrong in both directions: it degraded bodies that would have
+converted, because the bound had to assume the worst about the caller's
+remaining stack, and three rounds of review found seven ways for the
+estimate to come in *under* the real tree, each of which put a document
+through ``markdownify`` and into the ``RecursionError`` the bound
+existed to prevent. Trying the conversion cannot be wrong about whether
+the conversion fits.
+
+Anything else that goes wrong in either direction surfaces as
+:class:`~glpi_python_client.GlpiContentError`, so no parser fault
+escapes the package's exception taxonomy.
+
+**``sys.setrecursionlimit`` is deliberately not called, here or anywhere
+in the package.** It is process-global state that belongs to the
+application, not to a library an application imported; and raising the
+limit past what the C stack can hold turns a catchable
+``RecursionError`` into a hard interpreter crash -- on Windows, an
+access violation with no traceback. It moves the cliff and makes falling
+off it worse. Degrading the one body that does not fit is the answer
+that does not. Running the walk in a thread with a larger stack was
+considered and rejected for the same reason: the recursion limit is a
+counter rather than a measurement of the stack, so a deeper thread still
+needs the global limit raised to use it.
 """
 
 from __future__ import annotations
 
 import re
-from collections import Counter
 from html import unescape
 from html.entities import html5 as _HTML5_REFERENCES
 from html.parser import HTMLParser
 
+from bs4 import ParserRejectedMarkup
 from markdown import markdown as markdown_to_html
 from markdownify import markdownify as html_to_markdown
 
@@ -113,37 +144,6 @@ _BLOCK_ELEMENTS = frozenset(
     """.split()
 )
 
-#: Nesting depth past which inbound HTML is stripped instead of converted.
-#:
-#: ``markdownify`` walks the parsed tree recursively and spends about two
-#: CPython frames per nesting level. Measured against the default
-#: 1000-frame limit, from a shallow stack, the deepest document that
-#: converts is 494 levels: the same 494 for ``<div>``, ``<p>``,
-#: ``<blockquote>`` and ``<table><tr><td>``, and 495 for ``<ul><li>``,
-#: which is what identifies the cost as per-level. One level past it
-#: raises ``RecursionError``.
-#:
-#: The ceiling is 200 rather than 494 because the budget is not 1000 frames,
-#: it is whatever is left of the stack when the conversion starts, and that
-#: belongs to the caller. The package's own contribution is small and, since
-#: conversion moved to the attribute, no longer depends on how the record
-#: was fetched: measured, 5 frames below the caller when ``.content`` is
-#: read -- the same 5 whether the model came from ``model_validate`` or from
-#: ``client.get_ticket`` -- and 9 on the write path, where the renderer runs
-#: inside ``model_dump``. What is not small is an application reading
-#: ``.content`` from inside a request handler, a template render or a
-#: recursive walk. Converting a 200-level document was measured to peak at
-#: 412 frames, so it stays safe until the caller's own stack passes about
-#: 588 -- and no document a human wrote nests 200 elements deep.
-#:
-#: **``sys.setrecursionlimit`` is deliberately not called, here or anywhere
-#: in the package.** It is process-global state that belongs to the
-#: application, not to a library an application imported; and raising the
-#: limit past what the C stack can hold turns a catchable ``RecursionError``
-#: into a hard interpreter crash -- on Windows, an access violation with no
-#: traceback. It moves the cliff and makes falling off it worse. Bounding
-#: the input is the fix that does not.
-MAX_HTML_DEPTH = 200
 
 #: One character reference, with or without its terminating semicolon.
 #:
@@ -208,24 +208,32 @@ def _looks_like_html(content: str) -> bool:
 class _ParserScan(HTMLParser):
     """Walk a document with the parser that will convert it, not one like it.
 
-    Everything this module needs to know before it hands content to
-    ``markdownify`` -- how deep the tree will be, which self-closing void
-    tags to rewrite, and what the text is when the tree is too deep to
-    walk -- is a question about ``html.parser``'s dispatch. This subclass
-    asks ``html.parser`` instead of describing it.
+    Both remaining questions this module asks about raw HTML -- which
+    self-closing void tags to rewrite, and what the text is when the tree
+    will not fit the stack -- are questions about ``html.parser``'s
+    dispatch. This subclass asks ``html.parser`` instead of describing
+    it.
 
     It replaces a regular expression that reproduced that dispatch by
-    imitation. The imitation was wrong in five unbounded ways at once, and
-    each was found only after it shipped: a comment closes on ``--\\s*>``
+    imitation, and the imitation kept being wrong in ways that showed up
+    only after they shipped. A comment closes on ``--\\s*>``
     and not only on ``-->``, ``</ script>`` ends raw text, ``<![IGNORE[``
     opens a marked section, ``</ div foo>`` is a bogus comment rather than
     an end tag, and ``<a href=/>`` leaves an element *open* because the
-    unquoted value swallows the ``/``. Each made a document measure one
-    level deep where the real tree was hundreds, which is the one error
-    that ends in the ``RecursionError`` :data:`MAX_HTML_DEPTH` exists to
-    prevent. Two more were cost rather than correctness: a run of
-    whitespace inside a failing tag made the attribute pattern backtrack
-    as ``(a+)*``, and a 62-byte body took 7.45 seconds.
+    unquoted value swallows the ``/``. Two more were cost rather than
+    correctness: a run of whitespace inside a failing tag made the
+    attribute pattern backtrack as ``(a+)*``, and a 39-byte body took
+    20.8 seconds.
+
+    Those seven were found as depth under-counts, back when this module
+    predicted the nesting depth instead of attempting the conversion.
+    Predicting it is gone, but the pattern's other two readers were wrong
+    the same way and are still here: a derailed scan meant
+    :func:`_canonicalise_void_elements` never saw the ``<br />`` it
+    exists to rewrite, so
+    ``"<p>one<br>two</p><script>x</ script><p>three<br />TAIL</p>"`` lost
+    ``TAIL`` outright, and :func:`_strip_tags` inherited both the
+    misreadings and the backtracking.
 
     Reading the parser's own event stream cannot be wrong about the
     parser, so none of those remain judgement calls. It is also not a new
@@ -242,10 +250,9 @@ class _ParserScan(HTMLParser):
     reference arrives as its own event and :func:`_resolve_references`
     applies the whole-name rule the converting path applies.
 
-    One pass answers all three questions, so a conversion scans once
-    rather than once per question. ``collect_text`` is what separates
-    them: measuring depth needs no text, and accumulating the pieces of a
-    150 KB body when only the depth is wanted is waste.
+    ``collect_text`` separates the two callers: the void rewrite needs
+    only the spans, and accumulating the pieces of a 150 KB body for it
+    would be waste.
 
     Parameters
     ----------
@@ -265,13 +272,6 @@ class _ParserScan(HTMLParser):
         for line in content.splitlines(keepends=True):
             offsets.append(offsets[-1] + len(line))
         self._line_offsets = offsets
-        #: Open element names, innermost last.
-        self.stack: list[str] = []
-        #: How many of each name are open, so a close with no match can be
-        #: ignored without walking the stack.
-        self.open_names: Counter[str] = Counter()
-        #: High-water mark of :attr:`stack`.
-        self.deepest = 0
         #: Source spans of ``<void ... />`` tags, for
         #: :func:`_canonicalise_void_elements`.
         self.void_spans: list[tuple[int, int]] = []
@@ -307,25 +307,7 @@ class _ParserScan(HTMLParser):
         if self._collect_text and tag in _BLOCK_ELEMENTS:
             self.pieces.append("\n")
 
-    def _leaf(self) -> None:
-        if len(self.stack) + 1 > self.deepest:
-            self.deepest = len(self.stack) + 1
-
     def handle_starttag(self, tag: str, attrs: object) -> None:
-        """Open an element, or count a void one as the leaf it is.
-
-        A void element is a node but never a parent, so it lifts the
-        high-water mark without joining the stack -- which is why
-        ``"<br>" * 5000`` is one level rather than five thousand.
-        """
-
-        if tag in _VOID_ELEMENTS:
-            self._leaf()
-        else:
-            self.stack.append(tag)
-            self.open_names[tag] += 1
-            if len(self.stack) > self.deepest:
-                self.deepest = len(self.stack)
         self._boundary(tag)
 
     def handle_startendtag(self, tag: str, attrs: object) -> None:
@@ -340,7 +322,6 @@ class _ParserScan(HTMLParser):
         no others.
         """
 
-        self._leaf()
         if tag in _VOID_ELEMENTS:
             token = self.get_starttag_text()
             start = self._at()
@@ -349,21 +330,6 @@ class _ParserScan(HTMLParser):
         self._boundary(tag)
 
     def handle_endtag(self, tag: str) -> None:
-        """Pop to the matching open element, or pop nothing at all.
-
-        ``bs4`` looks up the stack for a match and ignores a close with no
-        open element of that name. A counter that decremented anyway made
-        ``"<div></p>" * 600`` -- a Word or Outlook paste rather than an
-        adversarial input -- measure 1 against a real 600. Interleaved
-        tags (``<b><i>x</b></i>``) pop the way the parser pops them.
-        """
-
-        if self.open_names[tag]:
-            while True:
-                popped = self.stack.pop()
-                self.open_names[popped] -= 1
-                if popped == tag:
-                    break
         self._boundary(tag)
 
     def handle_data(self, data: str) -> None:
@@ -442,11 +408,10 @@ def _scan(content: str, *, collect_text: bool = False) -> _ParserScan:
     is not a case to guess around, because ``bs4`` catches the same
     ``AssertionError`` and re-raises it as ``ParserRejectedMarkup``: a
     document that stops this scan is a document ``markdownify`` cannot
-    convert either. So the partial scan is kept, the remainder of the
-    source is handed to :attr:`_ParserScan.pieces` as text, and the depth
-    reported by :func:`_html_nesting_depth` sends the document down the
-    degraded path -- where it now yields its text instead of the
-    :class:`GlpiContentError` the converting path would have raised.
+    convert either. So the partial scan is kept and the remainder of the
+    source is handed to :attr:`_ParserScan.pieces` as text, which is what
+    lets :meth:`GlpiContentConverter.from_transport` answer that
+    rejection with the body's words instead of an exception.
 
     Parameters
     ----------
@@ -471,80 +436,15 @@ def _scan(content: str, *, collect_text: bool = False) -> _ParserScan:
     return scan
 
 
-def _html_nesting_depth(content: str) -> int:
-    """Return how deeply ``content`` nests, without recursing to find out.
-
-    One pass of :class:`_ParserScan`, keeping the open elements on a list
-    and its high-water mark. Flat in the stack, which is the point: the
-    number this returns decides whether a recursive parser is safe to
-    run, so computing it must not need one. ``html.parser`` is itself an
-    iterative scanner -- the recursion in the pipeline is
-    ``markdownify``'s walk of the finished tree, not the parse that
-    builds it.
-
-    Exact, now, rather than approximately right. The count is the depth
-    of the tree ``bs4`` will really build, because it is derived from the
-    events of the parser ``bs4`` will really use; the rules that used to
-    have to be restated here -- a close pops by name or is ignored, a
-    childless node is still a node, an unknown name counts, an unclosed
-    tag counts -- are either the parser's own behaviour or live on
-    :class:`_ParserScan` beside the handler that implements them.
-
-    Cost is linear in the document, and small against what it guards:
-    measured at 6-18% of the ``markdownify`` call for tag-dense bodies (a
-    400-row table, 8.4 ms against 47 ms) and 6% for sparse prose (154 KB,
-    0.87 ms against 14 ms), where it is four times *faster* than the
-    pattern it replaced.
-
-    The one shape where ``html.parser`` is worse than linear is a
-    document carrying no ``>`` at all: ``check_for_whole_start_tag``
-    cannot complete a tag, ``close()`` then advances one character at a
-    time, and each step rescans the tail -- measured, 32 KB of
-    ``'<div a="'`` takes 13 seconds. The guard below answers that shape
-    in constant time. It is also unreachable from
-    :meth:`GlpiContentConverter.from_transport`, which runs
-    :func:`_looks_like_html` first and needs a ``>`` to find an element
-    at all; the guard is what makes a direct call safe as well. Once a
-    ``>`` is present the parser is no longer the slower of the two:
-    128 KB of the same shape costs it 57 ms against the pattern's 66 ms.
-
-    Verified against a ground-truth iterative walk of the tree ``bs4``
-    actually builds, over fuzzed documents whose token alphabet carries
-    every construct any review round raised -- including the four whose
-    absence is why the previous corpus could not have found the defects
-    it missed: ``-- >``, ``</ script>``, ``<![IGNORE[`` and runs of
-    whitespace and quotes inside a tag.
-
-    Parameters
-    ----------
-    content : str
-        Raw HTML, or text that may contain angle brackets.
-
-    Returns
-    -------
-    int
-        The depth of the deepest element the parser would build. ``0``
-        for text with no tags at all, and ``MAX_HTML_DEPTH + 1`` for a
-        document the parser rejects, so that it degrades to text rather
-        than being handed to a converter that will reject it too.
-    """
-
-    if "<" not in content or ">" not in content:
-        return 0
-    scan = _scan(content)
-    if scan.rejected:
-        return MAX_HTML_DEPTH + 1
-    return scan.deepest
-
-
 def _strip_tags(content: str) -> str:
     """Reduce HTML to its text without building a tree, keeping every word.
 
-    The degraded path for a document too deeply nested to convert. One
-    pass of :class:`_ParserScan` -- the same scan the depth measurement
-    uses, so the two cannot disagree about what is markup -- then
-    whitespace tidying. No tree, no recursion, no depth ceiling of its
-    own, so it answers for input of any shape.
+    The fallback for a document ``markdownify`` could not walk -- deeper
+    than the caller's remaining stack, or refused by the parser outright.
+    One pass of :class:`_ParserScan`, then whitespace tidying. No tree,
+    no recursion and no ceiling of its own, which is what qualifies it as
+    the fallback: it answers for input of any shape and any depth, so
+    there is always something to give the caller.
 
     It **degrades and never truncates.** The property, stated as
     something checkable: after collapsing whitespace, every character the
@@ -598,10 +498,11 @@ def _strip_tags(content: str) -> str:
 
     if ">" not in content:
         # No ``>`` means no markup to skip, so the whole document is the
-        # text the parser would flush on ``close()`` -- and answering it
-        # here keeps the scan away from the one shape that costs
-        # ``html.parser`` more than linear time. See
-        # :func:`_html_nesting_depth`.
+        # text the parser would flush on ``close()``. Answering it here
+        # also keeps the scan away from the one shape that costs
+        # ``html.parser`` more than linear time: with no ``>`` to finish a
+        # tag, ``close()`` advances one character at a time and rescans
+        # the tail, and 32 KB of an unfinished tag takes 13 seconds.
         text = _resolve_references(content)
     else:
         text = _resolve_references("".join(_scan(content, collect_text=True).pieces))
@@ -703,13 +604,34 @@ class GlpiContentConverter:
         text sent down the HTML path loses whatever the parser does not
         recognise, and Markdown sent down it comes back escaped.
 
-        There are therefore three outcomes, not two. Real HTML nested no
-        deeper than :data:`MAX_HTML_DEPTH` is converted. Real HTML nested
-        deeper than that is stripped to its text instead -- ``markdownify``
-        recurses per level and would exhaust the interpreter's stack, so the
-        depth is measured first, flatly, by :func:`_html_nesting_depth`. The
-        caller gets a readable body either way; **this method degrades, it
-        does not truncate, and it does not raise for depth.**
+        There are therefore three outcomes, not two. Real HTML that fits
+        the stack is converted. Real HTML that does not is stripped to its
+        text instead: ``markdownify`` recurses about two frames per
+        nesting level, so the conversion is *attempted* and its
+        ``RecursionError`` answered, rather than the depth predicted and a
+        bound applied. The caller gets a readable body either way;
+        **this method degrades, it does not truncate, and it does not
+        raise for depth.**
+
+        Attempting it is what makes the answer exact. The budget is not
+        1000 frames, it is whatever is left of the stack when the
+        conversion starts, and that belongs to the caller -- an
+        application reading ``.content`` from inside a request handler, a
+        template render or a recursive walk has less of it than a script
+        does. No bound computed in advance can know that number, so the
+        previous design guessed low, 200 against a measured cliff of 494,
+        and flattened bodies that would have converted. It also had to
+        estimate the depth of the tree, and three rounds of review found
+        seven ways for that estimate to come in *under* the real one --
+        each of which sent a document to ``markdownify`` and into the
+        ``RecursionError`` the bound existed to prevent.
+
+        One consequence is the price of that exactness and worth naming:
+        the outcome now depends on the caller's remaining stack, so the
+        same body can convert from one call site and degrade from a
+        deeper one. Nothing is lost either way -- the degraded rendering
+        keeps every character of prose -- but a caller comparing two
+        renderings of one body should know which knob moved it.
 
         Self-closing void tags are written bare before conversion, which
         works around a ``beautifulsoup4`` defect that silently dropped
@@ -719,11 +641,10 @@ class GlpiContentConverter:
         A document ``html.parser`` refuses outright takes the degraded
         path as well, rather than the exception it used to. ``<![FOO[``
         is the reachable case: an unknown marked-section keyword, which
-        ``bs4`` turns into ``ParserRejectedMarkup``. There is nothing to
-        gain from handing such a body to a converter that will reject it
-        too, and a caller who can read their text is better off than one
-        holding an error -- so :func:`_html_nesting_depth` reports past
-        the ceiling and the body is stripped.
+        ``_markupbase`` raises ``AssertionError`` for and ``bs4``
+        re-raises as ``ParserRejectedMarkup``. A caller who can read
+        their text is better off than one holding an error, and there is
+        nothing else to be done with such a body, so it is stripped too.
 
         Raises
         ------
@@ -739,9 +660,6 @@ class GlpiContentConverter:
             return ""
         if not _looks_like_html(content):
             return content.strip()
-        if _html_nesting_depth(content) > MAX_HTML_DEPTH:
-            return _strip_tags(content)
-
         try:
             markdown = html_to_markdown(
                 _canonicalise_void_elements(content),
@@ -751,6 +669,21 @@ class GlpiContentConverter:
                 escape_underscores=False,
                 escape_asterisks=False,
             )
+        except (RecursionError, ParserRejectedMarkup):
+            # The tree is deeper than the stack left, or the parser will
+            # not build it at all. Both are answered with the text.
+            try:
+                return _strip_tags(content)
+            except RecursionError as exc:
+                # Reachable only from a caller already within a few frames
+                # of the limit, where stripping cannot run either. Named
+                # rather than allowed to escape as a bare builtin, which is
+                # what this taxonomy exists for.
+                raise GlpiContentError(
+                    "Could not convert GLPI HTML content to Markdown: the "
+                    "caller's stack left too little room even to strip its "
+                    "tags."
+                ) from exc
         except Exception as exc:
             raise GlpiContentError(
                 "Could not convert GLPI HTML content to Markdown "

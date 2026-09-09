@@ -22,11 +22,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   as a bare builtin from a library whose whole error surface is supposed
   to derive from `GlpiError`.
 
-  `from_transport` now measures nesting first, with a flat non-recursive
-  O(n) scan, and past `MAX_HTML_DEPTH` (200) strips tags instead of
-  parsing. **It degrades, it never truncates, and it does not raise for
-  depth**: every character the converting path would have produced also
+  `from_transport` now *attempts* the conversion and answers the
+  `RecursionError` by stripping the document to its text instead.
+  **It degrades, it never truncates, and it does not raise for depth**:
+  every character of prose the converting path would have produced also
   appears in the degraded rendering.
+
+  Attempting it rather than predicting it is the whole design, and it
+  replaced a fixed `MAX_HTML_DEPTH = 200` bound that was wrong in both
+  directions. Too low, because the budget is not 1000 frames but whatever
+  is left of the stack when the conversion starts, and that belongs to
+  the caller — so the bound had to assume the worst and flattened every
+  body between 200 and the real cliff of about 494. Measured, a
+  300-level and a 400-level body now come back as **Markdown with their
+  links, emphasis and lists intact** where they used to come back as
+  plain text, with no error to notice and no way to ask for better. And
+  too fragile, because predicting the depth meant reproducing the
+  parser's idea of the tree: three rounds of adversarial review found
+  seven ways for that estimate to land *under* the real depth, each of
+  which sent a document to `markdownify` and into the very
+  `RecursionError` the bound existed to prevent.
+
+  Trying the conversion cannot be wrong about whether the conversion
+  fits. `MAX_HTML_DEPTH` and the scan behind it are gone; the constant
+  was introduced in this same unreleased cycle and never shipped.
+
+  Two consequences worth knowing. The outcome now depends on the caller's
+  remaining stack, so the same body can convert from one call site and
+  degrade from a deeper one — nothing is lost either way, but a caller
+  comparing two renderings of one body should know which knob moved it.
+  And a body too deep to convert now pays the failed attempt before it
+  degrades: measured, 2.0x to 2.6x the old cost at 600 and 5000 levels.
+  Ordinary bodies got *faster*, at 0.87x to 0.90x, because the scan they
+  used to pay for on every read is gone.
+
+  A document `html.parser` refuses outright — `<![FOO[`, an unknown
+  marked-section keyword, which `bs4` re-raises as
+  `ParserRejectedMarkup` — takes the same degraded path, where it used
+  to raise and give the caller none of their text.
 
   Both halves were fuzzed against the real parser over 15000 documents,
   with zero under-counts, zero over-counts and zero text losses. Getting
@@ -174,11 +207,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     does too.
 
   Cost, end to end and on identical output: 0.77x to 1.52x of the previous
-  implementation on realistic bodies — faster on sparse prose, where the
-  scan is four times quicker than the pattern was — and the guard stays 6
-  to 18% of the `markdownify` call it protects. The exponential shapes are
-  flat: 39 bytes of the whitespace bomb went from 20.8 s to 0.12 ms, and
-  20 KB of it costs 0.67 ms.
+  implementation on realistic bodies. The exponential shapes are flat: 39
+  bytes of the whitespace bomb went from 20.8 s to 0.12 ms, and 20 KB of
+  it costs 0.67 ms. The depth scan those defects were found in has since
+  been removed altogether — see the entry above — but the same parser now
+  backs the void-tag rewrite and the degraded renderer, which inherited
+  every one of the misreadings and the backtracking too.
 
   The one shape where `html.parser` is worse than linear is a document
   carrying no `>` at all, where `close()` advances a character at a time

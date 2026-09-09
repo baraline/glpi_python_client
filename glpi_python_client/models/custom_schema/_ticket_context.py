@@ -246,9 +246,8 @@ class GlpiTicketContext(GlpiModel):
             This is where the read models' HTML-to-Markdown conversion
             actually happens -- they hold the wire value and convert on
             first read, and this method is normally the first reader.
-            Content nested past
-            :data:`glpi_python_client.content.conversion.MAX_HTML_DEPTH`
-            is degraded to plain text rather than raising, so this is a
+            Content too deeply nested for the converter to walk is
+            degraded to plain text rather than raising, so this is a
             backstop rather than an expected outcome.
         """
 

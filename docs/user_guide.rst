@@ -1556,13 +1556,12 @@ record whose body you actually read.
 
    Deeply nested HTML is the case worth knowing about. The HTML-to-Markdown
    converter walks the document recursively and exhausts the interpreter's
-   stack at around 494 levels of nesting. Past
-   :data:`~glpi_python_client.content.conversion.MAX_HTML_DEPTH` (200,
-   chosen to leave the rest of the stack for your code) ``.content``
-   strips the tags rather than parsing them. **It degrades, it never
-   truncates, and it does not raise**: every character the normal
-   rendering would have produced still appears, so a body never says less
-   because of how deeply it happened to nest. What you lose is structure,
+   stack at around 494 levels of nesting. ``.content`` does not try to
+   predict that -- it attempts the conversion and, when the walk does not
+   fit, strips the tags instead. **It degrades, it never truncates, and it
+   does not raise**: every character the normal rendering would have
+   produced still appears, so a body never says less because of how deeply
+   it happened to nest. What you lose is structure,
    not words — link targets and image alt text, code-block fencing and
    ``<pre>`` indentation, and ``&nbsp;``-padded alignment. Anything else
    that goes wrong raises
