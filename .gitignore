@@ -37,3 +37,8 @@ docs/glpi_api_contract.json
 # Coverage data: rewritten by every test run (and by the venv .pth hook).
 .coverage
 .coverage.*
+
+# One-shot live-instance probe scripts. They are standalone investigations
+# (a main() run by hand against preprod), not collected tests -- the findings
+# get written up in CHANGELOG.md, the scripts stay local.
+integration_tests/probe_*.py
