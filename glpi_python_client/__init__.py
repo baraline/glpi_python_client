@@ -32,6 +32,7 @@ from glpi_python_client._errors import (
 )
 from glpi_python_client._sync.clients import GlpiClient
 from glpi_python_client.models import (
+    DeleteContractType,
     DeleteDocument,
     DeleteEntity,
     DeleteFollowup,
@@ -45,6 +46,7 @@ from glpi_python_client.models import (
     DeleteTicketTask,
     DeleteTimelineDocument,
     DeleteUser,
+    GetContractType,
     GetDocument,
     GetEntity,
     GetFollowup,
@@ -75,6 +77,7 @@ from glpi_python_client.models import (
     IdNameCompletenameRef,
     IdNameRef,
     IdRef,
+    PatchContractType,
     PatchDocument,
     PatchEntity,
     PatchFollowup,
@@ -88,6 +91,7 @@ from glpi_python_client.models import (
     PatchTicketTask,
     PatchTimelineDocument,
     PatchUser,
+    PostContractType,
     PostDocument,
     PostEntity,
     PostFollowup,
@@ -114,6 +118,7 @@ __version__ = "0.5.0"
 
 __all__ = [
     "AsyncGlpiClient",
+    "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
     "DeleteFollowup",
@@ -127,6 +132,7 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetContractType",
     "GetDocument",
     "GetEntity",
     "GetFollowup",
@@ -168,6 +174,7 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchContractType",
     "PatchDocument",
     "PatchEntity",
     "PatchFollowup",
@@ -181,6 +188,7 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostContractType",
     "PostDocument",
     "PostEntity",
     "PostFollowup",

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from glpi_python_client._sync.clients.api.dropdowns._contract_type import (
+    ContractTypeMixin,
+)
 from glpi_python_client._sync.clients.api.dropdowns._location import LocationMixin
 
-__all__ = ["LocationMixin"]
+__all__ = ["ContractTypeMixin", "LocationMixin"]

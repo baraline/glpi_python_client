@@ -18,6 +18,7 @@ USER_ENDPOINT = "Administration/User"
 ENTITY_ENDPOINT = "Administration/Entity"
 
 # dropdowns/
+CONTRACT_TYPE_ENDPOINT = "Dropdowns/ContractType"
 LOCATION_ENDPOINT = "Dropdowns/Location"
 
 # management/
@@ -41,6 +42,7 @@ KB_REVISION_SUFFIX = "Revision"
 
 
 __all__ = [
+    "CONTRACT_TYPE_ENDPOINT",
     "DOCUMENT_ENDPOINT",
     "ENTITY_ENDPOINT",
     "FOLLOWUP_SUFFIX",

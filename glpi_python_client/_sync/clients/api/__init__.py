@@ -23,7 +23,10 @@ from glpi_python_client._sync.clients.api.assistance.timeline import (
     TicketTaskMixin,
     TimelineDocumentMixin,
 )
-from glpi_python_client._sync.clients.api.dropdowns import LocationMixin
+from glpi_python_client._sync.clients.api.dropdowns import (
+    ContractTypeMixin,
+    LocationMixin,
+)
 from glpi_python_client._sync.clients.api.knowledgebase import (
     KBArticleCommentMixin,
     KBArticleMixin,
@@ -36,6 +39,7 @@ from glpi_python_client._sync.clients.api.plugins import (
 )
 
 __all__ = [
+    "ContractTypeMixin",
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",

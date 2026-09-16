@@ -59,9 +59,13 @@ from glpi_python_client.models.api_schema.assistance.timeline import (
     PostTimelineDocument,
 )
 from glpi_python_client.models.api_schema.dropdowns import (
+    DeleteContractType,
     DeleteLocation,
+    GetContractType,
     GetLocation,
+    PatchContractType,
     PatchLocation,
+    PostContractType,
     PostLocation,
 )
 from glpi_python_client.models.api_schema.enums import (
@@ -108,6 +112,7 @@ from glpi_python_client.models.custom_schema import (
 )
 
 __all__ = [
+    "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
     "DeleteFollowup",
@@ -121,6 +126,7 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetContractType",
     "GetDocument",
     "GetEntity",
     "GetFollowup",
@@ -151,6 +157,7 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchContractType",
     "PatchDocument",
     "PatchEntity",
     "PatchFollowup",
@@ -164,6 +171,7 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostContractType",
     "PostDocument",
     "PostEntity",
     "PostFollowup",
