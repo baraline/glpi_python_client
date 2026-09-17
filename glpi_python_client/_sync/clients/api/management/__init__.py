@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from glpi_python_client._sync.clients.api.management._contract import ContractMixin
 from glpi_python_client._sync.clients.api.management._document import DocumentMixin
 
-__all__ = ["DocumentMixin"]
+__all__ = ["ContractMixin", "DocumentMixin"]

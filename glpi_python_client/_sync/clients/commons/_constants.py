@@ -22,6 +22,7 @@ CONTRACT_TYPE_ENDPOINT = "Dropdowns/ContractType"
 LOCATION_ENDPOINT = "Dropdowns/Location"
 
 # management/
+CONTRACT_ENDPOINT = "Management/Contract"
 DOCUMENT_ENDPOINT = "Management/Document"
 
 # assistance/
@@ -42,6 +43,7 @@ KB_REVISION_SUFFIX = "Revision"
 
 
 __all__ = [
+    "CONTRACT_ENDPOINT",
     "CONTRACT_TYPE_ENDPOINT",
     "DOCUMENT_ENDPOINT",
     "ENTITY_ENDPOINT",

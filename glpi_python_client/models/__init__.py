@@ -69,6 +69,7 @@ from glpi_python_client.models.api_schema.dropdowns import (
     PostLocation,
 )
 from glpi_python_client.models.api_schema.enums import (
+    GlpiContractRenewalType,
     GlpiEnum,
     GlpiGlobalValidation,
     GlpiPriority,
@@ -95,9 +96,13 @@ from glpi_python_client.models.api_schema.knowledgebase import (
     PostKBCategory,
 )
 from glpi_python_client.models.api_schema.management import (
+    DeleteContract,
     DeleteDocument,
+    GetContract,
     GetDocument,
+    PatchContract,
     PatchDocument,
+    PostContract,
     PostDocument,
 )
 from glpi_python_client.models.api_schema.plugins import (
@@ -112,6 +117,7 @@ from glpi_python_client.models.custom_schema import (
 )
 
 __all__ = [
+    "DeleteContract",
     "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
@@ -126,6 +132,7 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetContract",
     "GetContractType",
     "GetDocument",
     "GetEntity",
@@ -144,6 +151,7 @@ __all__ = [
     "GetTicketTask",
     "GetTimelineDocument",
     "GetUser",
+    "GlpiContractRenewalType",
     "GlpiEnum",
     "GlpiGlobalValidation",
     "GlpiPriority",
@@ -157,6 +165,7 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchContract",
     "PatchContractType",
     "PatchDocument",
     "PatchEntity",
@@ -171,6 +180,7 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostContract",
     "PostContractType",
     "PostDocument",
     "PostEntity",

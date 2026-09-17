@@ -33,12 +33,16 @@ from glpi_python_client._sync.clients.api.knowledgebase import (
     KBArticleRevisionMixin,
     KBCategoryMixin,
 )
-from glpi_python_client._sync.clients.api.management import DocumentMixin
+from glpi_python_client._sync.clients.api.management import (
+    ContractMixin,
+    DocumentMixin,
+)
 from glpi_python_client._sync.clients.api.plugins import (
     PluginFieldsMixin,
 )
 
 __all__ = [
+    "ContractMixin",
     "ContractTypeMixin",
     "DocumentMixin",
     "EntityMixin",
