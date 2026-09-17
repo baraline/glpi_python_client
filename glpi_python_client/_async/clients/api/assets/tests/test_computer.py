@@ -230,6 +230,29 @@ async def test_update_computer_contract(client: Any) -> None:
         9, 2, PatchContractItem(contract=IdNameRef(id=8))
     )
     assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract/2"
+    assert rec.calls[0]["json"]["itemtype"] == "Computer"
+    assert rec.calls[0]["json"]["items_id"] == 9
+
+
+async def test_update_computer_contract_overrides_a_caller_itemtype(
+    client: Any,
+) -> None:
+    """A caller-supplied itemtype cannot repoint an existing link either.
+
+    The update path stamps the same two fields as the create path. Without
+    this test, dropping the stamp from one of the two would leave the suite
+    green.
+    """
+
+    rec = TransportRecorder()
+    rec.install(client)
+    await client.update_computer_contract(
+        9,
+        2,
+        PatchContractItem(contract=IdNameRef(id=8), itemtype="Monitor", items_id=1),
+    )
+    assert rec.calls[0]["json"]["itemtype"] == "Computer"
+    assert rec.calls[0]["json"]["items_id"] == 9
 
 
 async def test_unlink_computer_contract_with_force(client: Any) -> None:
