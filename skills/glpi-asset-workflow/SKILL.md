@@ -54,10 +54,13 @@ async for batch in client.iter_search_computers("", batch_size=100):
         print(c.id, c.name, c.serial)
 ```
 
-Link a computer to a contract, list its links, then unlink one:
+Link a computer to a contract, list its links, update one, then unlink it. The
+update call repoints the link at a different contract -- `itemtype`/`items_id`
+are still set from `computer_id` regardless of what the body carries -- and
+runs before the teardown, since a destroyed link has nothing left to update:
 
 ```python
-from glpi_python_client import IdNameRef, PostContractItem
+from glpi_python_client import IdNameRef, PatchContractItem, PostContractItem
 
 link_id = await client.link_computer_contract(
     computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
@@ -69,17 +72,11 @@ for link in await client.list_computer_contracts(computer_id):
 link = await client.get_computer_contract(computer_id, link_id)
 print(link.contract)
 
-await client.unlink_computer_contract(computer_id, link_id, force=True)
-```
-
-Update a link's `comment`-style fields without touching which asset it points at:
-
-```python
-from glpi_python_client import PatchContractItem
-
 await client.update_computer_contract(
     computer_id, link_id, PatchContractItem(contract=IdNameRef(id=other_contract_id))
 )
+
+await client.unlink_computer_contract(computer_id, link_id, force=True)
 ```
 
 ## Gotchas
