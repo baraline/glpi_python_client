@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- `Assets/Computer` endpoint support: `search_computers`,
+  `iter_search_computers`, `get_computer`, `create_computer`,
+  `update_computer`, `delete_computer`, and the `GetComputer` /
+  `PostComputer` / `PatchComputer` / `DeleteComputer` models.
+- Computer-to-contract links: `list_computer_contracts`,
+  `get_computer_contract`, `link_computer_contract`,
+  `update_computer_contract`, `unlink_computer_contract`. The client sets
+  the link's `itemtype` itself, because the GLPI contract types it as a
+  free string.
+- `Management/Contract` endpoint support, including the cost sub-resource
+  and the `Dropdowns/ContractType` dropdown.
+- `GlpiContractRenewalType` for the contract's documented `renewal_type`
+  enum (no renewal, tacit, explicit).
+- Two agent skills: `glpi-asset-workflow` and `glpi-contract-workflow`.
+
+### Notes
+
+- `Contract.date_begin` is modelled as `datetime.date`, not `datetime`.
+  The GLPI contract declares `format: date`, and keeping it a plain date
+  keeps it out of the server-clock conversion that rewrites aware
+  timestamps — which on a date-only field could roll the value to the
+  previous or next day.
+
 ## 0.5.0 — 2026-09-08
 
 ### Fixed

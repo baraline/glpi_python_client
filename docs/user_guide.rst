@@ -38,7 +38,7 @@ The guide is split into the following sections:
    throwaway GLPI instance to follow along.
 4. **GLPI API interface** — the contract-aligned helpers that map
    one-to-one to GLPI v2 endpoints (tickets, timeline, team members,
-   users, locations, entities, documents).
+   users, locations, entities, documents, computers, contracts).
 5. **Added functionalities** — helpers built on top of the API mixins:
     the ``Fields`` plugin custom-field helpers, the aggregated ticket
     context view, and the reporting helpers.
@@ -580,6 +580,209 @@ Example output::
 the client (``v1_base_url`` and ``v1_user_token``) because the GLPI v2
 contract does not advertise a binary upload endpoint.
 
+Assets
+~~~~~~
+
+The asset mixins map to ``/Assets/*``. GLPI models roughly two dozen
+asset itemtypes (computers, monitors, printers, network equipment, and
+so on), and this client currently implements only ``Computer`` -- there
+is no ``search_monitors`` or ``get_printer``. Treat ``Computer`` as the
+one supported asset type rather than a stand-in for the rest of the
+family.
+
+``search_ / get_ / create_ / update_ / delete_`` follow the same shape
+as the other resources, with ``iter_search_computers`` for streaming
+pagination and the same ``rsql_filter`` / ``limit`` / ``start`` /
+``sort`` arguments as ``search_tickets``:
+
+.. code-block:: python
+
+   from glpi_python_client import PatchComputer, PostComputer
+
+   computer_id = client.create_computer(
+       PostComputer(name="ws-1042", serial="PF3KL9QJ")
+   )
+   client.update_computer(
+       computer_id, PatchComputer(comment="Reimaged for the finance team")
+   )
+   computer = client.get_computer(computer_id)
+   print(computer.id, computer.name, computer.serial)
+
+   results = client.search_computers("name==ws-1042", limit=5)
+   for c in results:
+       print(c.id, c.name)
+
+Example output::
+
+   1042 ws-1042 PF3KL9QJ
+   1042 ws-1042
+
+Linking a computer to a contract
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A computer's coverage contracts are tracked as links under
+``/Assets/Computer/{id}/Contract``, exposed as
+``list_computer_contracts``, ``get_computer_contract``,
+``link_computer_contract``, ``update_computer_contract``, and
+``unlink_computer_contract``:
+
+.. code-block:: python
+
+   from glpi_python_client import IdNameRef, PostContractItem
+
+   link_id = client.link_computer_contract(
+       computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
+   )
+   for link in client.list_computer_contracts(computer_id):
+       print(link.id, link.itemtype, link.items_id)
+
+   client.unlink_computer_contract(computer_id, link_id, force=True)
+
+Example output::
+
+   17 Computer 1042
+
+The underlying ``Contract_Item`` GLPI resource is shared by every asset
+type, so ``PostContractItem`` and ``PatchContractItem`` both carry an
+``itemtype`` field typed as a free string rather than an enum --
+nothing stops a caller from writing ``"Computre"``. Because of that,
+``link_computer_contract`` and ``update_computer_contract`` ignore
+whatever ``itemtype`` and ``items_id`` are set on the body passed in
+and set both fields themselves from ``computer_id``. Pass only
+``contract`` (and ``comment``, if the contract ever adds one); a typo
+in the two identifying fields would otherwise attach the link to the
+wrong kind of object with no error from either side.
+
+Contracts
+~~~~~~~~~
+
+The contract mixin maps to ``/Management/Contract`` with the usual
+``search_ / get_ / create_ / update_ / delete_`` shape and
+``iter_search_contracts`` for streaming pagination:
+
+.. code-block:: python
+
+   from glpi_python_client import PatchContract, PostContract
+
+   contract_id = client.create_contract(
+       PostContract(name="Dell ProSupport 2026", number="CTR-2026-001")
+   )
+   client.update_contract(
+       contract_id, PatchContract(comment="Renewed for another year")
+   )
+   contract = client.get_contract(contract_id)
+   print(contract.id, contract.name, contract.date_begin)
+
+   results = client.search_contracts("name==Dell ProSupport 2026", limit=5)
+   for c in results:
+       print(c.id, c.name)
+
+Example output::
+
+   501 Dell ProSupport 2026 2026-01-15
+   501 Dell ProSupport 2026
+
+.. warning::
+
+   ``date_begin`` on :class:`~glpi_python_client.GetContract` and
+   :class:`~glpi_python_client.PostContract` is a plain
+   :class:`datetime.date`, not a :class:`~datetime.datetime`. The GLPI
+   contract declares this field with ``format: date`` -- a contract has
+   no time-of-day for its start. That choice is load-bearing, not
+   cosmetic: the server-clock conversion in ``models/_base.py`` that
+   rewrites timestamps into the configured ``server_timezone`` only
+   touches values that are instances of :class:`datetime.datetime`, and
+   a plain :class:`~datetime.date` is not one, so ``date_begin`` never
+   enters that conversion. Had it been modelled as ``datetime`` it would
+   have been eligible, and converting a midnight, offset-naive value
+   between timezones can roll it onto the previous or next calendar
+   day. Note the asymmetry: ``date_begin`` and ``date_end`` on
+   ``ContractCost`` (below) *are* ``datetime`` fields, because the
+   contract declares those two with ``format: date-time``. That
+   difference comes from the GLPI contract itself and is not an
+   inconsistency to reconcile.
+
+Contract costs
+^^^^^^^^^^^^^^
+
+Cost lines live under ``/Management/Contract/{id}/Cost`` as a genuine
+sub-resource with their own create, update, and delete endpoints:
+``list_contract_costs``, ``get_contract_cost``,
+``create_contract_cost``, ``update_contract_cost``, and
+``delete_contract_cost``.
+
+.. code-block:: python
+
+   from glpi_python_client import PatchContractCost, PostContractCost
+
+   cost_id = client.create_contract_cost(
+       contract_id, PostContractCost(name="Year 1", cost=4200.0)
+   )
+   client.update_contract_cost(
+       contract_id, cost_id, PatchContractCost(comment="Paid on invoice #88")
+   )
+   cost = client.get_contract_cost(contract_id, cost_id)
+   print(cost.id, cost.name, cost.cost)
+
+   print(len(client.list_contract_costs(contract_id)))
+
+   client.delete_contract_cost(contract_id, cost_id, force=True)
+
+Example output::
+
+   9 Year 1 4200.0
+   1
+
+.. note::
+
+   ``costs`` on :class:`~glpi_python_client.GetContract` is read-only:
+   it comes back populated with references to the contract's cost
+   lines, but the field does not exist at all on ``PostContract`` or
+   ``PatchContract``. Write cost lines through
+   ``create_contract_cost``, ``update_contract_cost``, and
+   ``delete_contract_cost`` instead of trying to assign ``costs`` on
+   the parent contract.
+
+Contract types
+^^^^^^^^^^^^^^
+
+``/Dropdowns/ContractType`` is a plain dropdown: ``search_ / get_ /
+create_ / update_ / delete_`` plus ``iter_search_contract_types``.
+Unlike ``search_computers`` and ``search_contracts``, the contract-type
+search helpers do not accept a ``sort`` argument.
+
+.. code-block:: python
+
+   from glpi_python_client import PostContractType
+
+   type_id = client.create_contract_type(PostContractType(name="Maintenance"))
+   contract_type = client.get_contract_type(type_id)
+   print(contract_type.id, contract_type.name)
+
+Example output::
+
+   6 Maintenance
+
+Assign the type -- and a renewal behaviour -- through the parent
+contract:
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiContractRenewalType, IdNameRef, PatchContract
+
+   client.update_contract(
+       contract_id,
+       PatchContract(
+           type=IdNameRef(id=type_id),
+           renewal_type=GlpiContractRenewalType.TACIT,
+       ),
+   )
+
+:class:`glpi_python_client.GlpiContractRenewalType` mirrors the three
+values GLPI documents for ``Contract.renewal_type``: ``NONE`` (no
+renewal), ``TACIT`` (automatic renewal), and ``EXPLICIT`` (manual
+renewal).
+
 Knowledge base
 ~~~~~~~~~~~~~~
 
@@ -685,8 +888,9 @@ the package root for easy use in RSQL filters:
 :class:`glpi_python_client.GlpiTaskState`,
 :class:`glpi_python_client.GlpiSolutionStatus`,
 :class:`glpi_python_client.GlpiTimelinePosition`,
-:class:`glpi_python_client.GlpiUserAuthType`, and
-:class:`glpi_python_client.GlpiGlobalValidation`.
+:class:`glpi_python_client.GlpiUserAuthType`,
+:class:`glpi_python_client.GlpiGlobalValidation`, and
+:class:`glpi_python_client.GlpiContractRenewalType`.
 
 .. code-block:: python
 
