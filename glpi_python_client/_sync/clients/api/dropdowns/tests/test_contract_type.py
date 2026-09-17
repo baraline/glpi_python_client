@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from glpi_python_client import PatchContractType, PostContractType
+from glpi_python_client import GetContractType, PatchContractType, PostContractType
 from glpi_python_client._sync._testing import TransportRecorder
 
 
@@ -43,6 +43,40 @@ def test_iter_search_contract_types_stops_on_short_page(client: Any) -> None:
     assert len(pages[0]) == 1
     assert len(rec.calls) == 1
     assert rec.calls[0]["params"] == {"limit": 2, "start": 0}
+
+
+def test_iter_search_contract_types_yields_every_page(client: Any) -> None:
+    """The generator advances ``start`` until a short page ends the walk.
+
+    ``TransportRecorder`` replays one payload forever, so it cannot drive a
+    multi-page walk. Replace ``search_contract_types`` itself, as
+    ``test_location.py`` does -- and note the stub is a named ``async def``,
+    never a lambda: unasync is a token rewriter and the generated sync twin
+    would otherwise be handed something that is not a coroutine function.
+    """
+
+    pages = [
+        [GetContractType(id=i) for i in range(3)],
+        [GetContractType(id=99)],
+    ]
+    starts: list[int] = []
+
+    def fake_search(
+        rsql_filter: str = "", *, limit: int = 50, start: int = 0
+    ) -> list[GetContractType]:
+        starts.append(start)
+        index = start // limit
+        return pages[index] if index < len(pages) else []
+
+    client.search_contract_types = fake_search  # type: ignore[method-assign]
+
+    batches = [
+        batch
+        for batch in client.iter_search_contract_types("name==x", batch_size=3)
+    ]
+
+    assert starts == [0, 3]
+    assert [len(b) for b in batches] == [3, 1]
 
 
 def test_get_contract_type_endpoint(client: Any) -> None:
