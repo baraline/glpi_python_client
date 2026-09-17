@@ -884,22 +884,24 @@ def test_computer_contract_round_trip(client: GlpiClient) -> None:
 
     marker = uuid4().hex[:8]
     computer_id = client.create_computer(PostComputer(name=f"pytest-{marker}"))
-    contract_id = client.create_contract(PostContract(name=f"pytest-{marker}"))
     try:
-        computer = client.get_computer(computer_id)
-        assert computer.name == f"pytest-{marker}"
+        contract_id = client.create_contract(PostContract(name=f"pytest-{marker}"))
+        try:
+            computer = client.get_computer(computer_id)
+            assert computer.name == f"pytest-{marker}"
 
-        link_id = client.link_computer_contract(
-            computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
-        )
-        links = client.list_computer_contracts(computer_id)
-        assert any(link.id == link_id for link in links)
-        assert all(link.itemtype == "Computer" for link in links)
+            link_id = client.link_computer_contract(
+                computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
+            )
+            links = client.list_computer_contracts(computer_id)
+            assert any(link.id == link_id for link in links)
+            assert all(link.itemtype == "Computer" for link in links)
 
-        client.unlink_computer_contract(computer_id, link_id, force=True)
+            client.unlink_computer_contract(computer_id, link_id, force=True)
+        finally:
+            client.delete_contract(contract_id, force=True)
     finally:
         client.delete_computer(computer_id, force=True)
-        client.delete_contract(contract_id, force=True)
 
 
 def test_contract_date_begin_is_stored_as_sent(client: GlpiClient) -> None:
@@ -929,8 +931,10 @@ def test_contract_cost_round_trip(client: GlpiClient) -> None:
         cost_id = client.create_contract_cost(
             contract_id, PostContractCost(name="year 1", cost=1200.0)
         )
-        costs = client.list_contract_costs(contract_id)
-        assert any(cost.id == cost_id for cost in costs)
-        client.delete_contract_cost(contract_id, cost_id, force=True)
+        try:
+            costs = client.list_contract_costs(contract_id)
+            assert any(cost.id == cost_id for cost in costs)
+        finally:
+            client.delete_contract_cost(contract_id, cost_id, force=True)
     finally:
         client.delete_contract(contract_id, force=True)
