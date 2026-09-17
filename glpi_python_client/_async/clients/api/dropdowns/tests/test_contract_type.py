@@ -50,9 +50,9 @@ async def test_iter_search_contract_types_yields_every_page(client: Any) -> None
 
     ``TransportRecorder`` replays one payload forever, so it cannot drive a
     multi-page walk. Replace ``search_contract_types`` itself, as
-    ``test_location.py`` does -- and note the stub is a named ``async def``,
-    never a lambda: unasync is a token rewriter and the generated sync twin
-    would otherwise be handed something that is not a coroutine function.
+    ``test_location.py`` does. The stub is a named function rather than a
+    lambda: this module's twin is generated from it by a token rewriter,
+    which can transform a ``def`` but cannot build one out of a lambda.
     """
 
     pages = [
