@@ -13,6 +13,7 @@ from glpi_python_client._sync.clients.api.administration import (
     EntityMixin,
     UserMixin,
 )
+from glpi_python_client._sync.clients.api.assets import ComputerMixin
 from glpi_python_client._sync.clients.api.assistance import (
     TeamMemberMixin,
     TicketMixin,
@@ -42,6 +43,7 @@ from glpi_python_client._sync.clients.api.plugins import (
 )
 
 __all__ = [
+    "ComputerMixin",
     "ContractMixin",
     "ContractTypeMixin",
     "DocumentMixin",

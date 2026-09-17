@@ -13,6 +13,9 @@ from typing import TypeAlias
 GlpiId: TypeAlias = int
 RequestParamValue: TypeAlias = str | int | float | bytes | None
 
+# assets/
+COMPUTER_ENDPOINT = "Assets/Computer"
+
 # administration/
 USER_ENDPOINT = "Administration/User"
 ENTITY_ENDPOINT = "Administration/Entity"
@@ -43,6 +46,7 @@ KB_REVISION_SUFFIX = "Revision"
 
 
 __all__ = [
+    "COMPUTER_ENDPOINT",
     "CONTRACT_ENDPOINT",
     "CONTRACT_TYPE_ENDPOINT",
     "DOCUMENT_ENDPOINT",

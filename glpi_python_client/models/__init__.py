@@ -30,6 +30,12 @@ from glpi_python_client.models.api_schema.administration import (
     PostEntity,
     PostUser,
 )
+from glpi_python_client.models.api_schema.assets import (
+    DeleteComputer,
+    GetComputer,
+    PatchComputer,
+    PostComputer,
+)
 from glpi_python_client.models.api_schema.assistance import (
     DeleteTeamMember,
     DeleteTicket,
@@ -121,6 +127,7 @@ from glpi_python_client.models.custom_schema import (
 )
 
 __all__ = [
+    "DeleteComputer",
     "DeleteContract",
     "DeleteContractCost",
     "DeleteContractType",
@@ -137,6 +144,7 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetComputer",
     "GetContract",
     "GetContractCost",
     "GetContractType",
@@ -171,6 +179,7 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchComputer",
     "PatchContract",
     "PatchContractCost",
     "PatchContractType",
@@ -187,6 +196,7 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostComputer",
     "PostContract",
     "PostContractCost",
     "PostContractType",

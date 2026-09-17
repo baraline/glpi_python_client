@@ -32,6 +32,7 @@ from glpi_python_client._errors import (
 )
 from glpi_python_client._sync.clients import GlpiClient
 from glpi_python_client.models import (
+    DeleteComputer,
     DeleteContract,
     DeleteContractCost,
     DeleteContractType,
@@ -48,6 +49,7 @@ from glpi_python_client.models import (
     DeleteTicketTask,
     DeleteTimelineDocument,
     DeleteUser,
+    GetComputer,
     GetContract,
     GetContractCost,
     GetContractType,
@@ -82,6 +84,7 @@ from glpi_python_client.models import (
     IdNameCompletenameRef,
     IdNameRef,
     IdRef,
+    PatchComputer,
     PatchContract,
     PatchContractCost,
     PatchContractType,
@@ -98,6 +101,7 @@ from glpi_python_client.models import (
     PatchTicketTask,
     PatchTimelineDocument,
     PatchUser,
+    PostComputer,
     PostContract,
     PostContractCost,
     PostContractType,
@@ -127,6 +131,7 @@ __version__ = "0.5.0"
 
 __all__ = [
     "AsyncGlpiClient",
+    "DeleteComputer",
     "DeleteContract",
     "DeleteContractCost",
     "DeleteContractType",
@@ -143,6 +148,7 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetComputer",
     "GetContract",
     "GetContractCost",
     "GetContractType",
@@ -188,6 +194,7 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchComputer",
     "PatchContract",
     "PatchContractCost",
     "PatchContractType",
@@ -204,6 +211,7 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostComputer",
     "PostContract",
     "PostContractCost",
     "PostContractType",
