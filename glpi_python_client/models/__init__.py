@@ -97,12 +97,16 @@ from glpi_python_client.models.api_schema.knowledgebase import (
 )
 from glpi_python_client.models.api_schema.management import (
     DeleteContract,
+    DeleteContractCost,
     DeleteDocument,
     GetContract,
+    GetContractCost,
     GetDocument,
     PatchContract,
+    PatchContractCost,
     PatchDocument,
     PostContract,
+    PostContractCost,
     PostDocument,
 )
 from glpi_python_client.models.api_schema.plugins import (
@@ -118,6 +122,7 @@ from glpi_python_client.models.custom_schema import (
 
 __all__ = [
     "DeleteContract",
+    "DeleteContractCost",
     "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
@@ -133,6 +138,7 @@ __all__ = [
     "DeleteTimelineDocument",
     "DeleteUser",
     "GetContract",
+    "GetContractCost",
     "GetContractType",
     "GetDocument",
     "GetEntity",
@@ -166,6 +172,7 @@ __all__ = [
     "IdNameRef",
     "IdRef",
     "PatchContract",
+    "PatchContractCost",
     "PatchContractType",
     "PatchDocument",
     "PatchEntity",
@@ -181,6 +188,7 @@ __all__ = [
     "PatchTimelineDocument",
     "PatchUser",
     "PostContract",
+    "PostContractCost",
     "PostContractType",
     "PostDocument",
     "PostEntity",

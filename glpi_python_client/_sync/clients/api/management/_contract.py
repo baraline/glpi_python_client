@@ -1,9 +1,16 @@
 """GLPI ``/Management/Contract`` mixin.
 
 The mixin exposes search, fetch, create, update, and delete helpers for the
-GLPI contract resource using the contract-aligned ``api_schema`` models.
-Cost-line helpers are added to this same class by a later task; this
-module holds CRUD only.
+GLPI contract resource using the contract-aligned ``api_schema`` models. It
+also exposes CRUD helpers for the ``/Management/Contract/{id}/Cost``
+sub-resource, built off the parent contract id.
+
+``ContractCost.date_begin`` and ``date_end`` are ``datetime``, not
+``date``. This is the opposite choice from ``Contract.date_begin``: the
+contract declares ``Contract.date_begin`` with ``format: date`` and
+``ContractCost``'s two date fields with ``format: date-time``. See
+``models/api_schema/management/_contract_cost.py`` for the full
+explanation; the asymmetry is real and comes from the contract itself.
 """
 
 from __future__ import annotations
@@ -20,6 +27,12 @@ from glpi_python_client.models.api_schema.management._contract import (
     GetContract,
     PatchContract,
     PostContract,
+)
+from glpi_python_client.models.api_schema.management._contract_cost import (
+    DeleteContractCost,
+    GetContractCost,
+    PatchContractCost,
+    PostContractCost,
 )
 
 
@@ -223,6 +236,175 @@ class ContractMixin(TransportMixin):
             log_message=f"GLPI API deleted contract {contract_id}",
             force=force,
             delete_model_cls=DeleteContract,
+        )
+
+    def list_contract_costs(
+        self,
+        contract_id: GlpiId,
+        *,
+        limit: int = 50,
+        start: int = 0,
+    ) -> list[GetContractCost]:
+        """List the cost lines recorded against one GLPI contract.
+
+        Parameters
+        ----------
+        contract_id : GlpiId
+            Numeric identifier of the owning contract.
+        limit : int, optional
+            Maximum number of records returned by the GLPI server.
+        start : int, optional
+            Zero-based offset of the first record returned.
+
+        Returns
+        -------
+        list[GetContractCost]
+            Cost lines belonging to the contract.
+        """
+
+        params: dict[str, object] = {"limit": limit, "start": start}
+        return self._resource_list(
+            f"{CONTRACT_ENDPOINT}/{contract_id}/Cost",
+            GetContractCost,
+            params=params,
+        )
+
+    def get_contract_cost(
+        self, contract_id: GlpiId, cost_id: GlpiId
+    ) -> GetContractCost:
+        """Fetch one cost line recorded against a GLPI contract.
+
+        Parameters
+        ----------
+        contract_id : GlpiId
+            Numeric identifier of the owning contract.
+        cost_id : GlpiId
+            Numeric identifier of the cost line to retrieve.
+
+        Returns
+        -------
+        GetContractCost
+            Validated cost line payload.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        return self._resource_get(
+            f"{CONTRACT_ENDPOINT}/{contract_id}/Cost/{cost_id}",
+            GetContractCost,
+            failure_message=(
+                f"Failed to get cost {cost_id} for contract {contract_id}"
+            ),
+        )
+
+    def create_contract_cost(
+        self, contract_id: GlpiId, cost: PostContractCost
+    ) -> int:
+        """Create one cost line against a GLPI contract.
+
+        Parameters
+        ----------
+        contract_id : GlpiId
+            Numeric identifier of the owning contract.
+        cost : PostContractCost
+            Request body describing the cost line to create.
+
+        Returns
+        -------
+        int
+            Identifier assigned by the GLPI server.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        GlpiProtocolError
+            If the create response is missing the ``id`` field.
+        """
+
+        return self._resource_create(
+            f"{CONTRACT_ENDPOINT}/{contract_id}/Cost",
+            cost,
+            failure_message=f"Failed to create cost for contract {contract_id}",
+            missing_message=(
+                "GLPI contract cost create response did not include an ID"
+            ),
+            log_message_factory=(
+                lambda new_id: (
+                    f"GLPI API created cost {new_id} for contract {contract_id}"
+                )
+            ),
+        )
+
+    def update_contract_cost(
+        self, contract_id: GlpiId, cost_id: GlpiId, cost: PatchContractCost
+    ) -> None:
+        """Update one contract cost line with a partial body.
+
+        Parameters
+        ----------
+        contract_id : GlpiId
+            Numeric identifier of the owning contract.
+        cost_id : GlpiId
+            Numeric identifier of the cost line to update.
+        cost : PatchContractCost
+            Partial request body.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        self._resource_update(
+            f"{CONTRACT_ENDPOINT}/{contract_id}/Cost/{cost_id}",
+            cost,
+            failure_message=(
+                f"Failed to update cost {cost_id} for contract {contract_id}"
+            ),
+            log_message=(f"GLPI API updated cost {cost_id} for contract {contract_id}"),
+        )
+
+    def delete_contract_cost(
+        self, contract_id: GlpiId, cost_id: GlpiId, *, force: bool | None = None
+    ) -> None:
+        """Delete one cost line from a GLPI contract.
+
+        Parameters
+        ----------
+        contract_id : GlpiId
+            Numeric identifier of the owning contract.
+        cost_id : GlpiId
+            Numeric identifier of the cost line to delete.
+        force : bool | None, optional
+            When ``True`` the cost line is permanently deleted instead of
+            being moved to the trash.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        self._resource_delete(
+            f"{CONTRACT_ENDPOINT}/{contract_id}/Cost/{cost_id}",
+            failure_message=(
+                f"Failed to delete cost {cost_id} for contract {contract_id}"
+            ),
+            log_message=(f"GLPI API deleted cost {cost_id} for contract {contract_id}"),
+            force=force,
+            delete_model_cls=DeleteContractCost,
         )
 
 

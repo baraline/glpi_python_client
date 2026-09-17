@@ -12,9 +12,12 @@ from typing import Any
 
 from glpi_python_client import (
     GetContract,
+    GetContractCost,
     GlpiContractRenewalType,
     PatchContract,
+    PatchContractCost,
     PostContract,
+    PostContractCost,
 )
 from glpi_python_client._sync._testing import TransportRecorder
 
@@ -181,3 +184,68 @@ def test_post_contract_excludes_readonly_id() -> None:
     """``PostContract`` has no ``id``; the server assigns it."""
 
     assert "id" not in PostContract.model_fields
+
+
+# ---------------------------------------------------------------------------
+# Contract costs
+# ---------------------------------------------------------------------------
+
+
+def test_list_contract_costs_endpoint(client: Any) -> None:
+    """``list_contract_costs`` hits the cost sub-resource of one contract."""
+
+    rec = TransportRecorder(get_payload=[{"id": 3, "cost": 1200.0}])
+    rec.install(client)
+    costs = client.list_contract_costs(9)
+    assert costs[0].cost == 1200.0
+    assert rec.calls[0]["endpoint"] == "Management/Contract/9/Cost"
+
+
+def test_get_contract_cost_endpoint(client: Any) -> None:
+    """``get_contract_cost`` hits the per-cost endpoint."""
+
+    rec = TransportRecorder(get_payload={"id": 3, "cost": 1200.0})
+    rec.install(client)
+    cost = client.get_contract_cost(9, 3)
+    assert cost.id == 3
+    assert rec.calls[0]["endpoint"] == "Management/Contract/9/Cost/3"
+
+
+def test_create_contract_cost_returns_new_id(client: Any) -> None:
+    """``create_contract_cost`` posts to the sub-resource and returns the id."""
+
+    rec = TransportRecorder(post_payload={"id": 5})
+    rec.install(client)
+    new_id = client.create_contract_cost(
+        9, PostContractCost(name="Year 1", cost=1200.0)
+    )
+    assert new_id == 5
+    assert rec.calls[0]["endpoint"] == "Management/Contract/9/Cost"
+    assert rec.calls[0]["json"]["cost"] == 1200.0
+
+
+def test_update_contract_cost(client: Any) -> None:
+    """``update_contract_cost`` patches the per-cost endpoint."""
+
+    rec = TransportRecorder()
+    rec.install(client)
+    client.update_contract_cost(9, 3, PatchContractCost(cost=1500.0))
+    assert rec.calls[0]["endpoint"] == "Management/Contract/9/Cost/3"
+
+
+def test_delete_contract_cost_with_force(client: Any) -> None:
+    """``delete_contract_cost(force=True)`` ships the force flag."""
+
+    rec = TransportRecorder()
+    rec.install(client)
+    client.delete_contract_cost(9, 3, force=True)
+    assert rec.calls[0]["endpoint"] == "Management/Contract/9/Cost/3"
+    assert rec.calls[0]["json"]["force"] is True
+
+
+def test_contract_cost_id_is_the_only_readonly_field() -> None:
+    """``id`` is readable but never written; every other field is shared."""
+
+    assert "id" in GetContractCost.model_fields
+    assert "id" not in PostContractCost.model_fields
+    assert "id" not in PatchContractCost.model_fields
