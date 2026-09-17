@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and the `Dropdowns/ContractType` dropdown.
 - `GlpiContractRenewalType` for the contract's documented `renewal_type`
   enum (no renewal, tacit, explicit).
+- Two agent skills: `glpi-asset-workflow` and `glpi-contract-workflow`.
 
 ### Notes
 
