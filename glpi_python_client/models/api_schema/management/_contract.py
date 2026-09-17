@@ -3,15 +3,15 @@
 The field layout mirrors ``components.schemas.Contract`` from the GLPI
 OpenAPI contract. The read-only contract field (``id``) is excluded from
 request models, and ``costs`` is excluded from both request models as well:
-cost lines are written through their own ``ContractCost`` endpoints (a
-later task), so this class only ever reads them back.
+cost lines are written through their own ``ContractCost`` endpoints, so
+this class only ever reads them back.
 
 ``date_begin`` is modelled as ``datetime.date`` rather than
 ``datetime.datetime``, because the contract declares it with
 ``format: date`` -- GLPI stores no time-of-day for a contract's start.
-This is the opposite choice from ``ContractCost``'s own date fields (added
-in a later task), which the contract declares with ``format: date-time``
-and which are therefore modelled as ``datetime``. The asymmetry is real
+This is the opposite choice from ``ContractCost``'s own date fields, which
+the contract declares with ``format: date-time`` and which are therefore
+modelled as ``datetime``. The asymmetry is real
 and comes from the contract, not from an inconsistency in this client: a
 plain ``date`` also falls outside the server-clock conversion that
 ``models/_base.py`` applies to aware ``datetime`` values, so keeping
@@ -57,8 +57,7 @@ class GetContract(GlpiModel):
     costs : list[IdRef] | None, optional
         Related contract cost line references. Read-only on this client:
         cost lines are created and updated through their own
-        ``ContractCost`` endpoints (a later task), never through this
-        model.
+        ``ContractCost`` endpoints, never through this model.
     number : str | None, optional
         Contract reference number.
     location : IdNameRef | None, optional
@@ -104,10 +103,21 @@ class GetContract(GlpiModel):
         Maximum number of items that can be linked to this contract
         (``0`` means unlimited).
     alert : int | None, optional
-        Bitmask selecting which expiration alerts are active: ``0`` no
-        alert, ``4`` alert on end date, ``8`` alert on notice date, ``12``
-        both, ``64`` periodic alert, ``72`` periodic alert and alert on
-        notice date.
+        Selects which expiration alerts are active. The contract is
+        self-inconsistent about the last two values: the field's
+        ``enum`` lists ``[0, 4, 8, 12, 64, 72]``, but its accompanying
+        description numbers the same six meanings as ``0`` no alert,
+        ``4`` alert on end date, ``8`` alert on notice date, ``12``
+        both, ``16`` periodic alert, ``24`` periodic alert and alert on
+        notice date. The first four values agree between the two
+        listings; the last two do not, and neither pairing has been
+        confirmed against a live server. Read as a bitmask, the
+        description's numbering is self-consistent on consecutive bits
+        (``4``, ``8``, ``16``, with ``12 = 4 + 8`` and ``24 = 8 + 16``),
+        while the enum's ``64`` and ``72`` skip two bits with nothing
+        occupying them -- that asymmetry is why this is left open
+        rather than resolved. Left as a plain ``int`` rather than an
+        enum so neither guess is hard-coded into the type.
     renewal_type : GlpiContractRenewalType | None, optional
         Renewal behaviour of the contract: no renewal, tacit (automatic)
         renewal, or explicit (manual) renewal.
@@ -157,8 +167,8 @@ class PostContract(GlpiModel):
 
     The read-only contract field (``id``) is intentionally excluded
     because the server rejects it on input. ``costs`` is also excluded:
-    cost lines are written through their own ``ContractCost`` endpoints
-    (a later task), never through this model.
+    cost lines are written through their own ``ContractCost`` endpoints,
+    never through this model.
 
     Parameters
     ----------
@@ -225,10 +235,21 @@ class PostContract(GlpiModel):
         Maximum number of items that can be linked to this contract
         (``0`` means unlimited).
     alert : int | None, optional
-        Bitmask selecting which expiration alerts are active: ``0`` no
-        alert, ``4`` alert on end date, ``8`` alert on notice date, ``12``
-        both, ``64`` periodic alert, ``72`` periodic alert and alert on
-        notice date.
+        Selects which expiration alerts are active. The contract is
+        self-inconsistent about the last two values: the field's
+        ``enum`` lists ``[0, 4, 8, 12, 64, 72]``, but its accompanying
+        description numbers the same six meanings as ``0`` no alert,
+        ``4`` alert on end date, ``8`` alert on notice date, ``12``
+        both, ``16`` periodic alert, ``24`` periodic alert and alert on
+        notice date. The first four values agree between the two
+        listings; the last two do not, and neither pairing has been
+        confirmed against a live server. Read as a bitmask, the
+        description's numbering is self-consistent on consecutive bits
+        (``4``, ``8``, ``16``, with ``12 = 4 + 8`` and ``24 = 8 + 16``),
+        while the enum's ``64`` and ``72`` skip two bits with nothing
+        occupying them -- that asymmetry is why this is left open
+        rather than resolved. Left as a plain ``int`` rather than an
+        enum so neither guess is hard-coded into the type.
     renewal_type : GlpiContractRenewalType | None, optional
         Renewal behaviour of the contract: no renewal, tacit (automatic)
         renewal, or explicit (manual) renewal.

@@ -628,7 +628,9 @@ A computer's coverage contracts are tracked as links under
 
 .. code-block:: python
 
-   from glpi_python_client import IdNameRef, PostContractItem
+   from glpi_python_client import IdNameRef, PostContract, PostContractItem
+
+   contract_id = client.create_contract(PostContract(name="Dell ProSupport 2026"))
 
    link_id = client.link_computer_contract(
        computer_id, PostContractItem(contract=IdNameRef(id=contract_id))

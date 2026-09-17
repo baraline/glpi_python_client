@@ -11,7 +11,10 @@ from __future__ import annotations
 from datetime import datetime
 
 from glpi_python_client.models._base import GlpiModel
-from glpi_python_client.models.api_schema._common import IdNameRef
+from glpi_python_client.models.api_schema._common import (
+    IdNameCompletenameRef,
+    IdNameRef,
+)
 
 
 class GetComputer(GlpiModel):
@@ -31,8 +34,8 @@ class GetComputer(GlpiModel):
         Free-form comment associated with the computer.
     status : IdNameRef | None, optional
         Related status reference, see ``Dropdowns/State``.
-    entity : IdNameRef | None, optional
-        Owning GLPI entity reference.
+    entity : IdNameCompletenameRef | None, optional
+        Owning GLPI entity reference, including its completename.
     is_recursive : bool | None, optional
         Whether the computer is visible to child entities.
     manufacturer : IdNameRef | None, optional
@@ -99,7 +102,7 @@ class GetComputer(GlpiModel):
     name: str | None = None
     comment: str | None = None
     status: IdNameRef | None = None
-    entity: IdNameRef | None = None
+    entity: IdNameCompletenameRef | None = None
     is_recursive: bool | None = None
     manufacturer: IdNameRef | None = None
     user: IdNameRef | None = None
@@ -142,8 +145,8 @@ class PostComputer(GlpiModel):
         Free-form comment associated with the computer.
     status : IdNameRef | None, optional
         Related status reference, see ``Dropdowns/State``.
-    entity : IdNameRef | None, optional
-        Owning GLPI entity reference.
+    entity : IdNameCompletenameRef | None, optional
+        Owning GLPI entity reference, including its completename.
     is_recursive : bool | None, optional
         Whether the computer is visible to child entities.
     manufacturer : IdNameRef | None, optional
@@ -202,7 +205,7 @@ class PostComputer(GlpiModel):
     name: str | None = None
     comment: str | None = None
     status: IdNameRef | None = None
-    entity: IdNameRef | None = None
+    entity: IdNameCompletenameRef | None = None
     is_recursive: bool | None = None
     manufacturer: IdNameRef | None = None
     user: IdNameRef | None = None

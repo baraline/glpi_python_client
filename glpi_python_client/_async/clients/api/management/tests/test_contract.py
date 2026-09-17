@@ -71,6 +71,7 @@ async def test_iter_search_contracts_yields_every_page(client: Any) -> None:
 
     pages = [[GetContract(id=i) for i in range(3)], [GetContract(id=99)]]
     starts: list[int] = []
+    sorts: list[str | None] = []
 
     async def fake_search(
         rsql_filter: str = "",
@@ -80,16 +81,21 @@ async def test_iter_search_contracts_yields_every_page(client: Any) -> None:
         sort: str | None = None,
     ) -> list[GetContract]:
         starts.append(start)
+        sorts.append(sort)
         index = start // limit
         return pages[index] if index < len(pages) else []
 
     client.search_contracts = fake_search  # type: ignore[method-assign]
 
     batches = [
-        batch async for batch in client.iter_search_contracts("name==x", batch_size=3)
+        batch
+        async for batch in client.iter_search_contracts(
+            "name==x", batch_size=3, sort="date_mod:desc"
+        )
     ]
 
     assert starts == [0, 3]
+    assert sorts == ["date_mod:desc", "date_mod:desc"]
     assert [len(b) for b in batches] == [3, 1]
 
 
