@@ -889,6 +889,11 @@ def test_computer_contract_round_trip(client: GlpiClient) -> None:
         try:
             computer = client.get_computer(computer_id)
             assert computer.name == f"pytest-{marker}"
+            # Computer.entity carries completename, unlike Contract.entity.
+            # Typing it as a plain id/name reference silently drops the
+            # entity's full path, and nothing offline would notice.
+            assert computer.entity is not None
+            assert computer.entity.completename is not None
 
             link_id = client.link_computer_contract(
                 computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
@@ -938,3 +943,47 @@ def test_contract_cost_round_trip(client: GlpiClient) -> None:
             client.delete_contract_cost(contract_id, cost_id, force=True)
     finally:
         client.delete_contract(contract_id, force=True)
+
+
+def test_contract_alert_accepts_values_outside_the_documented_enum(
+    client: GlpiClient,
+) -> None:
+    """The server stores any ``alert`` int, which is why it is not an enum.
+
+    The API contract's ``enum`` for this field lists ``64``/``72`` where
+    its own description numbers the same two meanings ``16``/``24``. The
+    server enforces neither list, so promoting ``alert`` to an enum would
+    reject values the server itself accepts.
+    """
+
+    marker = uuid4().hex[:8]
+    for value in (16, 24, 64, 72):
+        contract_id = client.create_contract(
+            PostContract(name=f"pytest-{marker}-{value}", alert=value)
+        )
+        try:
+            assert client.get_contract(contract_id).alert == value
+        finally:
+            client.delete_contract(contract_id, force=True)
+
+
+def test_force_delete_removes_the_record_outright(client: GlpiClient) -> None:
+    """``force=True`` hard-deletes instead of filling the trashcan.
+
+    Every teardown in this module depends on it. The API contract
+    declares ``force`` a query parameter while this client sends it in
+    the request body, so a server that ignored the body would leave
+    these tests quietly accumulating soft-deleted records on a shared
+    instance while still reporting success.
+    """
+
+    marker = uuid4().hex[:8]
+    contract_id = client.create_contract(PostContract(name=f"pytest-{marker}"))
+
+    client.delete_contract(contract_id, force=False)
+    assert client.get_contract(contract_id).is_deleted is True
+
+    client.delete_contract(contract_id, force=True)
+    with pytest.raises(GlpiStatusError) as excinfo:
+        client.get_contract(contract_id)
+    assert excinfo.value.status_code == 404

@@ -110,14 +110,16 @@ class GetContract(GlpiModel):
         ``4`` alert on end date, ``8`` alert on notice date, ``12``
         both, ``16`` periodic alert, ``24`` periodic alert and alert on
         notice date. The first four values agree between the two
-        listings; the last two do not, and neither pairing has been
-        confirmed against a live server. Read as a bitmask, the
-        description's numbering is self-consistent on consecutive bits
-        (``4``, ``8``, ``16``, with ``12 = 4 + 8`` and ``24 = 8 + 16``),
-        while the enum's ``64`` and ``72`` skip two bits with nothing
-        occupying them -- that asymmetry is why this is left open
-        rather than resolved. Left as a plain ``int`` rather than an
-        enum so neither guess is hard-coded into the type.
+        listings; the last two do not.
+
+        The server settles neither reading: writing each of ``0``, ``4``,
+        ``8``, ``12``, ``16``, ``24``, ``64`` and ``72`` to a live GLPI 11
+        contract stores the value unchanged and rejects none of them, so
+        the endpoint validates this field not at all and the ``enum`` in
+        the contract document does not describe an enforced set. Typed as
+        a plain ``int`` for that reason: an enum would reject values the
+        server itself accepts, and would have to pick one of the two
+        numberings to name them by.
     renewal_type : GlpiContractRenewalType | None, optional
         Renewal behaviour of the contract: no renewal, tacit (automatic)
         renewal, or explicit (manual) renewal.
@@ -242,14 +244,16 @@ class PostContract(GlpiModel):
         ``4`` alert on end date, ``8`` alert on notice date, ``12``
         both, ``16`` periodic alert, ``24`` periodic alert and alert on
         notice date. The first four values agree between the two
-        listings; the last two do not, and neither pairing has been
-        confirmed against a live server. Read as a bitmask, the
-        description's numbering is self-consistent on consecutive bits
-        (``4``, ``8``, ``16``, with ``12 = 4 + 8`` and ``24 = 8 + 16``),
-        while the enum's ``64`` and ``72`` skip two bits with nothing
-        occupying them -- that asymmetry is why this is left open
-        rather than resolved. Left as a plain ``int`` rather than an
-        enum so neither guess is hard-coded into the type.
+        listings; the last two do not.
+
+        The server settles neither reading: writing each of ``0``, ``4``,
+        ``8``, ``12``, ``16``, ``24``, ``64`` and ``72`` to a live GLPI 11
+        contract stores the value unchanged and rejects none of them, so
+        the endpoint validates this field not at all and the ``enum`` in
+        the contract document does not describe an enforced set. Typed as
+        a plain ``int`` for that reason: an enum would reject values the
+        server itself accepts, and would have to pick one of the two
+        numberings to name them by.
     renewal_type : GlpiContractRenewalType | None, optional
         Renewal behaviour of the contract: no renewal, tacit (automatic)
         renewal, or explicit (manual) renewal.
