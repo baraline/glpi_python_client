@@ -1,7 +1,7 @@
 """GLPI v2 endpoint paths and shared transport-layer type aliases.
 
 The constants here mirror the resource paths defined in the GLPI v2 API
-contract under ``docs/glpi_api_contract.json``. Endpoint paths are kept in
+contract under ``docs/api_contract/api.json``. Endpoint paths are kept in
 one place so the API mixins all use the same resource locations and the
 shared HTTP helpers can rely on stable parameter types.
 """

@@ -3,7 +3,7 @@
 The models are organised in two layers:
 
 * :mod:`glpi_python_client.models.api_schema` -- raw Pydantic shapes that
-  mirror ``docs/glpi_api_contract.json`` one for one, apart from the
+  mirror ``docs/api_contract/api.json`` one for one, apart from the
   rich-text slots documented there. One model per HTTP verb is exposed
   under the ``Get<Name>``, ``Post<Name>``, ``Patch<Name>`` and
   ``Delete<Name>`` naming convention. Use these models from new client
