@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,7 +21,12 @@ from glpi_python_client import (
     GlpiStatusError,
     GlpiTicketContext,
     GlpiTicketStatus,
+    IdNameRef,
     PatchTicket,
+    PostComputer,
+    PostContract,
+    PostContractCost,
+    PostContractItem,
     PostFollowup,
     PostLocation,
     PostSolution,
@@ -859,3 +865,72 @@ def test_set_ticket_custom_fields_rejects_unknown_container(
             1,
             {"does-not-exist-xyz": {"any_field": "value"}},
         )
+
+
+# ---------------------------------------------------------------------------
+# Assets/Computer, Management/Contract, ContractCost, and the computer <->
+# contract join (computer-and-contract-endpoints)
+# ---------------------------------------------------------------------------
+
+
+def test_computer_contract_round_trip(client: GlpiClient) -> None:
+    """Create a computer and a contract, link them, read back, clean up.
+
+    Everything modelled for these endpoints was derived from the OpenAPI
+    document rather than from the server, and this project's history is
+    largely a record of the two disagreeing. This is where that gets
+    checked.
+    """
+
+    marker = uuid4().hex[:8]
+    computer_id = client.create_computer(PostComputer(name=f"pytest-{marker}"))
+    contract_id = client.create_contract(PostContract(name=f"pytest-{marker}"))
+    try:
+        computer = client.get_computer(computer_id)
+        assert computer.name == f"pytest-{marker}"
+
+        link_id = client.link_computer_contract(
+            computer_id, PostContractItem(contract=IdNameRef(id=contract_id))
+        )
+        links = client.list_computer_contracts(computer_id)
+        assert any(link.id == link_id for link in links)
+        assert all(link.itemtype == "Computer" for link in links)
+
+        client.unlink_computer_contract(computer_id, link_id, force=True)
+    finally:
+        client.delete_computer(computer_id, force=True)
+        client.delete_contract(contract_id, force=True)
+
+
+def test_contract_date_begin_is_stored_as_sent(client: GlpiClient) -> None:
+    """A ``date`` written to ``date_begin`` reads back as the same day.
+
+    The failure this guards is a timezone shift rolling the date to its
+    neighbour, which a ``datetime``-typed field would allow.
+    """
+
+    marker = uuid4().hex[:8]
+    start = date(2026, 1, 15)
+    contract_id = client.create_contract(
+        PostContract(name=f"pytest-{marker}", date_begin=start)
+    )
+    try:
+        assert client.get_contract(contract_id).date_begin == start
+    finally:
+        client.delete_contract(contract_id, force=True)
+
+
+def test_contract_cost_round_trip(client: GlpiClient) -> None:
+    """Cost lines create, list and delete against a real contract."""
+
+    marker = uuid4().hex[:8]
+    contract_id = client.create_contract(PostContract(name=f"pytest-{marker}"))
+    try:
+        cost_id = client.create_contract_cost(
+            contract_id, PostContractCost(name="year 1", cost=1200.0)
+        )
+        costs = client.list_contract_costs(contract_id)
+        assert any(cost.id == cost_id for cost in costs)
+        client.delete_contract_cost(contract_id, cost_id, force=True)
+    finally:
+        client.delete_contract(contract_id, force=True)
