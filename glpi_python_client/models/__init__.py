@@ -32,9 +32,13 @@ from glpi_python_client.models.api_schema.administration import (
 )
 from glpi_python_client.models.api_schema.assets import (
     DeleteComputer,
+    DeleteContractItem,
     GetComputer,
+    GetContractItem,
     PatchComputer,
+    PatchContractItem,
     PostComputer,
+    PostContractItem,
 )
 from glpi_python_client.models.api_schema.assistance import (
     DeleteTeamMember,
@@ -130,6 +134,7 @@ __all__ = [
     "DeleteComputer",
     "DeleteContract",
     "DeleteContractCost",
+    "DeleteContractItem",
     "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
@@ -147,6 +152,7 @@ __all__ = [
     "GetComputer",
     "GetContract",
     "GetContractCost",
+    "GetContractItem",
     "GetContractType",
     "GetDocument",
     "GetEntity",
@@ -182,6 +188,7 @@ __all__ = [
     "PatchComputer",
     "PatchContract",
     "PatchContractCost",
+    "PatchContractItem",
     "PatchContractType",
     "PatchDocument",
     "PatchEntity",
@@ -199,6 +206,7 @@ __all__ = [
     "PostComputer",
     "PostContract",
     "PostContractCost",
+    "PostContractItem",
     "PostContractType",
     "PostDocument",
     "PostEntity",

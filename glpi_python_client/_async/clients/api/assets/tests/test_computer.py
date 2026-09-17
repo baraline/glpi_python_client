@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from glpi_python_client import GetComputer, PatchComputer, PostComputer
+from glpi_python_client import (
+    GetComputer,
+    IdNameRef,
+    PatchComputer,
+    PatchContractItem,
+    PostComputer,
+    PostContractItem,
+)
 from glpi_python_client._async._testing import TransportRecorder
 
 
@@ -151,3 +158,85 @@ async def test_post_computer_excludes_every_readonly_field() -> None:
     for field in ("id", "uuid", "last_inventory_update", "last_boot"):
         assert field not in PostComputer.model_fields, field
         assert field not in PatchComputer.model_fields, field
+
+
+# ---------------------------------------------------------------------------
+# Computer <-> contract links
+# ---------------------------------------------------------------------------
+
+
+async def test_list_computer_contracts_endpoint(client: Any) -> None:
+    """``list_computer_contracts`` hits the contract sub-resource."""
+
+    rec = TransportRecorder(
+        get_payload=[{"id": 2, "contract": {"id": 7, "name": "Support"}}]
+    )
+    rec.install(client)
+    links = await client.list_computer_contracts(9)
+    assert links[0].contract is not None
+    assert links[0].contract.name == "Support"
+    assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract"
+
+
+async def test_get_computer_contract_endpoint(client: Any) -> None:
+    """``get_computer_contract`` hits the per-link endpoint."""
+
+    rec = TransportRecorder(get_payload={"id": 2})
+    rec.install(client)
+    link = await client.get_computer_contract(9, 2)
+    assert link.id == 2
+    assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract/2"
+
+
+async def test_link_computer_contract_sets_itemtype_itself(client: Any) -> None:
+    """The client fills ``itemtype`` and ``items_id``, not the caller.
+
+    ``Contract_Item.itemtype`` is a free string in the contract, so a typo
+    there is a silently wrong link. The mixin knows it is working on a
+    computer and says so.
+    """
+
+    rec = TransportRecorder(post_payload={"id": 4})
+    rec.install(client)
+    new_id = await client.link_computer_contract(
+        9, PostContractItem(contract=IdNameRef(id=7))
+    )
+    assert new_id == 4
+    assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract"
+    assert rec.calls[0]["json"]["itemtype"] == "Computer"
+    assert rec.calls[0]["json"]["items_id"] == 9
+
+
+async def test_link_computer_contract_overrides_a_caller_itemtype(
+    client: Any,
+) -> None:
+    """A caller-supplied itemtype cannot point the link at another type."""
+
+    rec = TransportRecorder(post_payload={"id": 4})
+    rec.install(client)
+    await client.link_computer_contract(
+        9, PostContractItem(contract=IdNameRef(id=7), itemtype="Monitor", items_id=1)
+    )
+    assert rec.calls[0]["json"]["itemtype"] == "Computer"
+    assert rec.calls[0]["json"]["items_id"] == 9
+
+
+async def test_update_computer_contract(client: Any) -> None:
+    """``update_computer_contract`` patches the per-link endpoint."""
+
+    rec = TransportRecorder()
+    rec.install(client)
+    await client.update_computer_contract(
+        9, 2, PatchContractItem(contract=IdNameRef(id=8))
+    )
+    assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract/2"
+
+
+async def test_unlink_computer_contract_with_force(client: Any) -> None:
+    """``unlink_computer_contract(force=True)`` ships the force flag."""
+
+    rec = TransportRecorder()
+    rec.install(client)
+    await client.unlink_computer_contract(9, 2, force=True)
+    assert rec.calls[0]["endpoint"] == "Assets/Computer/9/Contract/2"
+    assert rec.calls[0]["json"]["force"] is True

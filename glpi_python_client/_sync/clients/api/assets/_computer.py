@@ -1,7 +1,14 @@
 """GLPI ``/Assets/Computer`` mixin.
 
 The mixin exposes search, fetch, create, update, and delete helpers for the
-GLPI computer resource using the contract-aligned ``api_schema`` models.
+GLPI computer resource using the contract-aligned ``api_schema`` models. It
+also exposes CRUD helpers for the ``/Assets/Computer/{id}/Contract``
+sub-resource, the join answering which contracts cover a given computer.
+
+``link_computer_contract`` and ``update_computer_contract`` set ``itemtype``
+and ``items_id`` themselves rather than trusting the caller-supplied values
+on the request body; see ``models/api_schema/assets/_contract_item.py`` for
+why.
 """
 
 from __future__ import annotations
@@ -18,6 +25,12 @@ from glpi_python_client.models.api_schema.assets._computer import (
     GetComputer,
     PatchComputer,
     PostComputer,
+)
+from glpi_python_client.models.api_schema.assets._contract_item import (
+    DeleteContractItem,
+    GetContractItem,
+    PatchContractItem,
+    PostContractItem,
 )
 
 
@@ -221,6 +234,193 @@ class ComputerMixin(TransportMixin):
             log_message=f"GLPI API deleted computer {computer_id}",
             force=force,
             delete_model_cls=DeleteComputer,
+        )
+
+    def list_computer_contracts(
+        self,
+        computer_id: GlpiId,
+        *,
+        limit: int = 50,
+        start: int = 0,
+    ) -> list[GetContractItem]:
+        """List the contracts linked to one GLPI computer.
+
+        Parameters
+        ----------
+        computer_id : GlpiId
+            Numeric identifier of the owning computer.
+        limit : int, optional
+            Maximum number of records returned by the GLPI server.
+        start : int, optional
+            Zero-based offset of the first record returned.
+
+        Returns
+        -------
+        list[GetContractItem]
+            Contract links belonging to the computer.
+        """
+
+        params: dict[str, object] = {"limit": limit, "start": start}
+        return self._resource_list(
+            f"{COMPUTER_ENDPOINT}/{computer_id}/Contract",
+            GetContractItem,
+            params=params,
+        )
+
+    def get_computer_contract(
+        self, computer_id: GlpiId, link_id: GlpiId
+    ) -> GetContractItem:
+        """Fetch one contract link recorded against a GLPI computer.
+
+        Parameters
+        ----------
+        computer_id : GlpiId
+            Numeric identifier of the owning computer.
+        link_id : GlpiId
+            Numeric identifier of the contract link to retrieve.
+
+        Returns
+        -------
+        GetContractItem
+            Validated contract link payload.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        return self._resource_get(
+            f"{COMPUTER_ENDPOINT}/{computer_id}/Contract/{link_id}",
+            GetContractItem,
+            failure_message=(
+                f"Failed to get contract link {link_id} for computer {computer_id}"
+            ),
+        )
+
+    def link_computer_contract(
+        self, computer_id: GlpiId, link: PostContractItem
+    ) -> int:
+        """Link one GLPI contract to one computer.
+
+        The ``itemtype`` and ``items_id`` fields are set from
+        ``computer_id`` rather than taken from ``link``. The GLPI contract
+        types ``itemtype`` as a free string, so a caller-supplied value is
+        a silent mis-link waiting to happen; this helper already knows
+        which asset it is working on.
+
+        Parameters
+        ----------
+        computer_id : GlpiId
+            Numeric identifier of the computer the contract covers.
+        link : PostContractItem
+            Request body naming the contract to link. Any ``itemtype`` or
+            ``items_id`` set on it is replaced.
+
+        Returns
+        -------
+        int
+            Identifier assigned to the new link by the GLPI server.
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        GlpiProtocolError
+            If the create response is missing the ``id`` field.
+        """
+
+        body = link.model_copy(update={"itemtype": "Computer", "items_id": computer_id})
+        return self._resource_create(
+            f"{COMPUTER_ENDPOINT}/{computer_id}/Contract",
+            body,
+            failure_message=f"Failed to link a contract to computer {computer_id}",
+            missing_message=(
+                "GLPI contract link create response did not include an ID"
+            ),
+            log_message_factory=(
+                lambda new_id: (
+                    f"GLPI API linked contract item {new_id} to computer {computer_id}"
+                )
+            ),
+        )
+
+    def update_computer_contract(
+        self, computer_id: GlpiId, link_id: GlpiId, link: PatchContractItem
+    ) -> None:
+        """Update one computer-contract link with a partial body.
+
+        The ``itemtype`` and ``items_id`` fields are set from
+        ``computer_id`` rather than taken from ``link``, for the same
+        reason as :meth:`link_computer_contract`.
+
+        Parameters
+        ----------
+        computer_id : GlpiId
+            Numeric identifier of the owning computer.
+        link_id : GlpiId
+            Numeric identifier of the contract link to update.
+        link : PatchContractItem
+            Partial request body. Any ``itemtype`` or ``items_id`` set on
+            it is replaced.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        body = link.model_copy(update={"itemtype": "Computer", "items_id": computer_id})
+        self._resource_update(
+            f"{COMPUTER_ENDPOINT}/{computer_id}/Contract/{link_id}",
+            body,
+            failure_message=(
+                f"Failed to update contract link {link_id} for computer {computer_id}"
+            ),
+            log_message=(
+                f"GLPI API updated contract link {link_id} for computer {computer_id}"
+            ),
+        )
+
+    def unlink_computer_contract(
+        self, computer_id: GlpiId, link_id: GlpiId, *, force: bool | None = None
+    ) -> None:
+        """Remove one contract link from a GLPI computer.
+
+        Parameters
+        ----------
+        computer_id : GlpiId
+            Numeric identifier of the owning computer.
+        link_id : GlpiId
+            Numeric identifier of the contract link to remove.
+        force : bool | None, optional
+            When ``True`` the link is permanently deleted instead of
+            being moved to the trash.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        self._resource_delete(
+            f"{COMPUTER_ENDPOINT}/{computer_id}/Contract/{link_id}",
+            failure_message=(
+                f"Failed to unlink contract link {link_id} from computer {computer_id}"
+            ),
+            log_message=(
+                f"GLPI API unlinked contract link {link_id} from computer {computer_id}"
+            ),
+            force=force,
+            delete_model_cls=DeleteContractItem,
         )
 
 
