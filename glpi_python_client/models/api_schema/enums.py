@@ -160,7 +160,21 @@ class GlpiUserAuthType(GlpiEnum):
     EXTERNAL = 6
 
 
+class GlpiContractRenewalType(GlpiEnum):
+    """GLPI contract renewal types as advertised by the contract.
+
+    The contract enum on ``Contract.renewal_type`` is ``[0, 1, 2]``, with
+    the meanings documented inline on that field: no renewal, tacit
+    (automatic) renewal, and explicit (manual) renewal.
+    """
+
+    NONE = 0
+    TACIT = 1
+    EXPLICIT = 2
+
+
 __all__ = [
+    "GlpiContractRenewalType",
     "GlpiEnum",
     "GlpiGlobalValidation",
     "GlpiPriority",

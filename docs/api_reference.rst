@@ -499,6 +499,121 @@ The companion mixin methods are exposed on :class:`GlpiClient` /
    :undoc-members:
    :show-inheritance:
 
+Computers
+---------
+
+.. autoclass:: GetComputer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostComputer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchComputer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteComputer
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Computer Contract Links
+-----------------------
+
+.. autoclass:: GetContractItem
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostContractItem
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchContractItem
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteContractItem
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Contracts
+---------
+
+.. autoclass:: GetContract
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostContract
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchContract
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteContract
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Contract Costs
+--------------
+
+.. autoclass:: GetContractCost
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostContractCost
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchContractCost
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteContractCost
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Contract Types
+--------------
+
+.. autoclass:: GetContractType
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostContractType
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchContractType
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteContractType
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Enums
 -----
 
@@ -543,6 +658,11 @@ Enums
    :show-inheritance:
 
 .. autoclass:: GlpiGlobalValidation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: GlpiContractRenewalType
    :members:
    :undoc-members:
    :show-inheritance:

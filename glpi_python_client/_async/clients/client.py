@@ -24,6 +24,9 @@ else:  # pragma: no cover - fallback for Python 3.10
 
 from glpi_python_client._async.clients._base_client import _BaseGlpiClient
 from glpi_python_client._async.clients.api import (
+    ComputerMixin,
+    ContractMixin,
+    ContractTypeMixin,
     DocumentMixin,
     EntityMixin,
     FollowupMixin,
@@ -57,9 +60,12 @@ class AsyncGlpiClient(
     TimelineDocumentMixin,
     TeamMemberMixin,
     DocumentMixin,
+    ContractMixin,
+    ComputerMixin,
     UserMixin,
     EntityMixin,
     LocationMixin,
+    ContractTypeMixin,
     KBCategoryMixin,
     KBArticleMixin,
     KBArticleCommentMixin,

@@ -63,3 +63,19 @@ python -m sphinx -W --keep-going -b html docs docs/_build/html
   library core.
 - Add tests for payload serialization and response normalization when adding
   endpoints.
+
+### The GLPI OpenAPI contract
+
+The models under `glpi_python_client/models/api_schema/` mirror
+`components.schemas.*` from the GLPI High-Level REST API document,
+including which fields are `readOnly`. That document is not committed —
+it is ~14 MB and instance-specific. Fetch your instance's copy to the
+path the models cite:
+
+```bash
+curl -sk "<your GLPI base>/api.php/v2.3/doc.json" -o docs/api_contract/api.json
+```
+
+`docs/api_contract/` is gitignored. Nothing in CI checks the models
+against it, so when you add or change a model, diff it against the
+contract by hand.

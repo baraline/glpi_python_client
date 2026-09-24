@@ -3,7 +3,7 @@
 The models are organised in two layers:
 
 * :mod:`glpi_python_client.models.api_schema` -- raw Pydantic shapes that
-  mirror ``docs/glpi_api_contract.json`` one for one, apart from the
+  mirror ``docs/api_contract/api.json`` one for one, apart from the
   rich-text slots documented there. One model per HTTP verb is exposed
   under the ``Get<Name>``, ``Post<Name>``, ``Patch<Name>`` and
   ``Delete<Name>`` naming convention. Use these models from new client
@@ -29,6 +29,16 @@ from glpi_python_client.models.api_schema.administration import (
     PatchUser,
     PostEntity,
     PostUser,
+)
+from glpi_python_client.models.api_schema.assets import (
+    DeleteComputer,
+    DeleteContractItem,
+    GetComputer,
+    GetContractItem,
+    PatchComputer,
+    PatchContractItem,
+    PostComputer,
+    PostContractItem,
 )
 from glpi_python_client.models.api_schema.assistance import (
     DeleteTeamMember,
@@ -59,12 +69,17 @@ from glpi_python_client.models.api_schema.assistance.timeline import (
     PostTimelineDocument,
 )
 from glpi_python_client.models.api_schema.dropdowns import (
+    DeleteContractType,
     DeleteLocation,
+    GetContractType,
     GetLocation,
+    PatchContractType,
     PatchLocation,
+    PostContractType,
     PostLocation,
 )
 from glpi_python_client.models.api_schema.enums import (
+    GlpiContractRenewalType,
     GlpiEnum,
     GlpiGlobalValidation,
     GlpiPriority,
@@ -91,9 +106,17 @@ from glpi_python_client.models.api_schema.knowledgebase import (
     PostKBCategory,
 )
 from glpi_python_client.models.api_schema.management import (
+    DeleteContract,
+    DeleteContractCost,
     DeleteDocument,
+    GetContract,
+    GetContractCost,
     GetDocument,
+    PatchContract,
+    PatchContractCost,
     PatchDocument,
+    PostContract,
+    PostContractCost,
     PostDocument,
 )
 from glpi_python_client.models.api_schema.plugins import (
@@ -108,6 +131,11 @@ from glpi_python_client.models.custom_schema import (
 )
 
 __all__ = [
+    "DeleteComputer",
+    "DeleteContract",
+    "DeleteContractCost",
+    "DeleteContractItem",
+    "DeleteContractType",
     "DeleteDocument",
     "DeleteEntity",
     "DeleteFollowup",
@@ -121,6 +149,11 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "GetComputer",
+    "GetContract",
+    "GetContractCost",
+    "GetContractItem",
+    "GetContractType",
     "GetDocument",
     "GetEntity",
     "GetFollowup",
@@ -138,6 +171,7 @@ __all__ = [
     "GetTicketTask",
     "GetTimelineDocument",
     "GetUser",
+    "GlpiContractRenewalType",
     "GlpiEnum",
     "GlpiGlobalValidation",
     "GlpiPriority",
@@ -151,6 +185,11 @@ __all__ = [
     "IdNameCompletenameRef",
     "IdNameRef",
     "IdRef",
+    "PatchComputer",
+    "PatchContract",
+    "PatchContractCost",
+    "PatchContractItem",
+    "PatchContractType",
     "PatchDocument",
     "PatchEntity",
     "PatchFollowup",
@@ -164,6 +203,11 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PostComputer",
+    "PostContract",
+    "PostContractCost",
+    "PostContractItem",
+    "PostContractType",
     "PostDocument",
     "PostEntity",
     "PostFollowup",
