@@ -1552,6 +1552,41 @@ The whole page is built in one pass, so a single unconvertible record used
 to make its page-mates unreadable too. The failure is now scoped to the
 record whose body you actually read.
 
+Text in a body is literal, and ``.content`` spells it so: rendering the
+Markdown -- as the package does on the way back to GLPI, or with any
+python-markdown using the same four extensions (``nl2br``, ``sane_lists``,
+``fenced_code``, ``tables``) -- displays what GLPI displayed. Markdown has
+one spelling for ``__init__`` typed by a user and for bold ``init``, so a
+character is escaped exactly where python-markdown would otherwise read it
+as syntax:
+
+.. code-block:: python
+
+   from glpi_python_client.content import GlpiContentConverter
+
+   GlpiContentConverter.from_transport(
+       "<p>Voir __init__ et \\\\serveur\\partage</p><p># pas un titre</p>"
+   )
+   # 'Voir \\_\\_init\\_\\_ et \\\\\\serveur\\partage\n\n\\# pas un titre'
+
+Ordinary prose carries no escape at all -- ``fichier_de_test_v2.xlsx``,
+``C:\Temp``, ``R&D``, a ``#`` or a ``-`` mid-sentence come back exactly as
+typed -- and the Markdown is a fixed point: rendering it and reading it
+back gives the same Markdown again. A backslash is used wherever
+python-markdown removes one; ``<``, ``&``, ``=`` and ``~`` are spelled as
+character references (``&lt;``) where they would be read, since no
+backslash escapes them. A pasted URL link stays ``<https://...>``.
+
+Two things change for a caller. A value holding a single real HTML element
+is read as HTML throughout, on write models too, so ``**bold** <b>x</b>``
+keeps its asterisks as text: write either Markdown or HTML, not both. And
+a few structures have no Markdown spelling, which the round-trip inventory
+in ``test_literal_text.py`` records: struck-through and underlined text
+keep their words but lose the line, adjacent lists or quotes merge, a line
+break in a table cell or a heading becomes a space, and a ``<pre>`` that
+opens a list item, or that directly follows a list inside the same item,
+keeps its lines as text rather than as code.
+
 .. note::
 
    Deeply nested HTML is the case worth knowing about. The HTML-to-Markdown

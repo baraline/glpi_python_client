@@ -113,6 +113,14 @@ conversion happens, which buys two things: listing records costs nothing
 per body, and a body that cannot be converted no longer stops the rest of
 its page being read.
 
+The Markdown spells a body's text as literal text: a character is escaped
+exactly where python-markdown, with the package's four extensions, would
+read it as syntax -- ``\_\_init\_\_``, ``\\\serveur``, ``\#4521`` at the
+start of a line, ``&lt;Entrée>`` -- and nowhere else, so rendering it
+displays what GLPI displayed and reading that back gives the same Markdown.
+A value holding one real HTML element is read as HTML throughout, write
+models included. See :ref:`content-conversion`.
+
 Very deeply nested HTML is the case worth knowing about.
 ``markdownify`` walks the document recursively and runs out of stack at
 around 494 levels of nesting. The converter does not try to predict
