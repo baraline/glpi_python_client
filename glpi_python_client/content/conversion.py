@@ -1068,7 +1068,7 @@ class _Spelling:
                 continue
             position += 1
 
-    def settle_brackets(self, start: int, end: int) -> None:
+    def settle_brackets(self, units: Iterable[tuple[int, int]]) -> None:
         """Escape every literal ``[`` that would open a link or an image.
 
         A ``[`` opens one when its balanced ``]`` is followed straight away
@@ -1076,19 +1076,32 @@ class _Spelling:
         escaping an inner ``[`` rebalances the brackets of an outer one; one
         pass is enough, since the brackets to a ``[``'s right are settled
         before it is.
+
+        The pass keeps the ``]`` not yet closed by a ``[`` to their right on
+        a stack, so each ``[`` finds its partner on top of it: the first
+        ``]`` python-markdown's own count would stop at. An escaped ``[``
+        hands its ``]`` back, to be closed by one further left. That keeps
+        the pass linear, where counting forward from each ``[`` cost a body
+        of unclosed brackets quadratic time.
         """
 
         working = list(self.working())
-        openers = [
-            position
-            for position in range(start, end)
-            if self.view[position] == "[" and self.live(position)
-        ]
-        for opener in reversed(openers):
-            close = _balanced_close(working, opener + 1, end)
-            if close is not None and close + 1 < end and working[close + 1] == "(":
-                self.escape(opener)
-                working[opener] = _NEUTRAL
+        for start, end in units:
+            closers: list[int] = []
+            for position in range(end - 1, start - 1, -1):
+                char = working[position]
+                if char == "]":
+                    closers.append(position)
+                elif char == "[" and closers:
+                    close = closers.pop()
+                    if (
+                        self.live(position)
+                        and close + 1 < end
+                        and working[close + 1] == "("
+                    ):
+                        self.escape(position)
+                        working[position] = _NEUTRAL
+                        closers.append(close)
 
     def settle_asterisks(self, units: Iterable[tuple[int, int]]) -> None:
         """Escape literal ``*`` wherever a unit holds two possible delimiters.
@@ -1161,8 +1174,7 @@ class _Spelling:
         self.settle_bang()
         self.settle_backticks(units)
         self.hide_escapes()
-        for start, end in units:
-            self.settle_brackets(start, end)
+        self.settle_brackets(units)
         self.settle_automail()
         self.settle_asterisks(units)
         self.settle_underscores(units)
@@ -1204,29 +1216,30 @@ def _underscores_pair(
         return True
     if len(runs) < 2:
         return False
-    for index, (begin, finish) in enumerate(runs):
-        if finish - begin >= 3:
+    if any(finish - begin >= 3 for begin, finish in runs):
+        return True
+    opened = False
+    for begin, finish in runs:
+        if opened and (finish == end or not _WORD.match(working[finish])):
             return True
-        if begin != start and _WORD.match(working[begin - 1]):
-            continue
-        for later_begin, later_finish in runs[index + 1 :]:
-            if later_finish - later_begin >= 3:
-                return True
-            if later_finish == end or not _WORD.match(working[later_finish]):
-                return True
+        if begin == start or not _WORD.match(working[begin - 1]):
+            opened = True
     return False
 
 
 def _code_spans(markdown: str) -> list[tuple[tuple[int, int], tuple[int, int]]]:
     """Return the code spans python-markdown finds, as delimiter spans.
 
-    Replays its backtick processor: each match is replaced before the next
-    search, and a run of escaped backslashes before a backtick is consumed
-    on its own, which leaves the backtick after it free to open.
+    Replays its backtick processor, which replaces each match with a
+    placeholder and searches on from just after it. After a code span that
+    is the same as searching on from the span's end: the one look-behind
+    there is ``(?<!\\\\)``, and the span ends in a backtick. A run of escaped
+    backslashes before a backtick is consumed on its own, though, and its
+    placeholder is what leaves the backtick after it free to open -- so
+    that run, and only that, is neutralised in the text searched.
     """
 
     spans: list[tuple[tuple[int, int], tuple[int, int]]] = []
-    working = list(markdown)
     text = markdown
     position = 0
     while True:
@@ -1241,13 +1254,11 @@ def _code_spans(markdown: str) -> list[tuple[tuple[int, int], tuple[int, int]]]:
                     (found.end(3), found.end(3) + size),
                 )
             )
-            replaced = range(found.start(), found.end())
+            position = found.end()
         else:
-            replaced = range(found.start(1), found.end(1))
-        for index in replaced:
-            working[index] = _NEUTRAL
-        text = "".join(working)
-        position = found.start()
+            start, end = found.span(1)
+            text = text[:start] + _NEUTRAL * (end - start) + text[end:]
+            position = end
 
 
 class _Link(NamedTuple):
@@ -1720,14 +1731,23 @@ def _ends_in_a_list(node: PageElement) -> bool | None:
     return False
 
 
-def _bullet(item: Tag) -> str:
-    """Return the marker the reader writes before a list item."""
+def _bullet(item: Tag, numbers: dict[int, int]) -> str:
+    """Return the marker the reader writes before a list item.
+
+    ``numbers`` holds each ordered item's position among its list's items,
+    filled for a whole list the first time one of its items is asked for:
+    counting an item's previous siblings instead cost a long list quadratic
+    time.
+    """
 
     parent = item.parent
     if parent is not None and parent.name == "ol":
+        if id(item) not in numbers:
+            for index, entry in enumerate(parent.find_all("li", recursive=False)):
+                numbers[id(entry)] = index
         start = str(parent.get("start") or "")
         first = int(start) if start.isdigit() else 1
-        return f"{first + len(item.find_previous_siblings('li'))}. "
+        return f"{first + numbers[id(item)]}. "
     return "- "
 
 
@@ -1773,14 +1793,14 @@ def _shown_items(element: Tag) -> int:
     return sum(_last_shown(item) is not None for item in items)
 
 
-def _line_lead(element: Tag) -> tuple[str, ...]:
+def _line_lead(element: Tag, numbers: dict[int, int]) -> tuple[str, ...]:
     """Return the bullets written on ``element``'s first line, its own included.
 
     ``- - -`` is a rule to python-markdown, so the first line of a block is
-    checked against its whole line.
+    checked against its whole line. ``numbers`` is :func:`_bullet`'s.
     """
 
-    return tuple(_bullet(item) for item in _line_items(element))
+    return tuple(_bullet(item, numbers) for item in _line_items(element))
 
 
 def _code_block_fits(element: Tag) -> bool:
@@ -1857,6 +1877,17 @@ class _LiteralSafeConverter(MarkdownConverter):
         self.stand_ins = stand_ins
         #: The list items whose Markdown ends in a blank line, by ``id``.
         self._loose_items: set[int] = set()
+        #: Each ordered item's position in its list, by ``id`` (:func:`_bullet`).
+        self._numbers: dict[int, int] = {}
+        #: How many of a list's items display something, by the list's ``id``.
+        self._shown: dict[int, int] = {}
+
+    def _shown_items(self, element: Tag) -> int:
+        """Return :func:`_shown_items` for a list, counted once per list."""
+
+        if id(element) not in self._shown:
+            self._shown[id(element)] = _shown_items(element)
+        return self._shown[id(element)]
 
     def _inherited(self, name: str) -> Callable[..., Any]:
         """Return ``markdownify``'s own converter ``name``.
@@ -1911,20 +1942,28 @@ class _LiteralSafeConverter(MarkdownConverter):
         )
 
     def convert__document_(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Settle the document, stripped first: edge whitespace is never content.
+
+        Stripped before it is settled, not after, because where the first
+        line starts decides what it would be read as: ``" # x"`` is not a
+        heading until the space goes. It is also why the Markdown is stripped
+        at all -- a digest of a body must not depend on its edges.
+        """
+
         text = self.stand_ins.settle_breaks(text).strip()
         return _settle_block(text, self.stand_ins, in_list=False, top_level=True)
 
     def convert_p(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         if self._deferred(parent_tags):
             return str(self._inherited("convert_p")(el, text, parent_tags))
-        lead = _line_lead(el) if "li" in parent_tags else ()
+        lead = _line_lead(el, self._numbers) if "li" in parent_tags else ()
         text = self._settle(text, parent_tags, lead=lead)
         return f"\n\n{text}\n\n" if text else ""
 
     def convert_div(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         if self._deferred(parent_tags):
             return str(self._inherited("convert_div")(el, text, parent_tags))
-        lead = _line_lead(el) if "li" in parent_tags else ()
+        lead = _line_lead(el, self._numbers) if "li" in parent_tags else ()
         text = self._settle(text, parent_tags, lead=lead)
         return f"\n\n{text}\n\n" if text else ""
 
@@ -1960,7 +1999,7 @@ class _LiteralSafeConverter(MarkdownConverter):
         return "\n\n{}\n\n".format("\n".join(lines))
 
     def convert_li(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        bullet = _bullet(el)
+        bullet = _bullet(el, self._numbers)
         spaced = False
         if self._deferred(parent_tags):
             text = (text or "").strip()
@@ -1969,7 +2008,7 @@ class _LiteralSafeConverter(MarkdownConverter):
             text = _LEADING_BLANK_LINES.sub("", text).rstrip(_EDGE)
             parent = el.parent
             deep = _deep_list(parent)
-            spaced = deep and parent is not None and _shown_items(parent) > 1
+            spaced = deep and parent is not None and self._shown_items(parent) > 1
             # The item after a loose one is loose too: python-markdown reads
             # it as the first item of a new block, and wraps its text. So is
             # an item that shares its first line with another's bullet: a
@@ -1980,7 +2019,7 @@ class _LiteralSafeConverter(MarkdownConverter):
             loose = deep or stacked or id(previous) in self._loose_items
             if not _opens_with_a_block(el):
                 text = _loosened(text, loose)
-            lead = _line_lead(el)
+            lead = _line_lead(el, self._numbers)
             text = self._settle(text, parent_tags | {"li"}, lead=lead)
         if not text:
             return "\n"
@@ -2126,19 +2165,18 @@ class _LiteralSafeConverter(MarkdownConverter):
         return f"\n\n{fence}\n{text}\n{fence}\n\n"
 
     def convert_list(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        """End a nested list with a blank line when its item goes on after it.
+        """End a nested list with a blank line, for whatever its item holds next.
 
         ``markdownify`` ends a list inside a list item with no line break at
         all, so the item's text after it joined the list's last item, and a
-        quote after it became that item's lazy continuation.
+        quote after it became that item's lazy continuation. When nothing
+        follows, the item strips the blank line with the rest of its edge.
         """
 
         markdown = str(self._inherited("convert_list")(el, text, parent_tags))
         if "li" not in parent_tags or self._deferred(parent_tags):
             return markdown
-        if any(_last_shown(sibling) is not None for sibling in el.next_siblings):
-            return markdown + "\n\n"
-        return markdown
+        return markdown + "\n\n"
 
     convert_ul = convert_list
     convert_ol = convert_list
@@ -2299,7 +2337,8 @@ class GlpiContentConverter:
                 "Could not convert GLPI HTML content to Markdown "
                 f"({type(exc).__name__}: {exc})."
             ) from exc
-        return str(markdown).strip()
+        # Already stripped: the document converter strips before it settles.
+        return markdown
 
     @staticmethod
     def to_transport(value: object) -> str:

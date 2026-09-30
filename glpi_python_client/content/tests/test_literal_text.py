@@ -32,6 +32,7 @@ file name with underscores, a Windows path, a mid-sentence ``#``, a hyphen,
 from __future__ import annotations
 
 import random
+import time
 from html import escape
 
 import pytest
@@ -466,6 +467,11 @@ def test_the_measured_misreadings_read_back_as_their_text(
         # Emphasis delimiters.
         pytest.param("<p>_______</p>", r"\_" * 7, id="seven-underscores"),
         pytest.param(
+            "<p>Code : _______ fin</p>",
+            "Code : " + r"\_" * 7 + " fin",
+            id="seven-underscores-mid-sentence",
+        ),
+        pytest.param(
             "<p>a*b*c et 5*3 <strong>gras</strong></p>",
             r"a\*b\*c et 5\*3 **gras**",
             id="asterisks-beside-real-emphasis",
@@ -551,6 +557,11 @@ def test_the_measured_misreadings_read_back_as_their_text(
             id="link-syntax-in-link-text",
         ),
         pytest.param(
+            '<p>[a <a href="https://example.org/u">[b</a> ](https://example.org/x)</p>',
+            r"\[a [\[b](https://example.org/u) ](https://example.org/x)",
+            id="escaped-bracket-in-link-text-is-not-counted",
+        ),
+        pytest.param(
             '<p><img src="https://example.org/c.png" alt="capture [1].png"></p>',
             "![capture [1].png](https://example.org/c.png)",
             id="balanced-brackets-in-alt-text",
@@ -611,6 +622,16 @@ def test_the_measured_misreadings_read_back_as_their_text(
             id="backtick-pair",
         ),
         pytest.param(
+            "<p><code>x</code>`y</p>",
+            r"`x`\`y",
+            id="backtick-touching-a-code-span",
+        ),
+        pytest.param(
+            "<p>`<code>x</code> y</p>",
+            r"\``x` y",
+            id="backtick-opening-onto-a-code-span",
+        ),
+        pytest.param(
             "<table><tr><th>a</th><th>b</th></tr>"
             "<tr><td>x`y</td><td>`z</td></tr></table>",
             "| a | b |\n| --- | --- |\n| x\\`y | \\`z |",
@@ -663,6 +684,11 @@ def test_literal_text_is_escaped_where_python_markdown_would_read_it(
             '<p>intro</p><ol start="3"><li>trois</li><li>quatre</li></ol>',
             "intro\n\n3. trois\n4. quatre",
             id="ordered-list-starting-at-three",
+        ),
+        pytest.param(
+            "<ul><li>5*3<ul><li>2*4</li></ul></li></ul>",
+            "- 5*3\n    - 2*4",
+            id="asterisks-an-item-and-its-nested-item-cannot-pair",
         ),
         pytest.param(
             "<ul><li><p>point un</p><p>suite du point</p></li><li>point deux</li></ul>",
@@ -766,6 +792,19 @@ def test_blocks_inside_a_list_item_stay_in_it(html: str, expected: str) -> None:
         ),
         pytest.param(
             "<h2><blockquote>cité</blockquote></h2>", "## cité", id="quote-in-a-heading"
+        ),
+        pytest.param(
+            "<table><tr><th>a</th></tr><tr><td>un<br>deux</td></tr></table>",
+            "| a |\n| --- |\n| un deux |",
+            id="break-in-a-cell",
+        ),
+        pytest.param(
+            "<h2>Titre<br>suite</h2>", "## Titre suite", id="break-in-a-heading"
+        ),
+        pytest.param(
+            '<p><img src="https://example.org/i.png" alt="ligne 1\n\n  ligne 2"></p>',
+            "![ligne 1 ligne 2](https://example.org/i.png)",
+            id="alt-text-over-several-lines",
         ),
         pytest.param(
             "<ul><li><script>x()</script><pre>code</pre></li></ul>",
@@ -885,6 +924,12 @@ def test_a_preformatted_block_opening_a_list_item_keeps_its_text() -> None:
             "> - item\n>\n> \\#4521 code",
             id="in-a-quote",
         ),
+        pytest.param(
+            "<ul><li>item<ul><li>sous-item</li></ul><div><style>p{margin:0}</style>"
+            "</div><pre>#4521 code</pre></li></ul>",
+            "- item\n\n    - sous-item\n\n    \\#4521 code",
+            id="with-only-a-style-block-between",
+        ),
     ],
 )
 def test_code_right_after_a_nested_list_keeps_its_text(
@@ -961,6 +1006,16 @@ LOSSES = [
         "A table cell holds one line of inline Markdown: its code block is "
         "written as inline code.",
         id="code-block-in-a-cell",
+    ),
+    pytest.param(
+        "<table><tr><th>a</th></tr><tr><td>un<br>deux</td></tr></table>",
+        "A table cell holds one line: its line break is written as a space.",
+        id="break-in-a-cell",
+    ),
+    pytest.param(
+        "<h2>Titre<br>suite</h2>",
+        "A heading is one line: its line break is written as a space.",
+        id="break-in-a-heading",
     ),
     pytest.param(
         "<ul><li><pre>a</pre></li></ul>",
@@ -1430,6 +1485,29 @@ def test_generated_bodies_display_the_same_after_the_round_trip(seed: int) -> No
     rng = random.Random(seed)
     for _ in range(50):
         assert_survives(_document(rng))
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<p>" + "[a " * 20_000 + "</p>", id="unclosed-brackets"),
+        pytest.param("<p>" + "_a " * 20_000 + "</p>", id="underscores-opening-words"),
+        pytest.param("<p>" + "``` " * 20_000 + "</p>", id="backtick-runs"),
+        pytest.param("<ol>" + "<li>x</li>" * 20_000 + "</ol>", id="long-numbered-list"),
+    ],
+)
+def test_a_body_dense_with_syntax_converts_in_linear_time(html: str) -> None:
+    """Every pass is linear, so a pathological body costs what its size does.
+
+    Measured before the passes were made linear: 20,000 of these took from
+    8 to 117 seconds each, where they take well under one now. The budget
+    is generous on purpose -- this guards the complexity, not the speed.
+    """
+
+    started = time.perf_counter()
+    read(html)
+
+    assert time.perf_counter() - started < 10
 
 
 # ---------------------------------------------------------------------------
