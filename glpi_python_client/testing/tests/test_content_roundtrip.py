@@ -171,6 +171,15 @@ ROUND_TRIP_CORPUS = [
     pytest.param("The snake_case name.", id="underscore"),
     pytest.param("5 * 3 = 15", id="asterisk"),
     pytest.param("# Title\n\n- alpha\n- beta\n\nClosing **note**.", id="mixed"),
+    pytest.param("- alpha\n    - inner\n- beta", id="nested-list"),
+    pytest.param("1. one\n    1. inner\n2. two", id="nested-numbered-list"),
+    pytest.param("intro\n\n3. three\n4. four", id="numbered-from-three"),
+    # Literal text the reader escapes reads back escaped the same way, so a
+    # body that carries it is a fixed point too.
+    pytest.param(r"\#4521: module \_\_init\_\_.", id="escaped-literals"),
+    pytest.param(r"Share \\\server\share and C:\Temp.", id="backslashes"),
+    pytest.param(r"Press &lt;Enter> and see \*x\*.", id="escaped-markup"),
+    pytest.param("| cmd |\n| --- |\n| ps aux \\| grep java |", id="pipe-in-a-cell"),
     pytest.param(
         "line one\nline two",
         id="soft-newline",
@@ -178,14 +187,6 @@ ROUND_TRIP_CORPUS = [
             "nl2br renders a lone newline as <br>, which markdownify reads "
             "back as a hard break (two trailing spaces). Semantically "
             "equivalent and stable after one cycle; see issue #32."
-        ),
-    ),
-    pytest.param(
-        "- alpha\n    - inner\n- beta",
-        id="nested-list",
-        marks=_lossy(
-            "markdownify indents nested items by 2 spaces; python-markdown "
-            "needs 4 to keep the nesting, so a second cycle flattens it."
         ),
     ),
     pytest.param(

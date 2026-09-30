@@ -4,6 +4,29 @@ This module translates between GLPI's HTML transport format and the
 package's canonical Markdown representation used by the rich content
 models.
 
+Literal text
+------------
+
+**Text in the HTML is literal, and the Markdown spells it so.** A user who
+types ``__init__`` into GLPI means eight characters; Markdown reads the
+same eight as bold ``init``. So :meth:`GlpiContentConverter.from_transport`
+escapes a character exactly where python-markdown -- with this module's
+extensions, which is what :meth:`GlpiContentConverter.to_transport` and any
+peer rendering the Markdown uses -- would otherwise read it as syntax, and
+nowhere else. It has to happen here: once the Markdown is written, nothing
+can tell a literal ``__`` from a bold one any more. The rule set is
+documented on :class:`_LiteralSafeConverter`; the property it is held to is
+that ``to_transport(from_transport(html))`` displays what ``html``
+displays, and that the Markdown is a fixed point of the round trip.
+
+Ordinary prose carries no escape at all -- ``fichier_de_test_v2.xlsx``,
+``C:\\Temp\\logs``, a ``#`` or a ``-`` mid-sentence, ``R&D`` -- because
+python-markdown already renders those literally. What is escaped is what it
+would not: ``\\\\serveur`` (it would lose a backslash), ``__init__``, a
+``#4521`` or a ``> merci`` at the start of a line, a ``|`` in a table cell,
+``<Enter>``, ``&amp;``. None of this is visible to anyone reading the ticket
+in either ITSM: the escapes exist only in the Markdown between them.
+
 Neither *parse* recurses -- ``html.parser`` is an iterative scanner --
 but ``markdownify`` walks the finished tree recursively, at about two
 CPython frames per nesting level, so inbound conversion has a nesting
@@ -45,13 +68,25 @@ needs the global limit raised to use it.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from html import unescape
 from html.entities import html5 as _HTML5_REFERENCES
 from html.parser import HTMLParser
+from itertools import chain
+from typing import Any, NamedTuple
 
-from bs4 import ParserRejectedMarkup
+from bs4 import Comment, Doctype, ParserRejectedMarkup, Tag
+from bs4.element import PageElement
+from markdown import Markdown
 from markdown import markdown as markdown_to_html
-from markdownify import markdownify as html_to_markdown
+from markdown.blockprocessors import HRProcessor, ReferenceProcessor
+from markdown.inlinepatterns import (
+    AUTOLINK_RE,
+    AUTOMAIL_RE,
+    BACKTICK_RE,
+    NOT_STRONG_RE,
+)
+from markdownify import MarkdownConverter
 
 from glpi_python_client._errors import GlpiContentError
 
@@ -62,6 +97,12 @@ from glpi_python_client._errors import GlpiContentError
 #: ``</dev/null>`` -- parses as an *unknown* tag, whose markup is dropped
 #: while its (usually empty) body is kept, so the token silently vanishes
 #: from the middle of a sentence.
+#:
+#: The second group is the HTML standard's *obsolete* elements -- its list
+#: of features that "must not be used by authors", which old editors and
+#: e-mail clients write all the same. Without them a body marked up only with
+#: ``<font color="red">URGENT</font>`` or ``<center>`` failed the probe, took
+#: the plain-text path and kept its tags as text.
 _HTML_ELEMENTS = frozenset(
     """
     a abbr address area article aside audio b base bdi bdo blockquote body br
@@ -73,6 +114,10 @@ _HTML_ELEMENTS = frozenset(
     section select slot small source span strong style sub summary sup table
     tbody td template textarea tfoot th thead time title tr track u ul var video
     wbr
+
+    acronym applet basefont bgsound big blink center dir font frame frameset
+    isindex keygen listing marquee menuitem multicol nextid nobr noembed
+    noframes plaintext rb rtc spacer strike tt xmp
     """.split()
 )
 
@@ -137,9 +182,9 @@ _VOID_ELEMENTS = frozenset(
 #: the normal path treats it: markup dropped, body kept in place.
 _BLOCK_ELEMENTS = frozenset(
     """
-    address article aside blockquote br col dd details dialog div dl dt
-    fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header hgroup
-    hr li main menu nav ol p pre search section summary table tbody td
+    address article aside blockquote br center col dd details dialog dir div
+    dl dt fieldset figcaption figure footer form h1 h2 h3 h4 h5 h6 header
+    hgroup hr li main menu nav ol p pre search section summary table tbody td
     tfoot th thead tr ul
     """.split()
 )
@@ -336,10 +381,10 @@ class _ParserScan(HTMLParser):
         """Keep character data, a raw-text element's body included.
 
         A ``<script>`` or ``<style>`` body arrives here because the parser
-        is in CDATA mode, and it is kept for the reason recorded in
-        :func:`_strip_tags`: ``markdownify``'s ``strip=`` removes an
-        element's markup and still walks its children, so the body
-        reaches the converted output as text.
+        is in CDATA mode. The converting path drops such a body -- a
+        browser displays none of it -- and this keeps it anyway, which is
+        the safe direction for a fallback whose promise is that it says no
+        less than the conversion: see :func:`_strip_tags`.
         """
 
         self._text(data)
@@ -453,13 +498,17 @@ def _strip_tags(content: str) -> str:
     it took, which is the only guarantee worth making about a fallback.
 
     Establishing that meant measuring what the converting path really
-    keeps, construct by construct, rather than assuming. Three answers
-    were counter-intuitive and each was a silent deletion here before it
-    was checked: a ``<script>``/``<style>`` body is *kept*, because
-    ``markdownify``'s ``strip=`` removes an element's markup and still
-    walks its children; so is a ``CDATA`` body; and so is the inside of
-    any ``<!``/``<?`` construct the parser could not resolve, which it
-    hands back as character data.
+    keeps, construct by construct, rather than assuming. Two answers were
+    counter-intuitive and each was a silent deletion here before it was
+    checked: a ``CDATA`` body is kept, and so is the inside of any
+    ``<!``/``<?`` construct the parser could not resolve, which it hands
+    back as character data. A ``<script>``/``<style>``/``<title>`` body
+    goes the other way: the converting path drops it, as a browser does,
+    and this keeps it, which the superset promise allows.
+
+    The text is plain, not Markdown: :meth:`GlpiContentConverter.from_transport`
+    spells it through :func:`_literal_markdown` before handing it back, so
+    it is escaped exactly as the converting path escapes literal text.
 
     What it does **not** reproduce, none of which loses a character of
     prose:
@@ -584,6 +633,1567 @@ def _canonicalise_void_elements(content: str) -> str:
     return "".join(pieces)
 
 
+# ---------------------------------------------------------------------------
+# Literal text
+# ---------------------------------------------------------------------------
+
+#: The characters whose reading as Markdown depends on what surrounds them.
+#:
+#: Every one of them is literal in some positions and syntax in others --
+#: ``#`` is a heading only at the start of a line, ``_`` is emphasis only
+#: when a partner closes it -- so a text node cannot decide them alone. Each
+#: is carried as a private stand-in (:class:`_StandIns`) until the container
+#: it lands in is assembled, and decided there.
+_LITERAL = "\\<&*_`[]!#>-+.=|~"
+
+#: How a literal character is spelled when it would be misread, where that
+#: is not a backslash in front of it.
+#:
+#: ``<`` and ``&`` have no backslash escape python-markdown honours -- ``\<``
+#: renders both characters and the ``<`` still opens a tag -- and neither do
+#: ``=`` and ``~``. A character reference is the spelling it passes through
+#: as the character.
+_SPELLED_OUT = {
+    "\\": "\\\\",
+    "<": "&lt;",
+    "&": "&amp;",
+    "=": "&#61;",
+    "~": "&#126;",
+}
+
+#: The characters python-markdown removes a backslash from, with these
+#: extensions. Asked of python-markdown rather than written down, because a
+#: backslash in front of anything else is displayed.
+_ESCAPABLE = frozenset(Markdown(extensions=_MARKDOWN_EXTENSIONS).ESCAPED_CHARS)
+
+# python-markdown's own patterns, compiled the way its inline processors
+# compile theirs (``re.DOTALL``: a code span or an e-mail autolink can run
+# across a line break). Taken from the renderer rather than copied, so the
+# reader cannot disagree with the version doing the rendering.
+_CODE_SPAN = re.compile(BACKTICK_RE, re.DOTALL)
+_STANDALONE = re.compile(NOT_STRONG_RE, re.DOTALL)
+_AUTOMAIL = re.compile(AUTOMAIL_RE, re.DOTALL)
+_AUTOLINK = re.compile(AUTOLINK_RE)
+_RULE = re.compile(HRProcessor.RE)
+_REFERENCE_DEFINITION = ReferenceProcessor.RE
+
+#: What follows an ``&`` that the renderer displays as a character.
+#:
+#: A named reference needs its semicolon. A numeric one does not:
+#: python-markdown runs ``html.parser`` over its whole source to find raw
+#: HTML, and that re-emits ``&#4521`` as ``&#4521;`` -- measured, 3.10.3.
+_REFERENCE_TAIL = re.compile(r"\#[0-9]|\#[xX][0-9a-fA-F]|[0-9A-Za-z]+;")
+
+#: What makes a ``<`` open a tag, a comment, a declaration or an instruction.
+_TAG_START = re.compile(r"[A-Za-z/!?]")
+
+_LINE_BREAK = re.compile("  \n")
+_WORD = re.compile(r"\w")
+_SETEXT_UNDERLINE = re.compile(r"(?:=+|-+) *")
+_ORDERED_MARKER = re.compile(r"\d+(?=\.[ ])")
+_LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t]*\n)+")
+_WHITESPACE = re.compile(r"\s+")
+_EDGE = " \t\r\n"
+
+#: A character no analysis below treats as syntax: not a word character,
+#: not whitespace, not punctuation python-markdown reads. Stands in for
+#: anything already decided -- an escaped character, a code span.
+_NEUTRAL = "\x02"
+
+#: Elements ``markdownify`` leaves inline that a browser shows as blocks.
+_EXTRA_BLOCKS = frozenset({"center", "dir", "menu"})
+
+
+class _StandIns:
+    """Private characters carrying literal text until its container spells it.
+
+    ``markdownify`` calls ``escape`` on one text node at a time, and a text
+    node cannot see what it will end up beside: whether its ``#`` starts a
+    line, whether its ``*`` has a partner in the next node, whether its
+    ``<`` is followed by a letter from a ``<span>``. So escaping replaces
+    each character in :data:`_LITERAL` with a stand-in, and the converter
+    for the enclosing block -- a paragraph, a list item, a cell, the
+    document -- decides every stand-in in it at once, with the whole
+    assembled Markdown of that block in view (:class:`_Spelling`).
+
+    The stand-ins are a run of consecutive supplementary private-use code
+    points the source does not already contain, so a body holding
+    private-use characters of its own -- icon fonts map symbols there --
+    cannot be confused with them. One more code point marks a hard line
+    break, whose surrounding spaces are settled the same way, and one more
+    starts a line no list item indents (:attr:`lazy`).
+
+    Parameters
+    ----------
+    source : str
+        The text about to be converted, which the stand-ins must not occur
+        in.
+    """
+
+    def __init__(self, source: str) -> None:
+        size = len(_LITERAL) + 2
+        for base in range(0xF0000, 0xFFFFE - size, size):
+            characters = [chr(base + offset) for offset in range(size)]
+            if not any(character in source for character in characters):
+                break
+        else:  # pragma: no cover - needs a source using all of plane 15
+            raise GlpiContentError(
+                "Could not convert GLPI HTML content to Markdown: it uses "
+                "every private-use code point the converter could work with."
+            )
+        literal = characters[: len(_LITERAL)]
+        self.hard_break = characters[-2]
+        #: Starts a line that stays at the start of the line: a quote that
+        #: opens a list item is read by python-markdown only if its later
+        #: lines are its lazy continuation, since the item's first block is
+        #: never detabbed and ``>`` counts only three spaces in at most.
+        self.lazy = characters[-1]
+        self.characters = frozenset(literal)
+        self._shadow = str.maketrans(dict(zip(_LITERAL, literal, strict=True)))
+        self._restore = str.maketrans(dict(zip(literal, _LITERAL, strict=True)))
+        self._any = re.compile("[" + "".join(literal) + "]")
+        self._break = re.compile("[ ]*" + self.hard_break + "\n?[ ]*")
+
+    def shadow(self, text: str) -> str:
+        """Return ``text`` with every character in :data:`_LITERAL` stood in for."""
+
+        return text.translate(self._shadow)
+
+    def restore(self, text: str) -> str:
+        """Return ``text`` with every stand-in back as the character it is."""
+
+        return text.translate(self._restore)
+
+    def carried(self, text: str) -> bool:
+        """Return whether ``text`` still holds an undecided stand-in."""
+
+        return self._any.search(text) is not None
+
+    def positions(self, text: str) -> set[int]:
+        """Return where ``text`` holds a stand-in."""
+
+        return {found.start() for found in self._any.finditer(text)}
+
+    def replace(self, text: str, spell: Callable[[int, str], str]) -> str:
+        """Replace each stand-in with ``spell(position, character)``."""
+
+        return self._any.sub(
+            lambda found: spell(found.start(), self.restore(found.group(0))), text
+        )
+
+    def settle_breaks(self, text: str) -> str:
+        """Spell every hard line break ``"  \\n"``, dropping the spaces around it.
+
+        A browser does not display whitespace at either side of a ``<br>``,
+        so it is not content, and keeping it made the same body read two
+        ways: ``a<br> b`` read as ``a  \\n b`` the first time and as
+        ``a  \\nb`` once python-markdown had rendered it.
+        """
+
+        if self.hard_break not in text:
+            return text
+        return self._break.sub("  \n", text)
+
+
+def _spelled(character: str) -> str:
+    """Return the escaped spelling of one literal character."""
+
+    return _SPELLED_OUT.get(character) or "\\" + character
+
+
+class _Spelling:
+    """One container's Markdown, and which of its literal characters to escape.
+
+    Built over the container's assembled text, where a stand-in is literal
+    text and anything else is markup ``markdownify`` generated or text an
+    inner container already decided. Each ``settle_*`` method asks one of
+    python-markdown's questions of the text as it will be rendered, and
+    marks the literal characters that would be read as syntax;
+    :meth:`render` spells them.
+
+    The order the methods run in is python-markdown's own inline order --
+    code spans before escapes before links before emphasis -- because each
+    of those consumes text the next one would otherwise see.
+
+    Parameters
+    ----------
+    text : str
+        The container's text, stand-ins included.
+    stand_ins : _StandIns
+        The stand-ins in use.
+    """
+
+    def __init__(self, text: str, stand_ins: _StandIns) -> None:
+        self.text = text
+        self.stand_ins = stand_ins
+        self.view = stand_ins.restore(text)
+        self.literal = stand_ins.positions(text)
+        self.escaped: set[int] = set()
+        self.hidden: set[int] = set()
+
+    # -- bookkeeping ---------------------------------------------------------
+
+    def escape(self, position: int) -> None:
+        """Escape the character at ``position``, if it is literal."""
+
+        if position in self.literal:
+            self.escaped.add(position)
+
+    def live(self, position: int) -> bool:
+        """Return whether ``position`` is literal and not yet escaped."""
+
+        return position in self.literal and position not in self.escaped
+
+    def render(self) -> str:
+        """Return the container's Markdown, every literal character spelled."""
+
+        escaped = self.escaped
+
+        def spell(position: int, character: str) -> str:
+            return _spelled(character) if position in escaped else character
+
+        return self.stand_ins.replace(self.text, spell)
+
+    def markdown(self, start: int, end: int) -> tuple[str, list[int]]:
+        """Return one span's Markdown as it stands, and each character's position."""
+
+        pieces: list[str] = []
+        origin: list[int] = []
+        cursor = start
+        for position in sorted(p for p in self.escaped if start <= p < end):
+            pieces.append(self.view[cursor:position])
+            origin.extend(range(cursor, position))
+            form = _spelled(self.view[position])
+            pieces.append(form)
+            origin.extend([position] * len(form))
+            cursor = position + 1
+        pieces.append(self.view[cursor:end])
+        origin.extend(range(cursor, end))
+        return "".join(pieces), origin
+
+    def working(self, *, line_breaks: bool = False) -> str:
+        """Return the view with everything already decided made neutral.
+
+        With ``line_breaks``, a hard break is neutral too: python-markdown
+        replaces ``"  \\n"`` with a placeholder before it looks for emphasis,
+        so the characters either side of one are not next to whitespace.
+        """
+
+        chars = list(self.view)
+        for position in self.hidden | self.escaped:
+            chars[position] = _NEUTRAL
+        working = "".join(chars)
+        if line_breaks:
+            working = _LINE_BREAK.sub(_NEUTRAL * 3, working)
+        return working
+
+    # -- what depends only on the next few characters ----------------------
+
+    def settle_local(self) -> None:
+        """Decide ``\\``, ``<`` and ``&`` by the characters right after them.
+
+        * ``\\`` before a character python-markdown would treat as escaped
+          (:data:`_ESCAPABLE`) -- ``\\\\serveur``, ``C:\\_temp``;
+        * ``<`` before a letter, ``/``, ``!`` or ``?`` -- anything
+          python-markdown would pass through as raw HTML;
+        * ``&`` opening a character reference python-markdown would pass
+          through for the browser to decode (:data:`_REFERENCE_TAIL`).
+
+        A ``<`` opening an e-mail autolink is decided once the inline
+        constructs it could run through are known (:meth:`settle_automail`).
+        """
+
+        view = self.view
+        for position in self.literal:
+            char = view[position]
+            following = view[position + 1 : position + 2]
+            if char == "\\":
+                if following and following in _ESCAPABLE:
+                    self.escape(position)
+            elif char == "<":
+                if following and _TAG_START.match(following):
+                    self.escape(position)
+            elif char == "&" and _REFERENCE_TAIL.match(view, position + 1):
+                self.escape(position)
+
+    def settle_automail(self) -> None:
+        """Escape every literal ``<`` that would open an e-mail autolink.
+
+        python-markdown looks for ``<address@domain>`` only once code spans,
+        escapes, links, images and URL autolinks have each become a
+        placeholder, so an address can run through any of them:
+        ``<3![a b](x.png)@c>`` is one to it. The pattern is matched against
+        the text with each of those collapsed to one character, and right to
+        left, because a match may also run through a ``<`` decided to its
+        right: once that one is ``&lt;``, nothing stops it.
+
+        A link's text is read the same way on its own, since python-markdown
+        parses it after the link is found; an image's text is never parsed.
+        """
+
+        view = self.view
+        opening = sorted(
+            (p for p in self.literal if view[p] == "<" and p not in self.escaped),
+            reverse=True,
+        )
+        if not opening or "@" not in view:
+            return
+        working = list(self.working())
+        contexts: dict[tuple[int, int], _Collapsed] = {}
+        for position in opening:
+            start, end = 0, len(view)
+            while True:
+                if (start, end) not in contexts:
+                    contexts[start, end] = self._collapsed(working, start, end)
+                context = contexts[start, end]
+                link = context.link_at(position)
+                if link is None:
+                    at = context.index[position - start]
+                    if _automail_at(context.text, context.tail, at):
+                        self.escape(position)
+                        context.tail[at] = "&"
+                    break
+                if link.label is None or not link.label[0] <= position < link.label[1]:
+                    break
+                start, end = link.label
+
+    def _collapsed(self, working: list[str], start: int, end: int) -> _Collapsed:
+        """Return ``view[start:end]`` with every placeholder collapsed."""
+
+        view = self.view
+        links = _generated_links(view, working, self.literal, start, end)
+        masked = self.hidden | self.escaped
+        for link in links:
+            masked = masked | set(range(*link.span))
+        pieces: list[str] = []
+        index: list[int] = []
+        for position in range(start, end):
+            if position not in masked:
+                pieces.append(view[position])
+            elif position == start or position - 1 not in masked:
+                pieces.append(_NEUTRAL)
+            index.append(len(pieces) - 1)
+        return _Collapsed("".join(pieces), index, links)
+
+    # -- python-markdown's inline patterns, in its own order ---------------
+
+    def settle_bang(self) -> None:
+        """Escape a literal ``!`` right before a generated link's ``[``.
+
+        Otherwise ``Attention!`` followed by a link renders an image.
+        """
+
+        view = self.view
+        for position in self.literal:
+            if (
+                view[position] == "!"
+                and view[position + 1 : position + 2] == "["
+                and position + 1 not in self.literal
+            ):
+                self.escape(position)
+
+    def settle_backticks(self, units: Iterable[tuple[int, int]]) -> None:
+        """Escape every literal backtick run python-markdown would pair.
+
+        Found by running python-markdown's own code-span pattern over each
+        unit's Markdown as it stands, escaping the literal runs it paired,
+        and running it again until it pairs none: escaping an opener can hand
+        its closer to the next run. A literal backtick touching a generated
+        one is escaped first, since it would join the generated run and
+        change the length the closer is matched on. What is left paired is
+        the generated code spans, which the later passes must not look
+        inside.
+        """
+
+        view = self.view
+        if "`" not in view:
+            return
+        for position in self.literal:
+            if view[position] == "`":
+                for neighbour in (position - 1, position + 1):
+                    if (
+                        0 <= neighbour < len(view)
+                        and view[neighbour] == "`"
+                        and neighbour not in self.literal
+                    ):
+                        self.escape(position)
+        for start, end in units:
+            if "`" in view[start:end]:
+                self._settle_code_spans(start, end)
+
+    def _settle_code_spans(self, start: int, end: int) -> None:
+        while True:
+            markdown, origin = self.markdown(start, end)
+            offending: set[int] = set()
+            generated: list[tuple[int, int]] = []
+            for opener, closer in _code_spans(markdown):
+                delimiters = [origin[i] for i in range(*opener)]
+                delimiters += [origin[i] for i in range(*closer)]
+                live = [position for position in delimiters if self.live(position)]
+                if live:
+                    offending.update(live)
+                else:
+                    generated.append((origin[opener[0]], origin[closer[1] - 1] + 1))
+            if not offending:
+                for first, last in generated:
+                    self.hidden.update(range(first, last))
+                return
+            for position in offending:
+                self.escape(position)
+
+    def hide_escapes(self) -> None:
+        """Hide what a backslash already escaped in generated or decided text.
+
+        Pairs are consumed left to right, as python-markdown's escape
+        pattern consumes them, so ``\\\\`` hides both backslashes and escapes
+        nothing after it.
+        """
+
+        view = self.view
+        position = 0
+        while position < len(view):
+            if (
+                view[position] == "\\"
+                and position not in self.hidden
+                and position not in self.literal
+            ):
+                following = position + 1
+                if (
+                    following < len(view)
+                    and view[following] in _ESCAPABLE
+                    and following not in self.literal
+                ):
+                    self.hidden.update((position, following))
+                position += 2
+                continue
+            position += 1
+
+    def settle_brackets(self, start: int, end: int) -> None:
+        """Escape every literal ``[`` that would open a link or an image.
+
+        A ``[`` opens one when its balanced ``]`` is followed straight away
+        by ``(``, which is python-markdown's test. Right to left, because
+        escaping an inner ``[`` rebalances the brackets of an outer one; one
+        pass is enough, since the brackets to a ``[``'s right are settled
+        before it is.
+        """
+
+        working = list(self.working())
+        openers = [
+            position
+            for position in range(start, end)
+            if self.view[position] == "[" and self.live(position)
+        ]
+        for opener in reversed(openers):
+            close = _balanced_close(working, opener + 1, end)
+            if close is not None and close + 1 < end and working[close + 1] == "(":
+                self.escape(opener)
+                working[opener] = _NEUTRAL
+
+    def settle_asterisks(self, units: Iterable[tuple[int, int]]) -> None:
+        """Escape literal ``*`` wherever a unit holds two possible delimiters.
+
+        python-markdown pairs asterisks with no regard for word boundaries,
+        so any two in one block -- literal or generated -- can pair. The one
+        exemption is its own: a run of one to three that is literal through
+        and through and stands alone between whitespace is text to it
+        (``5 * 3``). A run that touches a generated delimiter is not alone.
+        """
+
+        working = self.working(line_breaks=True)
+        for start, end in units:
+            unit = working[start:end]
+            exempt: set[int] = set()
+            for found in _STANDALONE.finditer(unit):
+                run = range(start + found.start(3), start + found.end(3))
+                if found.group(3).startswith("*") and all(
+                    position in self.literal for position in run
+                ):
+                    exempt.update(run)
+            delimiters = [
+                start + offset
+                for offset, char in enumerate(unit)
+                if char == "*" and start + offset not in exempt
+            ]
+            if len(delimiters) >= 2:
+                for position in delimiters:
+                    self.escape(position)
+
+    def settle_underscores(self, units: Iterable[tuple[int, int]]) -> None:
+        """Escape literal ``_`` runs that python-markdown could pair.
+
+        Underscores are only emphasis at a word boundary, which is what
+        keeps ``fichier_de_test_v2.xlsx`` literal, except in a run of three
+        or more, which may open emphasis anywhere and take a mid-word run as
+        its closer; a single run of seven pairs with itself. When a unit
+        holds a pairing, every run that could take part in one is escaped.
+        """
+
+        working = self.working(line_breaks=True)
+        for start, end in units:
+            unit = working[start:end]
+            exempt: set[int] = set()
+            for found in _STANDALONE.finditer(unit):
+                if found.group(3).startswith("_"):
+                    exempt.update(range(start + found.start(3), start + found.end(3)))
+            runs = [
+                (start + found.start(), start + found.end())
+                for found in re.finditer("_+", unit)
+                if start + found.start() not in exempt
+                and any(
+                    self.live(position)
+                    for position in range(start + found.start(), start + found.end())
+                )
+            ]
+            if not _underscores_pair(runs, working, start, end):
+                continue
+            triple = any(finish - begin >= 3 for begin, finish in runs)
+            for begin, finish in runs:
+                left = begin == start or not _WORD.match(working[begin - 1])
+                right = finish == end or not _WORD.match(working[finish])
+                if left or right or triple:
+                    for position in range(begin, finish):
+                        self.escape(position)
+
+    def settle_inline(self, units: list[tuple[int, int]]) -> None:
+        """Run every inline question, in python-markdown's order."""
+
+        self.settle_bang()
+        self.settle_backticks(units)
+        self.hide_escapes()
+        for start, end in units:
+            self.settle_brackets(start, end)
+        self.settle_automail()
+        self.settle_asterisks(units)
+        self.settle_underscores(units)
+
+
+#: The longest ``<...>`` checked for an e-mail autolink. An address is at
+#: most 254 characters; the pattern has no bound of its own, and checking
+#: every ``<`` to the end of a long body would cost that body quadratically.
+_AUTOMAIL_SPAN = 320
+
+
+def _automail_at(view: str, tail: list[str], position: int) -> bool:
+    """Return whether an e-mail autolink opens at ``position``.
+
+    ``tail`` is the view with every ``<`` already decided to the right
+    spelled as a character that is not one. The pattern cannot cross a
+    space, and ends at the first ``>``.
+    """
+
+    end = view.find(">", position, position + _AUTOMAIL_SPAN)
+    if end < 0 or " " in view[position:end]:
+        return False
+    return _AUTOMAIL.match("".join(tail[position : end + 1])) is not None
+
+
+def _underscores_pair(
+    runs: list[tuple[int, int]], working: str, start: int, end: int
+) -> bool:
+    """Return whether python-markdown could pair any of ``runs``.
+
+    ``EM_STRONG2`` and ``STRONG_EM2`` take their inner text from anywhere,
+    the run itself included, so a run of seven is a match on its own and a
+    run of three or more pairs with any other run. The ``SMART`` patterns
+    need an opener at a left word boundary and a later closer at a right
+    one.
+    """
+
+    if any(finish - begin >= 7 for begin, finish in runs):
+        return True
+    if len(runs) < 2:
+        return False
+    for index, (begin, finish) in enumerate(runs):
+        if finish - begin >= 3:
+            return True
+        if begin != start and _WORD.match(working[begin - 1]):
+            continue
+        for later_begin, later_finish in runs[index + 1 :]:
+            if later_finish - later_begin >= 3:
+                return True
+            if later_finish == end or not _WORD.match(working[later_finish]):
+                return True
+    return False
+
+
+def _code_spans(markdown: str) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+    """Return the code spans python-markdown finds, as delimiter spans.
+
+    Replays its backtick processor: each match is replaced before the next
+    search, and a run of escaped backslashes before a backtick is consumed
+    on its own, which leaves the backtick after it free to open.
+    """
+
+    spans: list[tuple[tuple[int, int], tuple[int, int]]] = []
+    working = list(markdown)
+    text = markdown
+    position = 0
+    while True:
+        found = _CODE_SPAN.search(text, position)
+        if found is None:
+            return spans
+        if found.group(3):
+            size = len(found.group(2))
+            spans.append(
+                (
+                    (found.start(2), found.end(2)),
+                    (found.end(3), found.end(3) + size),
+                )
+            )
+            replaced = range(found.start(), found.end())
+        else:
+            replaced = range(found.start(1), found.end(1))
+        for index in replaced:
+            working[index] = _NEUTRAL
+        text = "".join(working)
+        position = found.start()
+
+
+class _Link(NamedTuple):
+    """A link, an image or a URL autolink the reader wrote, as view spans."""
+
+    span: tuple[int, int]
+    #: The link's text, which python-markdown parses on its own; ``None``
+    #: for an image or an autolink, whose text it never parses.
+    label: tuple[int, int] | None
+
+
+class _Collapsed:
+    """A span of a view with every construct python-markdown stashes collapsed.
+
+    Parameters
+    ----------
+    text : str
+        The span, each stashed construct one character.
+    index : list of int
+        Where each position of the span went in ``text``.
+    links : list of _Link
+        The links, images and autolinks collapsed.
+    """
+
+    def __init__(self, text: str, index: list[int], links: list[_Link]) -> None:
+        self.text = text
+        self.index = index
+        self.links = links
+        #: ``text`` with every ``<`` decided so far spelled as a character
+        #: that opens nothing.
+        self.tail = list(text)
+
+    def link_at(self, position: int) -> _Link | None:
+        """Return the link or image ``position`` is inside, if any."""
+
+        for link in self.links:
+            if link.span[0] <= position < link.span[1]:
+                return link
+        return None
+
+
+def _generated_links(
+    view: str, working: list[str], literal: set[int], start: int, end: int
+) -> list[_Link]:
+    """Return the links, images and URL autolinks the reader wrote in a span.
+
+    A generated ``[`` is one that is not literal, and it opens a link when
+    its balanced ``]`` is followed by ``(``; the link ends at the ``)``
+    that balances that one. A generated ``<`` opens an autolink when the
+    text up to the next ``>`` is one.
+    """
+
+    links: list[_Link] = []
+    position = start
+    while position < end:
+        char = working[position]
+        if char == "[" and position not in literal:
+            close = _balanced_close(working, position + 1, end)
+            if close is not None and view[close + 1 : close + 2] == "(":
+                finish = _balanced_paren(view, close + 2, end)
+                if finish is not None:
+                    image = position > start and view[position - 1] == "!"
+                    links.append(
+                        _Link(
+                            (position - image, finish + 1),
+                            None if image else (position + 1, close),
+                        )
+                    )
+                    position = finish + 1
+                    continue
+        elif char == "<" and position not in literal:
+            finish = view.find(">", position + 1, end)
+            if finish > 0 and _AUTOLINK.fullmatch(view, position, finish + 1):
+                links.append(_Link((position, finish + 1), None))
+                position = finish + 1
+                continue
+        position += 1
+    return links
+
+
+def _balanced_paren(view: str, start: int, end: int) -> int | None:
+    """Return where the ``(`` before ``start`` closes, before ``end``."""
+
+    depth = 1
+    for position in range(start, end):
+        if view[position] == "(":
+            depth += 1
+        elif view[position] == ")":
+            depth -= 1
+            if depth == 0:
+                return position
+    return None
+
+
+def _balanced_close(working: list[str], start: int, end: int) -> int | None:
+    """Return where the ``[`` before ``start`` closes, as python-markdown counts."""
+
+    depth = 1
+    for position in range(start, end):
+        char = working[position]
+        if char == "]":
+            depth -= 1
+            if depth == 0:
+                return position
+        elif char == "[":
+            depth += 1
+    return None
+
+
+def _blocks(view: str) -> list[list[tuple[int, int]]]:
+    """Return the text's blocks -- runs of non-blank lines -- as line spans."""
+
+    blocks: list[list[tuple[int, int]]] = []
+    current: list[tuple[int, int]] = []
+    start = 0
+    for line in view.split("\n"):
+        end = start + len(line)
+        if line.strip(" \t"):
+            current.append((start, end))
+        elif current:
+            blocks.append(current)
+            current = []
+        start = end + 1
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def _units(
+    view: str, blocks: list[list[tuple[int, int]]], *, soft_breaks: bool
+) -> list[tuple[int, int]]:
+    """Return the spans python-markdown parses inline text in, one at a time.
+
+    A paragraph is one: its lines are joined by hard breaks, ``"  \\n"``.
+    Every other line break the reader writes starts something python-markdown
+    parses on its own -- a nested list, a quote -- even with no blank line
+    before it, so a unit ends there. Pairing is only possible inside a unit,
+    so this is what keeps a list item's ``*`` from being escaped for a ``*``
+    in the list nested under it. Stripped text is the exception: its plain
+    line breaks continue a paragraph, which ``soft_breaks`` says.
+    """
+
+    units: list[tuple[int, int]] = []
+    for block in blocks:
+        start, end = block[0]
+        for line_start, line_end in block[1:]:
+            if soft_breaks or view[end - 2 : end] == "  ":
+                end = line_end
+                continue
+            units.append((start, end))
+            start, end = line_start, line_end
+        units.append((start, end))
+    return units
+
+
+def _settle_block(
+    text: str,
+    stand_ins: _StandIns,
+    *,
+    in_list: bool,
+    top_level: bool,
+    lead: tuple[str, ...] = (),
+    soft_breaks: bool = False,
+) -> str:
+    """Spell the literal text of one block container.
+
+    ``text`` is the container's content before its own prefix is added --
+    a list item's bullet, a quote's ``>`` -- so every line starts where
+    python-markdown will read it from. Each line is checked for the block
+    syntax python-markdown would find there, then the whole container for
+    the inline syntax (:meth:`_Spelling.settle_inline`). The line rules:
+
+    * ``#`` at the very start of a line: an ATX heading, on any line;
+    * ``>`` after up to three spaces: a block quote, on any line;
+    * ``-``, ``+`` or ``*`` followed by a space, and digits followed by
+      ``.`` and a space, after up to three spaces: a list item -- on a
+      block's first line, or on any line inside a list item, where a
+      continuation line starts a nested list;
+    * a line of ``=`` or ``-`` alone as a block's second line: a setext
+      underline, spelled ``&#61;`` or ``\\-``;
+    * three or more ``-``, ``*`` or ``_``, spaces allowed between: a rule,
+      on any line -- counting the bullet a list item is about to get;
+    * ``[label]: destination`` on a line: a reference definition, which
+      python-markdown consumes and which would turn every ``[label]`` in
+      the document into a link;
+    * three backticks or tildes at the start of a top-level line: a fence;
+    * a line of only ``|``, ``:``, ``-`` and spaces: a table's separator.
+
+    Parameters
+    ----------
+    text : str
+        The container's text.
+    stand_ins : _StandIns
+        The stand-ins in use.
+    in_list : bool
+        Whether the container is inside a list item.
+    top_level : bool
+        Whether its lines start at column 0 of the document, where a fence
+        can open.
+    lead : tuple of str, optional
+        The bullets that will precede the first line on its line, outermost
+        first (:func:`_line_lead`).
+    soft_breaks : bool, optional
+        Whether a plain line break continues a paragraph (see :func:`_units`).
+
+    Returns
+    -------
+    str
+        The same text with every stand-in spelled.
+    """
+
+    if not stand_ins.carried(text):
+        return text
+    spelling = _Spelling(text, stand_ins)
+    spelling.settle_local()
+    view = spelling.view
+    blocks = _blocks(view)
+    for block_number, block in enumerate(blocks):
+        block_start, block_end = block[0][0], block[-1][1]
+        for number, (start, end) in enumerate(block):
+            line = view[start:end]
+            indent = len(line) - len(line.lstrip(" "))
+            if line.startswith("#"):
+                spelling.escape(start)
+            if number == 1 and _SETEXT_UNDERLINE.fullmatch(line):
+                spelling.escape(start)
+            # python-markdown reads each item's content from just after its
+            # own bullet, so the first line is a rule if any tail of the
+            # bullets before it makes one: ``1. - --`` holds ``- --``.
+            heads = ["".join(lead[i:]) for i in range(len(lead))]
+            bulleted = heads if block_number == 0 and number == 0 else []
+            if any(_RULE.match(head + line) for head in ["", *bulleted]):
+                for position in range(start, end):
+                    if view[position] in "-*_" and position in spelling.literal:
+                        spelling.escape(position)
+                        if view[position] == "-":
+                            break
+            if top_level and line.startswith(("```", "~~~")):
+                if line.startswith("~"):
+                    spelling.escape(start)
+                else:
+                    position = start
+                    while position < end and view[position] == "`":
+                        spelling.escape(position)
+                        position += 1
+            if "|" in line and set(line) <= set("|:- "):
+                for position in range(start, end):
+                    if view[position] == "|":
+                        spelling.escape(position)
+            if indent > 3 or indent == len(line):
+                continue
+            content = start + indent
+            first = view[content]
+            if first == ">":
+                spelling.escape(content)
+            if in_list or number == 0:
+                if first in "-+*" and view[content + 1 : content + 2] == " ":
+                    spelling.escape(content)
+                ordered = _ORDERED_MARKER.match(view, content, end)
+                if ordered:
+                    spelling.escape(ordered.end())
+            if first == "[" and _REFERENCE_DEFINITION.match(
+                view[block_start:block_end], start - block_start
+            ):
+                spelling.escape(content)
+    spelling.settle_inline(_units(view, blocks, soft_breaks=soft_breaks))
+    return spelling.render()
+
+
+def _settle_inline(
+    text: str, stand_ins: _StandIns, *, cell: bool = False, heading: bool = False
+) -> str:
+    """Spell the literal text of a table cell or a heading.
+
+    Neither holds block syntax, so only the inline questions are asked,
+    plus one each:
+
+    * in a cell, every ``|`` -- the table splits the row on it -- and every
+      backtick, because the table pairs backtick runs across the whole row
+      to decide which ``|`` it splits on;
+    * in a heading, the run of ``#`` it ends with, which python-markdown
+      strips as a closing sequence, and a final ``\\``, after which it
+      cannot match the heading line at all.
+    """
+
+    if not stand_ins.carried(text):
+        return text
+    spelling = _Spelling(text, stand_ins)
+    spelling.settle_local()
+    view = spelling.view
+    if cell:
+        for position in spelling.literal:
+            if view[position] in "|`":
+                spelling.escape(position)
+    if heading:
+        position = len(view) - 1
+        while position >= 0 and view[position] == "#":
+            spelling.escape(position)
+            position -= 1
+        if view.endswith("\\"):
+            spelling.escape(len(view) - 1)
+    spelling.settle_inline([(0, len(view))])
+    return spelling.render()
+
+
+def _settle_label(text: str, stand_ins: _StandIns) -> str:
+    """Spell the brackets in a link's text or an image's alt text.
+
+    python-markdown finds a link's text by counting brackets, so literal
+    brackets inside one are safe when they balance -- ``rapport
+    [final].pdf`` -- and end the text early when they do not. They are
+    left alone when balanced, and all escaped otherwise, or when they would
+    form an image or a link of their own inside the text. The label's other
+    characters are left to the block it is in.
+    """
+
+    if not stand_ins.carried(text):
+        return text
+    probe = _Spelling(text, stand_ins)
+    view = probe.view
+    brackets = sorted(position for position in probe.literal if view[position] in "[]")
+    if not brackets:
+        return text
+    # Only generated code spans can hide a bracket: a literal backtick is
+    # either escaped later or pairs with nothing.
+    for position in probe.literal:
+        if view[position] in "`\\":
+            probe.escaped.add(position)
+    probe.settle_backticks([(0, len(view))])
+    probe.hide_escapes()
+    working = list(probe.working())
+    depth = 1
+    broken = False
+    for char in working:
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+            if depth == 0:
+                broken = True
+                break
+    broken = broken or depth != 1
+    if not broken:
+        for opener in (position for position in brackets if view[position] == "["):
+            close = _balanced_close(working, opener + 1, len(working))
+            if close is not None and working[close + 1 : close + 2] == ["("]:
+                broken = True
+                break
+    pieces = list(text)
+    for position in brackets:
+        pieces[position] = _spelled(view[position]) if broken else view[position]
+    return "".join(pieces)
+
+
+def _loosened(item: str, loose: bool = False) -> str:
+    """Put a blank line after a list item's own text, when it is loose anyway.
+
+    python-markdown makes an item *loose* -- its text wrapped in a paragraph
+    -- as soon as anything inside it is separated by a blank line: a code
+    block, a second paragraph, a nested item of either. An item following a
+    loose one is loose too. Reading that output back gives a blank line
+    between the item's text and the nested list after it, where the first
+    read had one line break; writing the blank line from the start makes the
+    first read the one every later read gives.
+
+    The item's own text ends at its first line break that is not a hard
+    break, since that is the only other newline the reader writes there.
+
+    Parameters
+    ----------
+    item : str
+        The item's Markdown, before its bullet and indentation.
+    loose : bool, optional
+        Whether the item is loose whatever it holds: it follows a loose one.
+    """
+
+    if not loose and "\n\n" not in item:
+        return item
+    position = 0
+    while True:
+        position = item.find("\n", position)
+        if position < 0:
+            return item
+        if item[position - 2 : position] != "  ":
+            break
+        position += 1
+    if item[position + 1 : position + 2] == "\n":
+        return item
+    return item[:position] + "\n" + item[position:]
+
+
+#: The elements ``markdownify`` writes as a list.
+_LIST_ELEMENTS = frozenset({"ul", "ol", "dir", "menu"})
+
+#: The elements whose text is not displayed, and that the converter drops.
+_UNSHOWN_ELEMENTS = frozenset({"script", "style", "title"})
+
+#: The elements displayed with no text of their own.
+_SHOWN_EMPTY = frozenset({"img", "hr"})
+
+#: The blocks whose second line follows their first with no blank line.
+_LINED_BLOCKS = _LIST_ELEMENTS | {"blockquote", "table"}
+
+
+def _shows(node: PageElement, within: PageElement) -> bool:
+    """Return whether ``node`` is text, an image or a rule displayed in ``within``.
+
+    ``markdownify`` skips comments and doctypes, and whitespace between
+    blocks; a ``<br>`` on its own starts no block, so it does not count.
+    """
+
+    if isinstance(node, Tag):
+        if node.name not in _SHOWN_EMPTY:
+            return False
+    elif isinstance(node, (Comment, Doctype)) or not str(node).strip():
+        return False
+    for parent in node.parents:
+        if parent is within:
+            break
+        if parent.name in _UNSHOWN_ELEMENTS:
+            return False
+    return True
+
+
+def _last_shown(node: PageElement) -> PageElement | None:
+    """Return the last thing ``node`` displays, or ``None`` if it displays nothing."""
+
+    if isinstance(node, Tag) and node.name in _UNSHOWN_ELEMENTS:
+        return None
+    last = node
+    while isinstance(last, Tag) and last.contents:
+        last = last.contents[-1]
+    for candidate in chain([last], last.previous_elements):
+        if _shows(candidate, node):
+            return candidate
+        if candidate is node:
+            break
+    return None
+
+
+def _opens_with_a_block(item: Tag) -> bool:
+    """Return whether a list item's first line is a list's, a quote's or a table's.
+
+    The item then has no text of its own to set apart with a blank line:
+    the line after its first is that block's, and a blank line there would
+    split the block in two.
+    """
+
+    for candidate in item.descendants:
+        if _shows(candidate, item):
+            for element in candidate.parents:
+                if element is item:
+                    return False
+                if element.name in _LINED_BLOCKS:
+                    return True
+    return False
+
+
+def _ends_in_a_list(node: PageElement) -> bool | None:
+    """Return whether what ``node`` displays last is in a list, if it shows anything."""
+
+    shown = _last_shown(node)
+    if shown is None:
+        return None
+    for element in chain([shown], shown.parents):
+        if isinstance(element, Tag) and element.name in _LIST_ELEMENTS:
+            return True
+        if element is node:
+            break
+    return False
+
+
+def _bullet(item: Tag) -> str:
+    """Return the marker the reader writes before a list item."""
+
+    parent = item.parent
+    if parent is not None and parent.name == "ol":
+        start = str(parent.get("start") or "")
+        first = int(start) if start.isdigit() else 1
+        return f"{first + len(item.find_previous_siblings('li'))}. "
+    return "- "
+
+
+def _line_items(element: Tag) -> list[Tag]:
+    """Return the list items whose bullets are written on ``element``'s first line.
+
+    ``element`` itself if it is an item, and every item it opens, through
+    every block that opens the next, outermost first: ``<li><ul><li>-`` is
+    written ``- - -``. A quote ends the line's items, since python-markdown
+    parses a quote's content on its own.
+    """
+
+    items = [element] if element.name == "li" else []
+    node = element
+    while node.parent is not None:
+        if any(_last_shown(sibling) is not None for sibling in node.previous_siblings):
+            break
+        node = node.parent
+        if node.name == "blockquote":
+            break
+        if node.name == "li":
+            items.insert(0, node)
+    return items
+
+
+def _deep_list(element: Tag | None) -> bool:
+    """Return whether a list's first line carries three bullets or more.
+
+    python-markdown's first pass over a block takes every line after
+    ``- - - a`` that is indented eight spaces or more as that line's lazy
+    continuation, so nothing of such a list can follow its first line
+    directly: its items' own blocks, and its other items, each start a block
+    of their own, which makes every item of the list loose.
+    """
+
+    return element is not None and len(_line_items(element)) >= 2
+
+
+def _shown_items(element: Tag) -> int:
+    """Return how many of a list's items display something."""
+
+    items = element.find_all("li", recursive=False)
+    return sum(_last_shown(item) is not None for item in items)
+
+
+def _line_lead(element: Tag) -> tuple[str, ...]:
+    """Return the bullets written on ``element``'s first line, its own included.
+
+    ``- - -`` is a rule to python-markdown, so the first line of a block is
+    checked against its whole line.
+    """
+
+    return tuple(_bullet(item) for item in _line_items(element))
+
+
+def _code_block_fits(element: Tag) -> bool:
+    """Return whether python-markdown reads an indented code block where ``element`` is.
+
+    Inside a list item or a quote a ``<pre>`` can only be an indented code
+    block, and there are two places where python-markdown reads none: as the
+    item's first block, which is always its paragraph, and right after a
+    list in the same item or quote, since the code's indentation is then
+    exactly that of the list's last item, and its lines become a paragraph
+    of that item.
+    """
+
+    node: Tag = element
+    while node.parent is not None:
+        for sibling in node.previous_siblings:
+            in_a_list = _ends_in_a_list(sibling)
+            if in_a_list is not None:
+                return not in_a_list
+        node = node.parent
+        if node.name == "li":
+            return False
+        if node.name == "blockquote":
+            return True
+    return True
+
+
+class _LiteralSafeConverter(MarkdownConverter):
+    """``markdownify``'s converter, spelling literal text so it stays text.
+
+    ``escape`` is replaced, and escapes nothing itself: it stands each
+    character of :data:`_LITERAL` in for (:class:`_StandIns`). The
+    converters for the containers python-markdown parses on their own -- a
+    paragraph, a ``<div>``, a list item, a quote, a heading, a table cell,
+    the document -- then spell every stand-in in their text at once, before
+    they add their own prefix, with the whole of it in view:
+    :func:`_settle_block`, :func:`_settle_inline` and :func:`_settle_label`
+    list the rules. A container inside a heading, a cell or a link leaves its
+    stand-ins to the one it sits in, which is the unit python-markdown will
+    parse.
+
+    It also changes what ``markdownify`` produces wherever the result lost
+    or garbled content that literal-safe escaping would otherwise have kept:
+
+    * a list item's continuation lines are indented by four spaces, which is
+      what python-markdown nests at, rather than by the bullet's width;
+    * whatever follows a nested list in its item -- text, a quote -- starts
+      after a blank line, where ``markdownify`` ran it into the list's last
+      item; a quote anywhere in an item after its text does too, and a
+      quote that opens an item keeps its later lines at the start of the
+      line, the only place python-markdown reads them (:attr:`_StandIns.lazy`);
+    * an item whose first line it shares with another's bullet is loose,
+      and so is every item of a list whose first line carries three bullets
+      or more (:func:`_deep_list`), because python-markdown's first pass
+      over the block cannot nest anything under such a line;
+    * an item written loose by python-markdown is written loose here too, so
+      the second read is the first one (:func:`_loosened`);
+    * ``<script>``, ``<style>`` and ``<title>`` bodies are dropped, as a
+      browser drops them;
+    * ``<s>``, ``<del>`` and ``<strike>`` keep their words without the
+      ``~~`` markers python-markdown would display;
+    * an image stays an image inside a heading or a cell, and its alt text
+      is one line;
+    * a ``<pre>`` inside a list item or a quote becomes an indented code
+      block, since a fence only opens at the start of a line, except where
+      python-markdown reads no code block at all (:func:`_code_block_fits`),
+      where its lines are kept as literal text; a top-level fence is made
+      longer than any fence line the code holds;
+    * a newline in text is a space, as HTML displays it.
+    """
+
+    def __init__(self, stand_ins: _StandIns, **options: Any) -> None:
+        super().__init__(**options)
+        self.stand_ins = stand_ins
+        #: The list items whose Markdown ends in a blank line, by ``id``.
+        self._loose_items: set[int] = set()
+
+    def _inherited(self, name: str) -> Callable[..., Any]:
+        """Return ``markdownify``'s own converter ``name``.
+
+        Its type stub declares the constructor and ``convert`` alone, so the
+        converters this class extends are reached by name.
+        """
+
+        method: Callable[..., Any] = getattr(super(), name)
+        return method
+
+    # -- text -----------------------------------------------------------------
+
+    def escape(self, text: str, parent_tags: set[str]) -> str:
+        return self.stand_ins.shadow(text) if text else ""
+
+    def process_text(self, el: object, parent_tags: set[str] | None = None) -> str:
+        """Drop the whitespace next to an element displayed as a block.
+
+        ``markdownify`` already does for the elements it knows are blocks;
+        :data:`_EXTRA_BLOCKS` are the ones it does not.
+        """
+
+        text = str(self._inherited("process_text")(el, parent_tags=parent_tags))
+        before = getattr(el, "previous_sibling", None)
+        after = getattr(el, "next_sibling", None)
+        if isinstance(before, Tag) and before.name in _EXTRA_BLOCKS:
+            text = text.lstrip(_EDGE)
+        if isinstance(after, Tag) and after.name in _EXTRA_BLOCKS:
+            text = text.rstrip(_EDGE)
+        return text
+
+    # -- containers that settle their own literal text ------------------------
+
+    @staticmethod
+    def _deferred(parent_tags: set[str]) -> bool:
+        """Return whether an enclosing heading, cell or link settles instead."""
+
+        return "_inline" in parent_tags or "a" in parent_tags
+
+    def _settle(
+        self, text: str, parent_tags: set[str], lead: tuple[str, ...] = ()
+    ) -> str:
+        text = self.stand_ins.settle_breaks(text)
+        text = _LEADING_BLANK_LINES.sub("", text).rstrip(_EDGE)
+        return _settle_block(
+            text,
+            self.stand_ins,
+            in_list="li" in parent_tags,
+            top_level="li" not in parent_tags and "blockquote" not in parent_tags,
+            lead=lead,
+        )
+
+    def convert__document_(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        text = self.stand_ins.settle_breaks(text).strip()
+        return _settle_block(text, self.stand_ins, in_list=False, top_level=True)
+
+    def convert_p(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if self._deferred(parent_tags):
+            return str(self._inherited("convert_p")(el, text, parent_tags))
+        lead = _line_lead(el) if "li" in parent_tags else ()
+        text = self._settle(text, parent_tags, lead=lead)
+        return f"\n\n{text}\n\n" if text else ""
+
+    def convert_div(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if self._deferred(parent_tags):
+            return str(self._inherited("convert_div")(el, text, parent_tags))
+        lead = _line_lead(el) if "li" in parent_tags else ()
+        text = self._settle(text, parent_tags, lead=lead)
+        return f"\n\n{text}\n\n" if text else ""
+
+    convert_article = convert_div
+    convert_center = convert_div
+    convert_dl = convert_div
+    convert_section = convert_div
+    # ``markdownify`` writes a definition as ":   text" under its term, one
+    # line break apart: python-markdown, with no definition-list extension,
+    # shows the colon and runs the two into one paragraph. Two paragraphs
+    # keep both texts and nothing else.
+    convert_dd = convert_div
+    convert_dt = convert_div
+
+    def convert_blockquote(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if self._deferred(parent_tags):
+            return str(self._inherited("convert_blockquote")(el, text, parent_tags))
+        text = self._settle(text or "", parent_tags | {"blockquote"})
+        if not text:
+            return "\n"
+        lines = [f"> {line}" if line else ">" for line in text.split("\n")]
+        if "li" not in parent_tags:
+            return "\n{}\n\n".format("\n".join(lines))
+        if _line_items(el):
+            # The quote opens a list item: python-markdown never detabs an
+            # item's first block, so the quote's later lines have to be its
+            # lazy continuation, at the start of the line.
+            lines[1:] = [self.stand_ins.lazy + line for line in lines[1:]]
+            return "\n\n{}\n\n".format("\n".join(lines))
+        # Anywhere else in an item a quote opens only after a blank line: the
+        # item's later lines are indented, and ``>`` counts three spaces in
+        # at most.
+        return "\n\n{}\n\n".format("\n".join(lines))
+
+    def convert_li(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        bullet = _bullet(el)
+        spaced = False
+        if self._deferred(parent_tags):
+            text = (text or "").strip()
+        else:
+            text = self.stand_ins.settle_breaks(text or "")
+            text = _LEADING_BLANK_LINES.sub("", text).rstrip(_EDGE)
+            parent = el.parent
+            deep = _deep_list(parent)
+            spaced = deep and parent is not None and _shown_items(parent) > 1
+            # The item after a loose one is loose too: python-markdown reads
+            # it as the first item of a new block, and wraps its text. So is
+            # an item that shares its first line with another's bullet: a
+            # list after its text is eight spaces in, too deep to follow
+            # that line directly (see _deep_list).
+            previous = el.find_previous_sibling("li")
+            stacked = len(_line_items(el)) > 1
+            loose = deep or stacked or id(previous) in self._loose_items
+            if not _opens_with_a_block(el):
+                text = _loosened(text, loose)
+            lead = _line_lead(el)
+            text = self._settle(text, parent_tags | {"li"}, lead=lead)
+        if not text:
+            return "\n"
+        blocks = "\n\n" in text or spaced
+        if blocks:
+            self._loose_items.add(id(el))
+        first_line, *rest = text.split("\n")
+        lazy = self.stand_ins.lazy
+        indented = [
+            line if not line or line.startswith(lazy) else f"    {line}"
+            for line in rest
+        ]
+        item = "\n".join([bullet + first_line, *indented]) + "\n"
+        # An item of several blocks needs a blank line after it, or the next
+        # item's line is read as the last block's lazy continuation.
+        return item + "\n" if blocks else item
+
+    def convert_hN(self, n: int, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if self._deferred(parent_tags):
+            return str(self._inherited("convert_hN")(n, el, text, parent_tags))
+        text = _WHITESPACE.sub(" ", text.strip())
+        text = _settle_inline(text, self.stand_ins, heading=True)
+        return "\n\n{} {}\n\n".format("#" * max(1, min(6, n)), text)
+
+    def convert_td(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        span = str(el.get("colspan") or "")
+        colspan = max(1, min(1000, int(span))) if span.isdigit() else 1
+        text = _settle_inline(
+            text.strip().replace("\n", " "), self.stand_ins, cell=True
+        )
+        return " " + text + " |" * colspan
+
+    convert_th = convert_td
+
+    # -- markup ----------------------------------------------------------------
+
+    def _edges(self, text: str) -> tuple[str, str, str]:
+        """Split ``text`` into what goes before markup, inside it, and after.
+
+        ``markdownify``'s ``chomp`` moves spaces outside the markup so it
+        never opens or closes on whitespace; hard breaks at the edge have to
+        move out the same way, or ``**a  \\n**`` is not emphasis.
+        """
+
+        edge = _EDGE + self.stand_ins.hard_break
+        content = text.strip(edge)
+        head = text[: len(text) - len(text.lstrip(edge))]
+        tail = text[len(text.rstrip(edge)) :] if content else ""
+        return self._edge(head), content, self._edge(tail)
+
+    def _edge(self, side: str) -> str:
+        breaks = side.count(self.stand_ins.hard_break)
+        if breaks:
+            return (self.stand_ins.hard_break + "\n") * breaks
+        return " " if side else ""
+
+    def _emphasis(self, markup: str, text: str, parent_tags: set[str]) -> str:
+        if "_noformat" in parent_tags:
+            return text
+        before, content, after = self._edges(text)
+        if not content:
+            return before
+        return before + markup + content + markup + after
+
+    def convert_b(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        return self._emphasis("**", text, parent_tags)
+
+    convert_strong = convert_b
+
+    def convert_em(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        return self._emphasis("*", text, parent_tags)
+
+    convert_i = convert_em
+
+    def convert_s(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Keep struck text's words: python-markdown has no strikethrough."""
+
+        return text
+
+    convert_del = convert_s
+    convert_strike = convert_s
+
+    def convert_title(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Drop a ``<title>``, which a browser shows only in its tab."""
+
+        return ""
+
+    def convert_br(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if "_inline" in parent_tags:
+            return " "
+        if "pre" in parent_tags:
+            return "\n"
+        if "_noformat" in parent_tags:
+            return " "
+        return self.stand_ins.hard_break + "\n"
+
+    def convert_a(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if "_noformat" in parent_tags:
+            return text
+        before, text, after = self._edges(text)
+        if not text:
+            return before
+        href = el.get("href")
+        title = el.get("title")
+        if not href:
+            return before + text + after
+        href = str(href)
+        pasted = self.stand_ins.restore(text) == href
+        if pasted and not title and _AUTOLINK.fullmatch(f"<{href}>"):
+            # A pasted URL: the one autolink python-markdown renders as a link.
+            return f"{before}<{href}>{after}"
+        text = _settle_label(text, self.stand_ins)
+        titled = ' "{}"'.format(str(title).replace('"', r"\"")) if title else ""
+        return f"{before}[{text}]({href}{titled}){after}"
+
+    def convert_img(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        alt = _WHITESPACE.sub(" ", str(el.get("alt") or "")).strip()
+        alt = _settle_label(self.stand_ins.shadow(alt), self.stand_ins)
+        src = str(el.get("src") or "")
+        title = _WHITESPACE.sub(" ", str(el.get("title") or "")).strip()
+        titled = ' "{}"'.format(title.replace('"', r"\"")) if title else ""
+        return f"![{alt}]({src}{titled})"
+
+    def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        if not text:
+            return ""
+        text = re.sub(r"[ \n]*$", "", re.sub(r"^[ \n]*\n", "", text))
+        nested = "li" in parent_tags or "blockquote" in parent_tags
+        if nested and not _code_block_fits(el):
+            # No code block can be written here (see _code_block_fits), so
+            # the lines are kept as the literal text they are.
+            lines = [line.strip(" ") for line in text.split("\n")]
+            joined = (self.stand_ins.hard_break + "\n").join(filter(None, lines))
+            return self.stand_ins.shadow(joined)
+        if nested:
+            lines = text.split("\n")
+            code = "\n".join(f"    {line}" if line else "" for line in lines)
+            return f"\n\n{code}\n\n"
+        fence = "```"
+        lines = [line.rstrip(" ") for line in text.split("\n")]
+        while fence in lines:
+            fence += "`"
+        return f"\n\n{fence}\n{text}\n{fence}\n\n"
+
+    def convert_list(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """End a nested list with a blank line when its item goes on after it.
+
+        ``markdownify`` ends a list inside a list item with no line break at
+        all, so the item's text after it joined the list's last item, and a
+        quote after it became that item's lazy continuation.
+        """
+
+        markdown = str(self._inherited("convert_list")(el, text, parent_tags))
+        if "li" not in parent_tags or self._deferred(parent_tags):
+            return markdown
+        if any(_last_shown(sibling) is not None for sibling in el.next_siblings):
+            return markdown + "\n\n"
+        return markdown
+
+    convert_ul = convert_list
+    convert_ol = convert_list
+    convert_dir = convert_list
+    convert_menu = convert_list
+
+
+#: ``markdownify`` options; the converter's overrides decide the rest.
+#:
+#: ``wrap`` is what turns a newline inside text into a space, and
+#: ``wrap_width=None`` is what stops it wrapping lines.
+_MARKDOWNIFY_OPTIONS: dict[str, Any] = {"wrap": True, "wrap_width": None}
+
+
+def html_to_markdown(html: str) -> str:
+    """Convert HTML to literal-safe Markdown.
+
+    Parameters
+    ----------
+    html : str
+        The HTML to convert.
+
+    Returns
+    -------
+    str
+        The Markdown, every literal character spelled so python-markdown
+        renders it as that character.
+    """
+
+    stand_ins = _StandIns(html)
+    markdown = str(
+        _LiteralSafeConverter(stand_ins, **_MARKDOWNIFY_OPTIONS).convert(html)
+    )
+    return markdown.replace(stand_ins.lazy, "")
+
+
+def _literal_markdown(text: str) -> str:
+    """Spell plain text as Markdown that renders as that text.
+
+    The degraded path's final step: :func:`_strip_tags` returns text, and
+    :meth:`GlpiContentConverter.from_transport` returns Markdown, so the
+    text is escaped by the same rules as any text node -- every line a line
+    start, one container per blank-line-separated block.
+    """
+
+    stand_ins = _StandIns(text)
+    return _settle_block(
+        stand_ins.shadow(text),
+        stand_ins,
+        in_list=False,
+        top_level=True,
+        soft_breaks=True,
+    )
+
+
 class GlpiContentConverter:
     """Convert content between GLPI HTML payloads and canonical Markdown.
 
@@ -596,13 +2206,18 @@ class GlpiContentConverter:
         """Convert one GLPI transport value into canonical Markdown.
 
         Empty input stays empty, plain text is preserved, and HTML content is
-        normalized through ``markdownify`` with the package's preferred options.
+        converted through ``markdownify`` into Markdown that python-markdown
+        renders back as the same text: the HTML's text is literal, so every
+        character that would otherwise read as syntax is escaped, and nothing
+        else is (see the module docstring and :class:`_LiteralSafeConverter`).
 
         The HTML path is taken only when :func:`_looks_like_html` finds a real
         element. Both directions of that decision matter, because this method
         is also wired as the inbound validator for caller-authored content:
         text sent down the HTML path loses whatever the parser does not
-        recognise, and Markdown sent down it comes back escaped.
+        recognise, and Markdown sent down it comes back escaped -- a value
+        carrying one real element is read as HTML throughout, so its
+        ``**bold**`` is the eight characters it spells there.
 
         There are therefore three outcomes, not two. Real HTML that fits
         the stack is converted. Real HTML that does not is stripped to its
@@ -645,6 +2260,8 @@ class GlpiContentConverter:
         re-raises as ``ParserRejectedMarkup``. A caller who can read
         their text is better off than one holding an error, and there is
         nothing else to be done with such a body, so it is stripped too.
+        The stripped text is escaped like any other literal text
+        (:func:`_literal_markdown`), so it renders as itself.
 
         Raises
         ------
@@ -661,19 +2278,12 @@ class GlpiContentConverter:
         if not _looks_like_html(content):
             return content.strip()
         try:
-            markdown = html_to_markdown(
-                _canonicalise_void_elements(content),
-                heading_style="ATX",
-                bullets="-",
-                strip=["script", "style"],
-                escape_underscores=False,
-                escape_asterisks=False,
-            )
+            markdown = html_to_markdown(_canonicalise_void_elements(content))
         except (RecursionError, ParserRejectedMarkup):
             # The tree is deeper than the stack left, or the parser will
             # not build it at all. Both are answered with the text.
             try:
-                return _strip_tags(content)
+                return _literal_markdown(_strip_tags(content))
             except RecursionError as exc:
                 # Reachable only from a caller already within a few frames
                 # of the limit, where stripping cannot run either. Named

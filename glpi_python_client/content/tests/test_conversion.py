@@ -50,6 +50,19 @@ def _prose(text: str) -> str:
     return _NOT_PROSE.sub("", _DESTINATION.sub("]", text))
 
 
+def _displayed(markdown: str) -> str:
+    """Return the text a reader is shown of the converting path's Markdown.
+
+    That path escapes literal text -- ``&lt;!--``, ``\\_`` -- so its
+    Markdown is not the text it says: rendering it, as every reader does,
+    is what gives the text back to compare. The degraded path hands back
+    plain text, which :func:`_strip_tags` returns as it is.
+    """
+
+    rendered = GlpiContentConverter.to_transport(markdown)
+    return BeautifulSoup(rendered, "html.parser").get_text()
+
+
 def _is_subsequence(needle: str, haystack: str) -> bool:
     remaining = iter(haystack)
     return all(character in remaining for character in needle)
@@ -119,7 +132,7 @@ def assert_the_degraded_path_says_no_less(shallow: str) -> None:
 
     assert PROBE_TARGET in converted, "the body must reach the converting path"
 
-    assert _is_subsequence(_prose(converted), _prose(degraded)), (
+    assert _is_subsequence(_prose(_displayed(converted)), _prose(degraded)), (
         f"the degraded path said less than the converting one\n"
         f"  converted: {converted!r}\n  degraded:  {degraded!r}"
     )
@@ -299,34 +312,38 @@ def test_the_degraded_path_resolves_entities_and_block_boundaries() -> None:
 
 
 @pytest.mark.parametrize(
-    ("construct", "kept"),
+    ("construct", "converted_keeps", "degraded_keeps"),
     [
-        pytest.param("<!-- SECRET -->", False, id="resolved-comment"),
-        pytest.param("<!DOCTYPE SECRET>", False, id="doctype"),
-        pytest.param("<!SECRET>", False, id="bogus-declaration"),
-        pytest.param("<script>SECRET</script>", True, id="script-body"),
-        pytest.param("<style>SECRET</style>", True, id="style-body"),
-        pytest.param("<![CDATA[SECRET]]>", True, id="marked-section"),
-        pytest.param("<![CDATA[SECRET>", True, id="unterminated-marked-section"),
-        pytest.param("<?php SECRET ?>", True, id="processing-instruction"),
+        pytest.param("<!-- SECRET -->", False, False, id="resolved-comment"),
+        pytest.param("<!DOCTYPE SECRET>", False, False, id="doctype"),
+        pytest.param("<!SECRET>", False, False, id="bogus-declaration"),
+        pytest.param("<script>SECRET</script>", False, True, id="script-body"),
+        pytest.param("<style>SECRET</style>", False, True, id="style-body"),
+        pytest.param("<![CDATA[SECRET]]>", True, True, id="marked-section"),
+        pytest.param("<![CDATA[SECRET>", True, True, id="unterminated-marked-section"),
+        pytest.param("<?php SECRET ?>", True, True, id="processing-instruction"),
     ],
 )
-def test_the_degraded_path_keeps_exactly_what_the_converter_keeps(
-    construct: str, kept: bool
+def test_the_degraded_path_keeps_at_least_what_the_converter_keeps(
+    construct: str, converted_keeps: bool, degraded_keeps: bool
 ) -> None:
     """Parity, construct by construct, and not one of these was a guess.
 
     Each expectation here was read off the converting path rather than
-    reasoned about, and three came back the opposite way round from the
-    obvious answer -- a ``<script>`` body is *kept*, because
-    ``markdownify``'s ``strip=`` removes an element's markup and still
-    walks its children; so is a ``CDATA`` body; and so is the inside of
-    any construct the parser could not resolve. Each of those was a silent
-    deletion in the degraded path until it was measured.
+    reasoned about, and two came back the opposite way round from the
+    obvious answer -- a ``CDATA`` body is *kept*, and so is the inside of
+    any construct the parser could not resolve. Each of those was a
+    silent deletion in the degraded path until it was measured.
+
+    A ``<script>`` or ``<style>`` body is where the two paths part, in the
+    one direction allowed. The converting path used to keep it --
+    ``markdownify``'s ``strip=`` removed the element's markup and still
+    walked its children -- and now drops it, as a browser does; the
+    degraded path still keeps it.
 
     The bar is that a body must not say less because of the path it took,
-    so a divergence here is a bug even when the dropped text is
-    JavaScript.
+    so a divergence the other way would be a bug even if the text it lost
+    were JavaScript.
     """
 
     shallow = f"<p>a</p>{construct}<p>b</p>"
@@ -335,12 +352,12 @@ def test_the_degraded_path_keeps_exactly_what_the_converter_keeps(
     converted = GlpiContentConverter.from_transport(shallow)
     degraded = GlpiContentConverter.from_transport(deep)
 
-    # ``kept`` records what was measured, and is asserted only where the
-    # running parser still agrees with the measurement -- the reading of a
-    # malformed construct moves between CPython patch releases, and it is
-    # the parity below, not the snapshot, that this module promises.
-    if ("SECRET" in converted) is kept:
-        assert ("SECRET" in degraded) is kept
+    # What was measured is asserted only where the running parser still
+    # agrees with the measurement -- the reading of a malformed construct
+    # moves between CPython patch releases, and it is the superset below,
+    # not the snapshot, that this module promises.
+    if ("SECRET" in converted) is converted_keeps:
+        assert ("SECRET" in degraded) is degraded_keeps
     assert not ("SECRET" in converted and "SECRET" not in degraded)
 
 
@@ -895,8 +912,11 @@ def test_a_document_the_parser_rejects_degrades_instead_of_raising() -> None:
 
     assert "SECRET" in GlpiContentConverter.from_transport(html)
     if _parser_rejects(html):
-        # The converting path cannot run at all, so the answer is the text.
-        assert GlpiContentConverter.from_transport(html) == _strip_tags(html)
+        # The converting path cannot run at all, so the answer is the text,
+        # spelled as the Markdown that renders as it.
+        assert GlpiContentConverter.from_transport(html) == (
+            conversion._literal_markdown(_strip_tags(html))
+        )
 
 
 def test_the_text_after_a_construct_the_parser_rejects_is_still_kept() -> None:
