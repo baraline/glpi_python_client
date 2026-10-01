@@ -374,7 +374,7 @@ def test_an_unterminated_raw_text_element_reads_the_same_on_both_paths() -> None
     assert "keep" in GlpiContentConverter.from_transport("<p>keep</p><script>SECRET")
 
 
-@pytest.mark.parametrize("depth", [1, 100, 200, 250, 300])
+@pytest.mark.parametrize("depth", [1, 100, 200, 250])
 def test_a_document_the_stack_can_hold_is_converted_in_full(depth: int) -> None:
     """Everything that fits must convert, and structure has to survive.
 
@@ -382,8 +382,13 @@ def test_a_document_the_stack_can_hold_is_converted_in_full(depth: int) -> None:
     predicted the depth and degraded past a fixed 200, which flattened
     every body between 200 and the real cliff of about 494 -- ordinary
     quoted mail threads among them -- to text, with no error to notice
-    and no way for a caller to ask for better. The 300 and 400 cases here
-    are the ones that used to come back as prose.
+    and no way for a caller to ask for better. The 250 case is one that
+    used to come back as prose. It is also as deep as this goes, so that
+    it holds on every interpreter CI runs: CPython 3.10 spends about three
+    frames per level where 3.12 spends two, its cliff is about 328 levels
+    from a shallow stack (measured by easyvista_python_client's port,
+    2026-09-30), and a 300-level case left 14 levels of margin under
+    pytest there.
     """
 
     html = "<div>" * depth + "<strong>offline</strong>" + "</div>" * depth
