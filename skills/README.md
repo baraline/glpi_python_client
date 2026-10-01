@@ -17,6 +17,8 @@ These skills are source-tree project material. They are included in source distr
 | `glpi-team-members` | List, add, or remove ticket team members | `GetTeamMember`, `PostTeamMember` |
 | `glpi-knowledge-base` | Search, read, or write KB articles, categories, comments, and revisions | `GetKBArticle`, `PostKBArticle`, `GetKBCategory`, `GetKBArticleComment`, `GetKBArticleRevision` |
 | `glpi-plugin-fields` | Discover and read/write Fields-plugin custom fields | `GetPluginFieldsContainer`, `GetPluginFieldsField`, `GetPluginFieldsValueRow` |
+| `glpi-asset-workflow` | Search and provision computers, and read or write the contracts covering them | `GetComputer`, `PostComputer`, `GetContractItem`, `PostContractItem` |
+| `glpi-contract-workflow` | Read or write contracts, cost lines, and contract types | `GetContract`, `PostContract`, `GetContractCost`, `GetContractType` |
 
 ## Sync and async
 
@@ -25,6 +27,6 @@ The package ships two clients with identical endpoint surfaces:
 - `GlpiClient` — synchronous. `with GlpiClient(...) as client`, no `await`.
 - `AsyncGlpiClient` — asynchronous, performing real non-blocking I/O. `async with AsyncGlpiClient(...) as client`, `await` every method.
 
-Neither wraps the other: the async tree is hand-written and the synchronous one is generated from it by `unasync_build.py`, so the two cannot drift apart. Every skill opens with a note telling you how to read its snippets across the two surfaces. For eight of the nine that note says the same thing -- the snippets are written against `AsyncGlpiClient`, so drop the `await` and the `async` for `GlpiClient`. `glpi-client-setup` is the exception and says so in its own note: choosing between the two clients is what that skill is *for*, so it shows both directly, side by side, and neither surface is a translation of the other.
+Neither wraps the other: the async tree is hand-written and the synchronous one is generated from it by `unasync_build.py`, so the two cannot drift apart. Every skill opens with a note telling you how to read its snippets across the two surfaces. For ten of the eleven that note says the same thing -- the snippets are written against `AsyncGlpiClient`, so drop the `await` and the `async` for `GlpiClient`. `glpi-client-setup` is the exception and says so in its own note: choosing between the two clients is what that skill is *for*, so it shows both directly, side by side, and neither surface is a translation of the other.
 
 When fanning out concurrently on the async client, bound the fan-out with an `asyncio.Semaphore` — see `glpi-client-setup`. An unbounded fan-out is slower, not faster.

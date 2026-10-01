@@ -33,7 +33,7 @@ CLAUDE.md
 docs/superpowers/*
 
 # Large generated GLPI API contract (kept locally, not tracked)
-docs/glpi_api_contract.json
+docs/api_contract/
 # Coverage data: rewritten by every test run (and by the venv .pth hook).
 .coverage
 .coverage.*

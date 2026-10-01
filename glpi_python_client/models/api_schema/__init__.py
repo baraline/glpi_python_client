@@ -10,7 +10,7 @@ Each entity exposes one strict Pydantic model per HTTP verb:
   the contract exposes any.
 
 Only the field names, types, and read-only flags advertised by
-``docs/glpi_api_contract.json`` are honoured. Mandatory and optional behaviour
+``docs/api_contract/api.json`` are honoured. Mandatory and optional behaviour
 is left to GLPI: every field is declared optional in Python because the
 contract does not advertise ``required`` arrays.
 

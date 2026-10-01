@@ -1,7 +1,7 @@
 """GLPI v2 endpoint paths and shared transport-layer type aliases.
 
 The constants here mirror the resource paths defined in the GLPI v2 API
-contract under ``docs/glpi_api_contract.json``. Endpoint paths are kept in
+contract under ``docs/api_contract/api.json``. Endpoint paths are kept in
 one place so the API mixins all use the same resource locations and the
 shared HTTP helpers can rely on stable parameter types.
 """
@@ -13,14 +13,19 @@ from typing import TypeAlias
 GlpiId: TypeAlias = int
 RequestParamValue: TypeAlias = str | int | float | bytes | None
 
+# assets/
+COMPUTER_ENDPOINT = "Assets/Computer"
+
 # administration/
 USER_ENDPOINT = "Administration/User"
 ENTITY_ENDPOINT = "Administration/Entity"
 
 # dropdowns/
+CONTRACT_TYPE_ENDPOINT = "Dropdowns/ContractType"
 LOCATION_ENDPOINT = "Dropdowns/Location"
 
 # management/
+CONTRACT_ENDPOINT = "Management/Contract"
 DOCUMENT_ENDPOINT = "Management/Document"
 
 # assistance/
@@ -41,6 +46,9 @@ KB_REVISION_SUFFIX = "Revision"
 
 
 __all__ = [
+    "COMPUTER_ENDPOINT",
+    "CONTRACT_ENDPOINT",
+    "CONTRACT_TYPE_ENDPOINT",
     "DOCUMENT_ENDPOINT",
     "ENTITY_ENDPOINT",
     "FOLLOWUP_SUFFIX",

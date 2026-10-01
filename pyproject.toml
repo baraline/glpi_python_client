@@ -16,7 +16,7 @@ exclude = [
     "*.egg-info/",
     "docs/_build/",
     "docs/superpowers/",
-    "docs/glpi_api_contract.json",
+    "docs/api_contract/",
     ".venv/",
     "venv/",
     ".env",
