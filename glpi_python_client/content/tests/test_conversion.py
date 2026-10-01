@@ -7,6 +7,7 @@ subject; this module pins the interface around it.
 from __future__ import annotations
 
 import pytest
+from bs4 import BeautifulSoup, ParserRejectedMarkup
 
 from glpi_python_client import GlpiContentError, GlpiError
 from glpi_python_client.content import conversion
@@ -81,10 +82,36 @@ def test_a_body_too_deep_for_the_stack_degrades_to_its_text(html: str) -> None:
     assert "deep" in read(html)
 
 
-@pytest.mark.parametrize(
-    "html", ["<p>a</p><![FOO[x]]><p>b</p>", "<p>a</p><![ x<p>b</p>"]
-)
-def test_markup_the_parser_rejects_degrades_to_its_text(html: str) -> None:
+_MALFORMED_DECLARATIONS = ["<p>a</p><![FOO[x]]><p>b</p>", "<p>a</p><![ x<p>b</p>"]
+
+
+@pytest.mark.parametrize("html", _MALFORMED_DECLARATIONS)
+def test_a_malformed_declaration_still_reads_both_sides(html: str) -> None:
+    """Older CPython patch releases reject these; newer ones parse them.
+
+    3.12.11 raises from ``html.parser``, 3.12.14 and 3.13.14 read a
+    comment, so only what both outcomes share is pinned here.
+    """
+
+    markdown = read(html)
+    assert markdown.index("a") < markdown.rindex("b")
+
+
+@pytest.mark.parametrize("html", _MALFORMED_DECLARATIONS)
+def test_markup_the_parser_rejects_degrades_to_its_text(
+    monkeypatch: pytest.MonkeyPatch, html: str
+) -> None:
+    """Rejection is forced, so the fallback runs whatever ``html.parser`` does."""
+
+    parse = conversion._soup
+
+    def rejecting(markup: str) -> BeautifulSoup:
+        if "<![" in markup:
+            raise ParserRejectedMarkup(AssertionError("marked section"))
+        return parse(markup)
+
+    monkeypatch.setattr(conversion, "_soup", rejecting)
+
     assert read(html) == "a b"
 
 
