@@ -6,122 +6,90 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 0.6.0 — 2026-10-01
 
+### Changed (breaking)
+
+- **Content conversion is rebuilt on three libraries: markdownify,
+  mdformat and cmark-gfm.** `from_transport` reads GLPI's HTML with
+  `markdownify`, and `mdformat` re-renders that Markdown from its syntax
+  tree, so it keeps only the escapes CommonMark needs. `to_transport`
+  renders through `cmark-gfm`, the GitHub reference implementation, in
+  place of python-markdown. A thin layer of glue sits on top. Measured on
+  346 real bodies sampled from a GLPI 11 instance:
+  - 322 display the same after a round trip, against 299 before;
+  - 344 read back as the same Markdown, against 240.
+
+  Of 205 realistic caller-written Markdown documents, all 205 survive
+  Markdown → HTML → Markdown with the same display.
+- **Markdown is rendered as CommonMark with GFM tables.** A newline is a
+  line break, as `nl2br` made it before. Raw HTML passes through.
+  Differences you may see in Markdown you write:
+  - a list or a table written straight after a line now starts a list or a
+    table, where python-markdown wanted a blank line first;
+  - lists nested by two or three spaces nest;
+  - `1)` starts a numbered list;
+  - `#Important`, with no space, is text rather than a heading;
+  - `*a **b** c*` keeps its bold;
+  - a backslash ending a line is a line break, so write `C:\Temp\` at the
+    end of a line as `` `C:\Temp\` ``;
+  - `<word>` is read as an HTML tag, so put a placeholder such as `<login>`
+    in backticks.
+- **`.content` is spelled as canonical CommonMark.** A line break reads
+  back as `\` and a newline, a nested list is indented by its bullet's
+  width, and a table comes back unpadded. Text that would otherwise read as
+  syntax is escaped: `__init__` reads `\_\_init\_\_`, and a `* point` line
+  reads `\* point`. Stored digests of `.content` change once.
+- **A plain-text body is literal text on the read path.** A value with no
+  HTML element used to come back verbatim and be rendered as Markdown. It is
+  now read as GLPI displays it, its lines as lines.
+  `GlpiContentConverter.from_transport` takes `plain_text_is_markdown`.
+  `True` is what the write models' validator passes: caller-authored
+  Markdown passes verbatim unless it starts with an HTML tag, so Markdown
+  carrying an inline `<br>` or `<kbd>` stays Markdown.
+- **Dependencies.**
+  - Added: `cmarkgfm>=2025.10` (compiled wheels for CPython 3.10–3.14 on
+    Linux, macOS and Windows), `mdformat>=0.7.22,<0.8`,
+    `mdformat-tables>=1.0` and `markdown-it-py>=3.0`.
+  - Dropped: `markdown`. python-markdown 3.11 had broken the previous
+    reader.
+  - Raised: `beautifulsoup4>=4.15`, which fixed the parser defect that
+    dropped the text after a `<br />` in a body that also held a bare
+    `<br>`. That removes the workaround.
+
 ### Fixed
 
-- **Literal text came back as Markdown syntax.** `from_transport` handed
-  `markdownify`'s output on as Markdown, and `markdownify` escapes nothing
-  it is not asked to, so text a user typed into GLPI changed meaning as
-  soon as anything rendered it. Measured through the reader into
-  python-markdown with the four extensions `to_transport` uses:
-  `\\serveur\compta` lost a backslash, `__init__` and `______` became
-  emphasis, a `-----------` line under text made the text a heading,
-  `* point` and `> merci` lines made a list and a quote, `#4521` at the
-  start of a line made a heading, `[1]: https://...` was consumed as a
-  reference definition, and a `|` in a table cell dropped the rest of the
-  row.
-
-  The Markdown now spells literal text so python-markdown reads it as
-  text. A character is escaped **exactly where python-markdown would
-  otherwise read it as syntax, and nowhere else**: ordinary prose --
-  `fichier_de_test_v2.xlsx`, `C:\Temp\logs`, `R&D`, a `#` or a `-`
-  mid-sentence, `5 * 3` -- comes back byte for byte as before. The escape
-  is a backslash wherever python-markdown removes one (`\_`, `\#`, `\\`,
-  `\[`, `\|`, ...), and a character reference where no backslash works:
-  `&lt;` for a `<` that would open a tag or an e-mail autolink, `&amp;`
-  for an `&` that would start a reference, `&#61;` and `&#126;` for a
-  setext `=` underline or a `~~~` fence. A pasted URL link stays
-  `<https://...>`.
-
-  The rules replay python-markdown's own: its code-span pattern, its
-  escape set (asked of the renderer, not copied), its bracket counting,
-  its emphasis pairing, the line tests for headings, rules, setext
-  underlines, fences, lists, quotes, table separators and reference
-  definitions, and its e-mail autolink, which it matches only after code
-  spans, links and images are set aside. They are held to two properties,
-  checked with an HTML parser over the measured cases, over realistic
-  bodies and over a seeded fuzzer: `to_transport(from_transport(html))`
-  **displays what `html` displays**, and the Markdown is **a fixed
-  point**, reading back as itself. 30,000 fuzzed bodies were measured
-  clean; 400 run in the suite.
-
-- **Nested lists flattened on the first write.** `markdownify` indents a
-  nested item by its bullet's width, two or three spaces, where
-  python-markdown nests at four, so a nested list lost a level per cycle
-  and a nested ordered list restarted its count. Continuation lines are
-  indented by four spaces, and numbering, `start` included, survives.
-  Around that, the blocks inside a list item now stay in it: text or a
-  quote after a nested list starts a block of its own instead of running
-  into the list's last item, a quote in an item gets the blank line
-  python-markdown needs, and a quote opening an item keeps its later
-  lines. An item python-markdown writes as loose is written loose, so the
-  second read equals the first; a list whose first line carries three
-  bullets (`- - - a`) is spaced out, since python-markdown cannot nest
-  anything under such a line tightly.
-
-- **`<script>`, `<style>` and `<title>` bodies leaked into the text.**
-  `strip=["script", "style"]` skips an element's own converter, which is
-  the one that drops its body, so Outlook's CSS arrived as prose. They are
-  dropped now, on the converting path, as a browser drops them. The
-  degraded path still keeps them, which its promise -- never less than
-  the converting path -- allows.
-
-- **Bodies marked up only with obsolete elements were read as text.**
-  `<font>`, `<center>`, `<big>`, `<tt>`, `<nobr>` and the rest of the HTML
-  standard's obsolete list now make a body HTML; `<center>` and `<dir>`
-  are blocks.
-
-- **`<s>`, `<del>` and `<strike>` became a literal `~~`.** python-markdown
-  has no strikethrough, so the markers showed. The words are kept and the
-  line is dropped -- recorded as a loss below.
-
-- `<pre>` inside a list item or a quote is an indented code block, since a
-  fence opens only at the start of a line and was read there as text; a
-  top-level fence is made longer than any fence line the code holds. An
-  image stays an image in a heading or a cell. A newline in the HTML
-  source is a space, as a browser shows it, rather than a line break
-  from `nl2br`. Whitespace around a `<br>` is dropped, so one body reads
-  one way.
-
-- The degraded rendering of a body too deep to convert is spelled through
-  the same rules, so it is literal-safe too.
-
-### Changed
-
-- **Mixed Markdown and HTML in one value is read as HTML.** `from_transport`
-  is also the validator on write models, and a value carrying a single real
-  HTML element takes the HTML path throughout: `**bold** <b>x</b>` keeps
-  its asterisks as text now, where it used to render them. Write Markdown
-  or HTML, not both.
-
-- **`markdownify>=1.2`** (was `>=0.13`). The converter is a
-  `MarkdownConverter` subclass, and it relies on the 1.x converter hooks --
-  `escape(text, parent_tags)`, `convert_*(el, text, parent_tags)`,
-  `convert__document_` -- which 0.13 does not have. 1.2.2 and 1.2.3 are
-  the versions measured; 1.0 and 1.1 were not, so they are not claimed.
-
-- Markdown read from GLPI changes for any body whose text the old reader
-  let through as syntax, which is the point, and for nested lists. A
-  caller who stored the old Markdown or a digest of it sees a one-time
-  difference on the next read.
+- **Literal text came back as Markdown syntax.** These now read back as the
+  text a user typed:
+  - `\serveur\compta`, which had lost a backslash;
+  - `__init__` and `______`, which had become bold;
+  - a `-----` line under text, which had made a heading;
+  - `* point` and `> merci` lines, which had become a list and a quote;
+  - `[1]: https://...`, which had been consumed as a reference definition;
+  - a `|` in a table cell, which had dropped the rest of the row.
+- **A table nested in a table cell lost all its text.** That is the usual
+  layout of an e-mail signature. The inner table is now written as its
+  cells' text, its line breaks kept as `<br>`.
+- **Nested lists flattened on the first write.** Nested items, the text
+  after a nested list, and numbering, `start` included, survive.
+- `<script>`, `<style>` and `<title>` bodies no longer leak into the text.
+- A blank line inside a paragraph (`<br><br>`, or Outlook's
+  `<br>&nbsp;<br>`) is kept.
+- A label in bold right before a figure, as in `<b>Total:</b>12`, keeps its
+  bold.
+- A code fence keeps its language, and a `|` inside code in a table cell no
+  longer splits the row.
+- A long body converts in linear time, and a body nested deeper than the
+  stack is read as its text instead of raising.
 
 ### Known limitations
 
-Structure Markdown cannot carry, each asserted to still be a loss and to
-stabilise after one cycle (`test_what_markdown_cannot_carry`):
-strikethrough and underline (words kept, line lost); two adjacent lists,
-or two adjacent quotes, read back as one; two `<br>` in a row are a
-paragraph break; adjacent code spans merge; strong inside emphasis loses
-its bold; a table without a header row gains an empty one, and one
-without a body gains an empty row; a table cell or a heading holds one
-line, so a list, a code block or a line break in one is flattened; a
-`<pre>` that opens a list item, or directly follows a list inside the same
-item or quote, is kept as text, because python-markdown reads no code
-block there. Inside a list item or a quote, a numeric reference with no
-semicolon in code gains one (`test_a_numeric_reference_in_nested_code_gains_a_semicolon`).
-
-Reading costs more: about 1.4x the old reader on realistic bodies and up
-to 4x on bodies dense with syntax characters, every pass linear in the
-body's size.
+- A Markdown table needs a header row and the same number of cells in every
+  row. A header-less HTML table gains an empty header row, and a row that
+  spans the table gains empty cells.
+- Struck-through text is kept as raw `<s>`, since CommonMark has no
+  strikethrough.
+- Literal text that looks like syntax is sometimes escaped where
+  CommonMark would not need it, for example `5\*3` or `x \<= y`. It
+  displays as typed.
 
 ## 0.5.0 — 2026-09-08
 

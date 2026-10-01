@@ -58,11 +58,18 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "beautifulsoup4>=4.12",
+    # 4.15 fixed a parser defect that dropped the text after a "<br />" in a
+    # body that also held a bare "<br>".
+    "beautifulsoup4>=4.15",
+    # Renders Markdown to HTML: CommonMark with GFM tables.
+    "cmarkgfm>=2025.10",
     "httpx>=0.28",
     "lxml>=4.9",
-    "markdown>=3.6",
+    "markdown-it-py>=3.0",
     "markdownify>=1.2",
+    # The reader extends mdformat's renderer, an API that may move at 0.8.
+    "mdformat>=0.7.22,<0.8",
+    "mdformat-tables>=1.0",
     "pydantic>=2.8",
     # Never imported by this package, and deliberately so. httpcore decides
     # whether it is running under asyncio or trio by probing for sniffio on

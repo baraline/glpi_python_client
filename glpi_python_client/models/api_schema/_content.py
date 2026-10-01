@@ -44,19 +44,18 @@ aliases when it captures unknown keys: that validator runs *before*
 Pydantic resolves them, and would otherwise divert the wire's ``content``
 into ``extra_payload``.
 
-Plain-text content is preserved verbatim on the inbound path and rendered
-as HTML paragraphs on the outbound path, matching the converter's default
-behaviour. "Plain text" means text carrying no recognised HTML element:
-``use the <Enter> key`` and ``if x<y then z>0`` are text, because ``Enter``
-and ``y`` are not elements, while ``a<b>c`` is treated as markup because
-``b`` is. ``None`` values are passed through unchanged so optional fields
-and ``exclude_none`` semantics keep working.
+On the read path a plain-text body -- one carrying no recognised HTML
+element, so ``use the <Enter> key`` and ``if x<y then z>0`` are text while
+``a<b>c`` is markup -- is literal text, read as GLPI displays it.
+``None`` values are passed through unchanged so optional fields and
+``exclude_none`` semantics keep working.
 
 Note that the inbound converter also runs on **outbound** content: the
 ``BeforeValidator`` below fires when a caller constructs a ``Post*`` model,
 so caller-authored Markdown passes through it before the serializer renders
-it. That is why the plain-text path has to stay verbatim -- routing Markdown
-through the HTML normaliser escapes it, and GLPI receives literal asterisks.
+it. It runs with ``plain_text_is_markdown=True``, which keeps the caller's
+Markdown verbatim unless it starts with an HTML tag -- reading it as literal
+text would escape it, and GLPI would receive literal asterisks.
 
 One sharp edge comes with the read side, from ``functools.cached_property``:
 assigning to ``content_html`` after ``content`` has been read leaves the
@@ -110,7 +109,7 @@ def _from_transport(value: object) -> str | None:
 
     if value is None:
         return None
-    return GlpiContentConverter.from_transport(value)
+    return GlpiContentConverter.from_transport(value, plain_text_is_markdown=True)
 
 
 def markdown_view(raw: str | None) -> str | None:

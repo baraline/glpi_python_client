@@ -454,3 +454,42 @@ def test_to_markdown_orders_events_across_mixed_datetime_awareness() -> None:
     rendered = context.to_markdown()
 
     assert rendered.index("naive first") < rendered.index("aware second")
+
+
+def test_to_markdown_shows_names_and_file_names_as_typed() -> None:
+    """A ticket name, a user name or a file name is literal text, like a body.
+
+    ``__init__`` in a name used to turn bold and a file name's ``*final*``
+    italic, and a file name starting ``1.`` became a numbered list.
+    """
+
+    from bs4 import BeautifulSoup
+
+    from glpi_python_client.content import GlpiContentConverter
+
+    context = GlpiTicketContext.model_validate(
+        {
+            "ticket": {
+                "id": 7,
+                "name": "__init__ échoue",
+                "content": "<p>corps</p>",
+                "user_recipient": {"id": 3, "name": "*admin* [ext]"},
+            },
+            "documents": [
+                {"id": 1, "filename": "rapport_*final*_v2.pdf"},
+                {"id": 2, "filename": "1. lisez-moi.txt"},
+            ],
+        }
+    )
+
+    html = GlpiContentConverter.to_transport(context.to_markdown())
+    soup = BeautifulSoup(html, "html.parser")
+
+    h1 = soup.find("h1")
+    assert h1 is not None
+    assert h1.get_text() == "Ticket #7 \u2014 __init__ échoue"
+    quote = soup.find("blockquote")
+    assert quote is not None
+    assert "Requester: *admin* [ext]" in quote.get_text()
+    items = [item.get_text() for item in soup.find_all("li")]
+    assert items == ["rapport_*final*_v2.pdf", "1. lisez-moi.txt"]

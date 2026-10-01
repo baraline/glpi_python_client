@@ -1758,40 +1758,35 @@ The whole page is built in one pass, so a single unconvertible record used
 to make its page-mates unreadable too. The failure is now scoped to the
 record whose body you actually read.
 
-Text in a body is literal, and ``.content`` spells it so: rendering the
-Markdown -- as the package does on the way back to GLPI, or with any
-python-markdown using the same four extensions (``nl2br``, ``sane_lists``,
-``fenced_code``, ``tables``) -- displays what GLPI displayed. Markdown has
-one spelling for ``__init__`` typed by a user and for bold ``init``, so a
-character is escaped exactly where python-markdown would otherwise read it
-as syntax:
+The Markdown is CommonMark with GFM tables. Rendering it -- as the package
+does on the way back to GLPI, with cmark-gfm -- displays what GLPI
+displayed, and reading that rendering back gives the same Markdown. Text in
+a body is literal: Markdown has one spelling for ``__init__`` typed by a
+user and for bold ``init``, so text that would read as syntax is escaped:
 
 .. code-block:: python
 
    from glpi_python_client.content import GlpiContentConverter
 
    GlpiContentConverter.from_transport(
-       "<p>Voir __init__ et \\\\serveur\\partage</p><p># pas un titre</p>"
+       r"<p>Voir __init__ et \\serveur\compta</p><p># pas un titre</p>"
    )
-   # 'Voir \\_\\_init\\_\\_ et \\\\\\serveur\\partage\n\n\\# pas un titre'
+   # Voir \_\_init\_\_ et \\\serveur\compta
+   #
+   # \# pas un titre
 
-Ordinary prose carries no escape at all -- ``fichier_de_test_v2.xlsx``,
-``C:\Temp``, ``R&D``, a ``#`` or a ``-`` mid-sentence come back exactly as
-typed -- and the Markdown is a fixed point: rendering it and reading it
-back gives the same Markdown again. A backslash is used wherever
-python-markdown removes one; ``<``, ``&``, ``=`` and ``~`` are spelled as
-character references (``&lt;``) where they would be read, since no
-backslash escapes them. A pasted URL link stays ``<https://...>``.
+Ordinary prose stays as typed: ``fichier_de_test_v2.xlsx``, ``C:\Temp``,
+``R&D``, a ``#`` mid-sentence. The spelling is canonical: a line break reads
+back as ``\`` and a newline, a nested list is indented by its bullet's width,
+and a table comes back unpadded. A body with no HTML element is plain text
+and is read as GLPI shows it, its lines as lines.
 
-Two things change for a caller. A value holding a single real HTML element
-is read as HTML throughout, on write models too, so ``**bold** <b>x</b>``
-keeps its asterisks as text: write either Markdown or HTML, not both. And
-a few structures have no Markdown spelling, which the round-trip inventory
-in ``test_literal_text.py`` records: struck-through and underlined text
-keep their words but lose the line, adjacent lists or quotes merge, a line
-break in a table cell or a heading becomes a space, and a ``<pre>`` that
-opens a list item, or that directly follows a list inside the same item,
-keeps its lines as text rather than as code.
+Writing, your Markdown is rendered by cmark-gfm. A newline is a line break,
+GFM tables work, and raw HTML passes through, so put a placeholder such as
+``<login>`` in backticks. A write model keeps your Markdown verbatim unless
+it starts with an HTML tag, in which case it is read as HTML. A Markdown
+table needs a header row, so a header-less HTML table reads back with an
+empty one, and struck-through text stays as raw ``<s>``.
 
 .. note::
 

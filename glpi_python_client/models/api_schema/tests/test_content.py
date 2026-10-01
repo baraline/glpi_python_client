@@ -19,6 +19,7 @@ from pydantic_core import PydanticSerializationError
 from glpi_python_client import GlpiContentError, GlpiError, GlpiValidationError
 from glpi_python_client._sync._testing import TransportRecorder, make_client
 from glpi_python_client._sync.clients.commons._payloads import model_to_payload
+from glpi_python_client.content import conversion
 from glpi_python_client.models.api_schema._content import (
     _from_transport,
     _to_transport,
@@ -79,7 +80,9 @@ def test_a_read_model_reads_none_when_glpi_sent_no_body() -> None:
     assert ticket.content is None
 
 
-def test_a_content_fault_on_the_write_path_stays_in_the_taxonomy() -> None:
+def test_a_content_fault_on_the_write_path_stays_in_the_taxonomy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """pydantic-core destroys a serializer's exception; this puts it back.
 
     Outbound conversion runs in a ``PlainSerializer``, and everything it
@@ -88,19 +91,25 @@ def test_a_content_fault_on_the_write_path_stays_in_the_taxonomy() -> None:
     ``__context__`` both ``None``. Every ``create_*``/``update_*`` carrying
     a body was affected, so ``except GlpiError`` did not fire on the one
     path the package's error contract is most explicit about.
+
+    cmark-gfm renders without recursing, so no Markdown makes it fail; the
+    fault is injected.
     """
 
-    deep_markdown = "".join(" " * (4 * level) + "- x\n" for level in range(600))
+    def failing_renderer(markdown: str) -> str:
+        raise RuntimeError("renderer fault")
+
+    monkeypatch.setattr(conversion, "markdown_to_html", failing_renderer)
     client = make_client()
     TransportRecorder().install(client)
 
     with pytest.raises(GlpiContentError) as caught:
-        client.create_ticket(PostTicket(name="round trip", content=deep_markdown))
+        client.create_ticket(PostTicket(name="round trip", content="**x**"))
 
     assert isinstance(caught.value, GlpiError)
     assert not isinstance(caught.value, ValueError)
     # the original fault, which pydantic-core had discarded
-    assert isinstance(caught.value.__cause__, RecursionError)
+    assert isinstance(caught.value.__cause__, RuntimeError)
     # and the serializer wrapper, kept where a reader would look for it
     assert isinstance(caught.value.__context__, PydanticSerializationError)
 
