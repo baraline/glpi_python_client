@@ -167,15 +167,19 @@ _TABLE_PARTS = frozenset(
     {"table", "thead", "tbody", "tfoot", "tr", "caption", "colgroup", "col"}
 )
 
+#: What Markdown writes on one line: a table inside one cannot be a table.
+_ONE_LINE = frozenset({"td", "th", "a", "h1", "h2", "h3", "h4", "h5", "h6"})
+
 
 def _flatten_nested_tables(root: Tag) -> None:
-    """Write a table that sits inside a cell as its cells' text.
+    """Write a table that sits inside a cell, a heading or a link as its cells' text.
 
     A GFM cell holds one line, so a nested table -- the usual layout of an
     e-mail signature -- written as a table split the outer row and lost
-    every word. Inside a cell, a table's parts become ``span`` and its cells
-    ``glpi-cell``, which :class:`_Converter` writes as spaced inline text.
-    Renaming in one walk keeps it linear however deeply tables nest.
+    every word; in a heading or a link its pipes became text. Inside one, a
+    table's parts become ``span`` and its cells ``glpi-cell``, which
+    :class:`_Converter` writes as spaced inline text. Renaming in one walk
+    keeps it linear however deeply tables nest.
     """
 
     cells = 0
@@ -192,8 +196,9 @@ def _flatten_nested_tables(root: Tag) -> None:
             node.name = "glpi-cell" if is_cell else "span"
             counted.append(False)
             continue
-        counted.append(is_cell)
-        cells += is_cell
+        holds = node.name in _ONE_LINE and (node.name != "a" or bool(node.get("href")))
+        counted.append(holds)
+        cells += holds
 
 
 def _walk(root: Tag) -> Iterator[tuple[PageElement, bool]]:
@@ -246,7 +251,8 @@ def _note_sides(root: Tag) -> None:
 
     One pass: ``last`` is the last character shown so far on the current
     line, and an element that has closed waits for the next one. A line edge
-    counts as a space, as it does for CommonMark.
+    counts as a space, as it does for CommonMark, and so does the edge of a
+    flattened cell, which :class:`_Converter` spaces.
     """
 
     last = " "
@@ -259,7 +265,7 @@ def _note_sides(root: Tag) -> None:
                 else:
                     waiting.append(node)
                 continue
-            if node.name not in _BLOCKS and node.name != "br":
+            if node.name not in _BLOCKS and node.name not in ("br", "glpi-cell"):
                 continue
             first = last = " "
         else:
@@ -327,6 +333,11 @@ class _Converter(MarkdownConverter):
         text = str(self._inherited("escape")(text, parent_tags))
         return text[:-1] + "\\!" if text.endswith("!") else text
 
+    def process_tag(self, node: Any, parent_tags: Any = None) -> str:
+        if node.name == "glpi-cell":  # one line, as a cell is: its blocks are inline
+            parent_tags = {*(parent_tags or ()), "_inline"}
+        return str(self._inherited("process_tag")(node, parent_tags))
+
     def _markup(
         self, el: Tag, text: str, parent_tags: set[str], markers: str, tag: str
     ) -> str:
@@ -364,25 +375,49 @@ class _Converter(MarkdownConverter):
     convert_del = convert_s
     convert_strike = convert_s
 
+    def convert_u(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """Underlined or highlighted text: CommonMark has neither, so raw HTML."""
+
+        return self._markup(el, text, parent_tags, "", el.name)
+
+    convert_mark = convert_ins = convert_u
+
+    def convert_center(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """``<center>``, obsolete, is a block, as ``<div>`` is."""
+
+        if "pre" in parent_tags:
+            return text
+        return str(self._inherited("convert_div")(el, text, parent_tags))
+
     def convert_glpi_cell(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """A cell of a table nested in a cell: its text, set apart by spaces."""
 
         return f" {text.strip()} "
 
     def convert_br(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        if "pre" in parent_tags:
-            return "\n"
+        if "_noformat" in parent_tags:
+            return "\n"  # in <pre>, or in inline code, which convert_code splits
         if "td" in parent_tags or "th" in parent_tags:
             return "<br>"  # a cell is one line of Markdown; cmark-gfm passes the tag
         return str(self._inherited("convert_br")(el, text, parent_tags))
 
     def convert_code(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        code = str(self._inherited("convert_code")(el, text, parent_tags))
-        if "td" in parent_tags or "th" in parent_tags:
+        """Inline code, a span per line: a code span cannot hold a line break."""
+
+        cell = "td" in parent_tags or "th" in parent_tags
+        lines = [text] if "_noformat" in parent_tags else text.split("\n")
+        join = "<br>" if cell else " " if "_inline" in parent_tags else "\\\n"
+        code = join.join(
+            str(self._inherited("convert_code")(el, line, parent_tags))
+            for line in lines
+        )
+        if cell:
             code = code.replace(
                 "|", "\\|"
             )  # GFM splits a row on "|" before it reads code
         return code
+
+    convert_kbd = convert_samp = convert_code
 
     def convert_list(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """A list; a nested one ends in a blank line.

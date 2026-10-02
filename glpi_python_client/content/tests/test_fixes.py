@@ -10,7 +10,16 @@ pins one, numbered as in both packages' changelogs:
 2. ``~~~`` opening a line stays text, not a code fence;
 3. a ``!`` ending a text right before a link does not make it an image;
 4. an alt opening with ``^`` stays an image;
-5. a second ``<`` after an escaped one does not open an autolink.
+5. a second ``<`` after an escaped one does not open an autolink;
+6. a line break in inline code (``code``, ``kbd``, ``samp``) is kept in a
+   paragraph and a cell, and is a space in a heading, which is one line;
+   and a ``|`` in one of them in a cell stays in the cell;
+7. a table inside a heading or a link is written as its cells' text, as
+   one inside a cell already was;
+8. a block in such a table stays on its holder's line;
+9. bold at a flattened cell's edge still closes;
+10. ``<center>`` is a block, except inside ``<pre>``;
+11. ``<u>``, ``<mark>`` and ``<ins>`` stay raw HTML.
 
 Every word is invented and every URL is under ``example.org``.
 """
@@ -21,6 +30,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from glpi_python_client.content.conversion import GlpiContentConverter
+from glpi_python_client.content.tests.display import displayed, one_line
 from glpi_python_client.content.tests.test_round_trip import assert_survives
 
 read = GlpiContentConverter.from_transport
@@ -177,3 +187,191 @@ def test_5_a_second_less_than_stays_text(html: str) -> None:
     markdown = assert_survives(html)
 
     assert "\\<\\<" in markdown
+
+
+# ---------------------------------------------------------------------------
+# 6. A line break in inline code
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<p>Sortie : <code>ligne un<br>ligne deux</code> fin</p>",
+            "Sortie : `ligne un`\\\n`ligne deux` fin",
+            id="paragraph",
+        ),
+        pytest.param(
+            "<p>x <code>ligne un<br> ligne deux</code> y</p>",
+            "x `ligne un`\\\n`ligne deux` y",
+            id="space-after-the-break",
+        ),
+        pytest.param(
+            "<table><tr><th>H</th></tr><tr><td>a <code>un<br>deux</code> b</td></tr>"
+            "</table>",
+            "| H |\n| -- |\n| a `un`<br>`deux` b |",
+            id="cell",
+        ),
+    ],
+)
+def test_6_a_line_break_in_inline_code_splits_the_span(
+    html: str, expected: str
+) -> None:
+    """A code span cannot hold a line break, so the span ends and resumes."""
+
+    assert assert_survives(html) == expected
+
+
+def test_6_a_line_break_in_inline_code_in_a_heading_is_a_space() -> None:
+    """A heading is one line in Markdown: the break becomes a space."""
+
+    markdown = read("<h2>a <code>un<br>deux</code> b</h2>")
+
+    assert markdown == "## a `un` `deux` b"
+    assert displayed(render(markdown)) == displayed(
+        "<h2>a <code>un</code> <code>deux</code> b</h2>"
+    )
+
+
+@pytest.mark.parametrize("tag", ["code", "kbd", "samp"])
+def test_6_a_pipe_in_inline_code_in_a_cell_stays_in_the_cell(tag: str) -> None:
+    """GFM splits a row on ``|`` before it reads code. ``code`` is the control:
+    0.6.0 escaped it there already, but not in ``kbd`` or ``samp``."""
+
+    html = f"<table><tr><th>H</th></tr><tr><td><{tag}>a|b</{tag}> fin</td></tr></table>"
+
+    markdown = assert_survives(html)
+
+    assert "`a\\|b` fin" in markdown
+
+
+# ---------------------------------------------------------------------------
+# 7. A table inside a heading or a link
+# ---------------------------------------------------------------------------
+
+
+def test_7_a_table_inside_a_heading_is_its_cells_text() -> None:
+    markdown = assert_survives(
+        "<h2>Titre <table><tr><td>a</td><td>b</td></tr></table></h2>"
+    )
+
+    assert markdown == "## Titre a b"
+
+
+def test_7_a_table_inside_a_link_is_the_links_text() -> None:
+    """A browser draws the table inside the link; Markdown cannot, so every
+    word is kept, in order, still linked."""
+
+    html = (
+        '<p>avant <a href="https://example.org/u"><table><tr><td>un</td><td>deux</td>'
+        "</tr></table></a> apres</p>"
+    )
+
+    markdown = read(html)
+
+    assert markdown == "avant [un deux](https://example.org/u) apres"
+    assert displayed(render(markdown)) == one_line(html)
+    assert read(render(markdown)) == markdown
+
+
+def test_7_a_table_inside_a_cell_is_its_cells_text() -> None:
+    """The control: 0.6.0 already flattened a table nested in a cell."""
+
+    markdown = assert_survives(
+        "<table><tr><th>A</th></tr><tr><td><table><tr><td>un</td><td>deux</td></tr>"
+        "</table></td></tr></table>"
+    )
+
+    assert markdown == "| A |\n| -- |\n| un deux |"
+
+
+# ---------------------------------------------------------------------------
+# 8. A block in a flattened table stays on its holder's line
+# ---------------------------------------------------------------------------
+
+
+def test_8_blocks_in_a_table_inside_a_link_stay_on_the_links_line() -> None:
+    html = (
+        '<p>avant <a href="https://example.org/u"><table><tr><td><p>un</p><p>deux</p>'
+        "</td><td>z</td></tr></table></a> apres</p>"
+    )
+
+    markdown = read(html)
+
+    assert markdown == "avant [un deux z](https://example.org/u) apres"
+    assert displayed(render(markdown)) == one_line(html)
+
+
+# ---------------------------------------------------------------------------
+# 9. Bold at a flattened cell's edge still closes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        pytest.param("<td>x</td><td><b>gras.</b></td><td>y</td>", id="ends-on-a-dot"),
+        pytest.param("<td><b>(gras)</b></td><td>y</td>", id="parenthesised"),
+    ],
+)
+def test_9_bold_at_a_flattened_cells_edge_is_markdown_bold(cells: str) -> None:
+    """The converter spaces a flattened cell, so its edge counts as a space.
+    0.6.0 counted the next cell's text and wrote raw ``<strong>``,
+    which read back as ``**`` and was not a fixed point."""
+
+    markdown = assert_survives(
+        f"<table><tr><th>A</th></tr><tr><td><table><tr>{cells}</tr></table></td></tr>"
+        "</table>"
+    )
+
+    assert "<strong>" not in markdown
+
+
+# ---------------------------------------------------------------------------
+# 10. <center> is a block, except inside <pre>
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<center>Titre</center> suite", "Titre\n\nsuite", id="alone"),
+        pytest.param("<p>a<center>b</center>c</p>", "a\n\nb\n\nc", id="in-a-line"),
+    ],
+)
+def test_10_center_is_a_block(html: str, expected: str) -> None:
+    assert assert_survives(html) == expected
+
+
+def test_10_center_inside_pre_is_left_alone() -> None:
+    """The correction to the fix, not the fix: as a block there it split the code."""
+
+    markdown = assert_survives("<pre>un\n<center>deux</center>\ntrois</pre>")
+
+    assert markdown == "```\nun\ndeux\ntrois\n```"
+
+
+# ---------------------------------------------------------------------------
+# 11. <u>, <mark> and <ins> stay raw HTML
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tag", ["u", "mark", "ins"])
+def test_11_underline_and_highlight_stay_raw_html(tag: str) -> None:
+    """CommonMark has neither; 0.6.0 dropped the formatting."""
+
+    markdown = assert_survives(f"<p>a <{tag}>trilo</{tag}> fin</p>")
+
+    assert markdown == f"a <{tag}>trilo</{tag}> fin"
+    assert f"<{tag}>trilo</{tag}>" in render(markdown)
+
+
+def test_11_the_edges_move_outside_the_tag() -> None:
+    assert read("<p>a<u> trilo </u>b</p>") == "a <u>trilo</u> b"
+
+
+def test_11_underline_inside_a_link() -> None:
+    markdown = assert_survives('<p><a href="https://example.org/u"><u>lien</u></a></p>')
+
+    assert markdown == "[<u>lien</u>](https://example.org/u)"
