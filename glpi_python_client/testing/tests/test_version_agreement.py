@@ -17,12 +17,7 @@ from __future__ import annotations
 
 import pathlib
 import re
-import sys
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - exercised on 3.10 only
-    import tomli as tomllib
+import tomllib
 
 import glpi_python_client
 

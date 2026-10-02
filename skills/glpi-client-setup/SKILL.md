@@ -2,7 +2,7 @@
 name: glpi-client-setup
 description: "Create and configure the synchronous glpi_python_client.GlpiClient or the asynchronous glpi_python_client.AsyncGlpiClient, including from_env, OAuth credential pairs, entity/profile headers, SSL settings, and the optional legacy v1 session (v1_base_url / v1_user_token) that backs document uploads, the Fields plugin helpers, KB category writes and actor-based statistics. Use before calling GLPI APIs, when configuring the v1 session for any of those features, or when the user asks how to connect to GLPI with glpi_python_client."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

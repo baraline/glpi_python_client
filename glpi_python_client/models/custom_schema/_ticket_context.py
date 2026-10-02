@@ -9,7 +9,7 @@ single object to reason about a ticket and its history.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -30,7 +30,7 @@ from glpi_python_client.models.api_schema.assistance.timeline._task import (
 )
 from glpi_python_client.models.api_schema.management._document import GetDocument
 
-_MAX_DATETIME = datetime.max.replace(tzinfo=timezone.utc)
+_MAX_DATETIME = datetime.max.replace(tzinfo=UTC)
 
 
 def _literal(text: str) -> str:
@@ -192,7 +192,7 @@ def _event_sort_key(event: Any) -> datetime:
     if created is None:
         return _MAX_DATETIME
     if created.tzinfo is None:
-        return created.replace(tzinfo=timezone.utc)
+        return created.replace(tzinfo=UTC)
     return created
 
 

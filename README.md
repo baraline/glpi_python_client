@@ -3,7 +3,7 @@
 [![CI](https://github.com/baraline/glpi_python_client/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/baraline/glpi_python_client/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/baraline/glpi_python_client/branch/main/graph/badge.svg)](https://codecov.io/gh/baraline/glpi_python_client)
 [![License](https://img.shields.io/github/license/baraline/glpi_python_client)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://github.com/baraline/glpi_python_client)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/baraline/glpi_python_client)
 [![Docs](https://readthedocs.org/projects/glpi-python-client/badge/?version=latest)](https://glpi-python-client.readthedocs.io/en/latest/)
 
 `glpi-python-client` is a typed Python client for the GLPI REST API.

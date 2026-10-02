@@ -5,11 +5,7 @@ from __future__ import annotations
 from datetime import date
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-
-try:
-    from tomllib import loads as toml_loads
-except ModuleNotFoundError:
-    from tomli import loads as toml_loads
+from tomllib import loads as toml_loads
 
 
 def _read_project_version() -> str:

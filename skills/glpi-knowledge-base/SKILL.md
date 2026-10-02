@@ -2,7 +2,7 @@
 name: glpi-knowledge-base
 description: "Search, read, create, update, and delete GLPI knowledge base articles, categories, comments, and revisions with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetKBArticle/PostKBArticle/GetKBCategory/GetKBArticleComment/GetKBArticleRevision models. Use for GLPI knowledge base content, FAQ articles, article categories, article comments, article revision history, or assigning categories to a KB article."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and — for category writes only — a legacy v1 session (v1_base_url + v1_user_token)."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and — for category writes only — a legacy v1 session (v1_base_url + v1_user_token)."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

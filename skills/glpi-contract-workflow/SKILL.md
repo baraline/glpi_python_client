@@ -2,7 +2,7 @@
 name: glpi-contract-workflow
 description: "Search, fetch, create, update, and delete GLPI contracts, their cost lines, and the contract-type dropdown, with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetContract/PostContract/PatchContract/DeleteContract, GetContractCost/PostContractCost, and GetContractType/PostContractType models. Use for GLPI contract coverage, maintenance agreements, contract cost/budget lines, contract renewal type, or the contract-type dropdown."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write contracts."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write contracts."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

@@ -2,7 +2,7 @@
 name: glpi-ticket-workflow
 description: "Search, fetch, create, update, and delete GLPI tickets with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetTicket/PostTicket/PatchTicket/DeleteTicket models. Use for GLPI ticket records, ticket filters, fields, pagination, status, priority, category, location, or instance-specific extra_payload values."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

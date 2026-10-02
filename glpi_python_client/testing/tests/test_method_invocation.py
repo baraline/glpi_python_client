@@ -25,7 +25,7 @@ import asyncio
 import inspect
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, get_type_hints
 
 import pytest
@@ -212,7 +212,7 @@ def _install_stub(client: GlpiClient | AsyncGlpiClient) -> list[str]:
     # Pretend a valid, non-expiring token is already held so no OAuth round
     # trip happens and the call log contains only endpoint traffic.
     client._auth.access_token = "stub-token"
-    client._auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=365)
+    client._auth.token_expires_at = datetime.now(tz=UTC) + timedelta(days=365)
     # Several features (plugin fields, KB category writes, document upload,
     # actor statistics) run on the legacy v1 session rather than the v2
     # transport. Stub it into the same log so they are exercised too.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -98,7 +98,7 @@ def test_changed_since_converts_an_aware_datetime_into_the_server_zone() -> None
     must be the server's rendering of that same instant.
     """
 
-    aware = datetime(2026, 8, 12, 7, 33, tzinfo=timezone.utc)
+    aware = datetime(2026, 8, 12, 7, 33, tzinfo=UTC)
 
     assert changed_since(aware, tz=ZoneInfo("Europe/Paris")) == (
         "date_mod=ge=2026-08-12 09:33:00"
@@ -113,8 +113,8 @@ def test_changed_since_follows_dst_in_the_server_zone() -> None:
     """
 
     paris = ZoneInfo("Europe/Paris")
-    winter = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
-    summer = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+    winter = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+    summer = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
 
     assert changed_since(winter, tz=paris) == "date_mod=ge=2026-01-15 13:00:00"
     assert changed_since(summer, tz=paris) == "date_mod=ge=2026-07-15 14:00:00"
@@ -129,7 +129,7 @@ def test_changed_since_rejects_an_aware_datetime_without_a_zone() -> None:
     over-reads east of UTC and skips modifications west of it.
     """
 
-    aware = datetime(2026, 1, 1, 13, 45, 30, tzinfo=timezone.utc)
+    aware = datetime(2026, 1, 1, 13, 45, 30, tzinfo=UTC)
 
     with pytest.raises(GlpiValidationError):
         changed_since(aware)

@@ -8,7 +8,7 @@ share the same authenticated session state.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -241,7 +241,7 @@ class GLPITokenManager:
         if refresh_token:
             self.refresh_token = refresh_token
         expires_in = int(str(token_data.get("expires_in") or 3600))
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         self.token_updated_at = now
         self.token_expires_at = now + timedelta(seconds=expires_in)
         logger.info("GLPI OAuth token %s successfully.", label)
@@ -399,7 +399,7 @@ class GLPITokenManager:
             await self._acquire_token()
             return
 
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         token_expired = (
             self.token_expires_at is not None and now >= self.token_expires_at
         )

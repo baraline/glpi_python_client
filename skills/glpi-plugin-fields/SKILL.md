@@ -2,7 +2,7 @@
 name: glpi-plugin-fields
 description: "Discover and read/write GLPI Fields-plugin custom fields with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient — list_plugin_fields_containers, list_plugin_fields_fields, list_item_plugin_field_rows, create_item_plugin_field_row, update_item_plugin_field_row, and the Ticket-only get_ticket_custom_fields/set_ticket_custom_fields. Use for GLPI custom fields, the Fields plugin, per-instance extra ticket attributes, or reading a ticket's custom-field values."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, the GLPI Fields plugin installed server-side, and a legacy v1 session (v1_base_url + v1_user_token) — every method in this family goes over the v1 API."
+compatibility: "Requires Python 3.11+, glpi-python-client, the GLPI Fields plugin installed server-side, and a legacy v1 session (v1_base_url + v1_user_token) — every method in this family goes over the v1 API."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

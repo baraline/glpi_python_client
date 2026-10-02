@@ -15,7 +15,7 @@ are tested here directly.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -53,7 +53,7 @@ def _stub(client: AsyncGlpiClient, payload: Any) -> list[str]:
 
     client._session.request = _request  # type: ignore[method-assign,assignment]
     client._auth.access_token = "stub-token"
-    client._auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=365)
+    client._auth.token_expires_at = datetime.now(tz=UTC) + timedelta(days=365)
     return calls
 
 

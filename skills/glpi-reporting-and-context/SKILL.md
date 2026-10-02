@@ -2,7 +2,7 @@
 name: glpi-reporting-and-context
 description: "Aggregate GLPI ticket and task statistics and load grouped ticket contexts with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient. Use for operational reporting, ticket counts grouped by entity/status/priority/type, task duration totals grouped by user/entity/ticket, per-user activity reports, batch-streamed pagination of search results, or one-call ticket context retrieval bundling tickets with timeline records."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read tickets, tasks, users, entities, and timeline records."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read tickets, tasks, users, entities, and timeline records."
 metadata:
   package: glpi-python-client
   version: "0.6.0"

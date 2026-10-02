@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -75,8 +75,8 @@ def test_to_markdown_renders_ticket_subtitle_metadata() -> None:
                 "name": "Printer broken",
                 "user_recipient": {"id": 7, "name": "Alice"},
                 "user_editor": {"id": 8, "name": "Bob"},
-                "date_creation": datetime(2024, 1, 1, 9, 30, tzinfo=timezone.utc),
-                "date_mod": datetime(2024, 1, 2, 11, 45, tzinfo=timezone.utc),
+                "date_creation": datetime(2024, 1, 1, 9, 30, tzinfo=UTC),
+                "date_mod": datetime(2024, 1, 2, 11, 45, tzinfo=UTC),
             }
         }
     )
@@ -99,12 +99,12 @@ def test_to_markdown_orders_events_by_creation_when_no_position() -> None:
                 {
                     "id": 2,
                     "content": "second note",
-                    "date_creation": datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 2, tzinfo=UTC),
                 },
                 {
                     "id": 1,
                     "content": "first note",
-                    "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 1, tzinfo=UTC),
                 },
             ],
         }
@@ -123,7 +123,7 @@ def test_to_markdown_ignores_timeline_position_for_ordering() -> None:
                 {
                     "id": 1,
                     "content": "no position late",
-                    "date_creation": datetime(2024, 1, 5, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 5, tzinfo=UTC),
                 },
             ],
             "tasks": [
@@ -131,7 +131,7 @@ def test_to_markdown_ignores_timeline_position_for_ordering() -> None:
                     "id": 2,
                     "content": "left positioned",
                     "timeline_position": 1,
-                    "date_creation": datetime(2024, 1, 10, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 10, tzinfo=UTC),
                 },
             ],
         }
@@ -197,8 +197,8 @@ def test_to_markdown_renders_event_creator_editor_and_timestamps() -> None:
                     "content": "note",
                     "user": {"id": 7, "name": "Alice"},
                     "user_editor": {"id": 8, "name": "Bob"},
-                    "date_creation": datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc),
-                    "date_mod": datetime(2024, 1, 2, 10, 5, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 2, 10, 0, tzinfo=UTC),
+                    "date_mod": datetime(2024, 1, 2, 10, 5, tzinfo=UTC),
                 }
             ],
         }
@@ -226,8 +226,8 @@ _FULL_PAYLOAD = {
         "status": {"id": 2, "name": "Open"},
         "user_recipient": {"id": 3, "name": "Alice"},
         "user_editor": {"id": 4, "name": "Bob"},
-        "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        "date_mod": datetime(2024, 1, 2, tzinfo=timezone.utc),
+        "date_creation": datetime(2024, 1, 1, tzinfo=UTC),
+        "date_mod": datetime(2024, 1, 2, tzinfo=UTC),
     },
     "followups": [{"id": 10, "content": "followup body"}],
     "tasks": [{"id": 20, "content": "task body", "duration": 600}],
@@ -368,7 +368,7 @@ def test_options_hide_event_dates() -> None:
                 {
                     "id": 5,
                     "content": "note",
-                    "date_creation": datetime(2024, 3, 1, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 3, 1, tzinfo=UTC),
                 }
             ],
         }
@@ -415,7 +415,7 @@ def test_to_markdown_sorts_aware_events_when_one_lacks_a_creation_date() -> None
                 {
                     "id": 1,
                     "content": "dated note",
-                    "date_creation": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 1, tzinfo=UTC),
                 },
             ],
         }
@@ -440,7 +440,7 @@ def test_to_markdown_orders_events_across_mixed_datetime_awareness() -> None:
                 {
                     "id": 2,
                     "content": "aware second",
-                    "date_creation": datetime(2024, 1, 2, tzinfo=timezone.utc),
+                    "date_creation": datetime(2024, 1, 2, tzinfo=UTC),
                 },
                 {
                     "id": 1,

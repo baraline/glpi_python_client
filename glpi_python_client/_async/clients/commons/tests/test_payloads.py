@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from glpi_python_client._async.clients.commons._payloads import (
     model_from_payload,
@@ -101,7 +101,7 @@ def test_model_to_payload_rewrites_an_aware_datetime_onto_the_server_clock() -> 
     offset has to be spent on the conversion instead of written out.
     """
 
-    aware = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    aware = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
     body = model_to_payload(
         PostTicketTask(planned_begin=aware),
@@ -114,7 +114,7 @@ def test_model_to_payload_rewrites_an_aware_datetime_onto_the_server_clock() -> 
 def test_model_to_payload_leaves_an_aware_datetime_alone_without_a_timezone() -> None:
     """Outside the client there is no server clock to convert onto."""
 
-    aware = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+    aware = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
     body = model_to_payload(PostTicketTask(planned_begin=aware))
 

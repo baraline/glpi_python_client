@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed (breaking)
 
+- **Python 3.10 is no longer supported; 3.11 is the minimum.** The
+  `typing-extensions` and `tomli` backports it needed are dropped.
 - **Content conversion is rebuilt on three libraries: markdownify,
   mdformat and cmark-gfm.** `from_transport` reads GLPI's HTML with
   `markdownify`, and `mdformat` re-renders that Markdown from its syntax
@@ -46,7 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Markdown passes verbatim unless it starts with an HTML tag, so Markdown
   carrying an inline `<br>` or `<kbd>` stays Markdown.
 - **Dependencies.**
-  - Added: `cmarkgfm>=2025.10` (compiled wheels for CPython 3.10–3.14 on
+  - Added: `cmarkgfm>=2025.10` (compiled wheels for CPython 3.11–3.14 on
     Linux, macOS and Windows), `mdformat>=0.7.22,<0.8`,
     `mdformat-tables>=1.0` and `markdown-it-py>=3.0`.
   - Dropped: `markdown`. python-markdown 3.11 had broken the previous

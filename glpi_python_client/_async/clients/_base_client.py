@@ -13,13 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
-from typing import TYPE_CHECKING
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:  # pragma: no cover - fallback for Python 3.10
-    from typing_extensions import Self
+from typing import TYPE_CHECKING, Self
 
 from glpi_python_client._async._concurrency import Lock
 from glpi_python_client._async.clients.commons._config import (
