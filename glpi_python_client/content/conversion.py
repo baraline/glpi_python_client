@@ -11,14 +11,24 @@ GLPI stores rich text as HTML; the package's surface is Markdown.
   renders CommonMark with GFM tables; a newline is a line break and raw
   HTML passes through.
 
-Rendering the Markdown a read gives displays what GLPI displayed, and
-reading that back gives the same Markdown. The glue below covers what the
+The aim is that rendering the Markdown a read gives displays what GLPI
+displayed, and that reading that back gives the same Markdown. Some
+synthetic shapes still lose words or the fixed point; the user guide's
+"Rich-text content" section lists them. The glue below covers what the
 three libraries leave out: plain text, line breaks a browser does not
 show, bold and italic CommonMark would not close, link targets, and an
 mdformat set up without its nesting cap and with its quadratic lookups made
-linear. A body nested too deeply for the stack is read as its text
+linear. A body nested too deeply for the stack, or holding a ``colspan`` or
+``start`` markdownify cannot read as a number, is read as its text
 (:func:`_text_of`); anything else that fails raises
 :class:`~glpi_python_client.GlpiContentError`.
+
+The reader is ``easyvista-python-client`` 0.4.0's, helper for helper: that
+package ported this module at commit ``917f030`` and added fifteen fixes,
+which 0.6.1 ports back. The two modules differ only in names, messages,
+docstrings and that package's optional-dependency import guard, and should
+move together: the hard part of both is the behaviour of the same
+libraries, not anything either ITSM does.
 """
 
 from __future__ import annotations
@@ -701,9 +711,12 @@ class GlpiContentConverter:
             read path, reads plain text as GLPI displays it -- literal
             characters, one line per line -- so ``__init__`` comes back
             escaped. ``True`` is the write models' validator: the value is
-            the caller's own Markdown and passes verbatim unless it starts
-            with a real HTML tag, so Markdown carrying an inline ``<br>`` or
-            ``<kbd>`` is still Markdown.
+            the caller's own Markdown and passes through, stripped, unless
+            it starts with ``<`` and holds a real HTML element anywhere. So
+            Markdown carrying an inline ``<br>`` or ``<kbd>`` is still
+            Markdown, but Markdown that opens with an autolink or other
+            angle-bracketed text and carries inline HTML further on is read
+            as HTML, and loses that autolink.
 
         Returns
         -------
@@ -714,8 +727,14 @@ class GlpiContentConverter:
         ------
         GlpiContentError
             The value could not be converted. A body nested too deeply for
-            the stack left is read as its text instead, so this is a
-            backstop.
+            the stack left, or holding a ``colspan`` or ``start``
+            markdownify cannot read as a number, is read as its text
+            instead, so this is a backstop.
+        RecursionError
+            Only when called from within a few frames of the recursion
+            limit, where no stack is left even to report the failure as
+            ``GlpiContentError`` (the user guide gives the measured
+            depths).
         """
 
         content = str(value or "").strip()

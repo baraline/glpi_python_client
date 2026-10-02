@@ -149,8 +149,8 @@ class GlpiContentError(GlpiError):
 
     This exists so that no failure of the content layer escapes the
     package's taxonomy. The conversion runs third-party parsers
-    (``markdownify`` inbound, ``markdown`` outbound), and a parser fault
-    used to reach the caller as a bare builtin — most visibly a
+    (``markdownify`` and ``mdformat`` inbound, ``cmark-gfm`` outbound), and a
+    parser fault used to reach the caller as a bare builtin — most visibly a
     ``RecursionError``, which ``except GlpiError`` does not catch and which
     a caller reading a ticket has no reason to expect from
     ``get_ticket``. Deeply nested HTML is caught and answered with the

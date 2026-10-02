@@ -1758,11 +1758,13 @@ The whole page is built in one pass, so a single unconvertible record used
 to make its page-mates unreadable too. The failure is now scoped to the
 record whose body you actually read.
 
-The Markdown is CommonMark with GFM tables. Rendering it -- as the package
-does on the way back to GLPI, with cmark-gfm -- displays what GLPI
-displayed, and reading that rendering back gives the same Markdown. Text in
-a body is literal: Markdown has one spelling for ``__init__`` typed by a
-user and for bold ``init``, so text that would read as syntax is escaped:
+The Markdown is CommonMark with GFM tables. The aim is that rendering it --
+as the package does on the way back to GLPI, with cmark-gfm -- displays what
+GLPI displayed, and that reading that rendering back gives the same
+Markdown. It is an aim, not a guarantee for every body: `What survives a
+round trip`_ lists where it falls short. Text in a body is literal: Markdown
+has one spelling for ``__init__`` typed by a user and for bold ``init``, so
+text that would read as syntax is escaped:
 
 .. code-block:: python
 
@@ -1781,27 +1783,94 @@ back as ``\`` and a newline, a nested list is indented by its bullet's width,
 and a table comes back unpadded. A body with no HTML element is plain text
 and is read as GLPI shows it, its lines as lines.
 
+More of what GLPI displays, and the Markdown it reads as:
+
+.. code-block:: text
+
+   GLPI displays                 Markdown
+   ----------------------------  ----------------------------
+   __init__                      \_\_init\_\_
+   *important*                   \*important\*
+   # 4521 (at a line start)      \# 4521
+   1. pas une liste              1\. pas une liste
+   - pas une liste               \- pas une liste
+   > pas une citation            \> pas une citation
+   [lien](x)                     \[lien\](x)
+   <Entrée>                      \<Entrée>
+   ~~~ (at a line start)         \~~~
+   Attention!  then a link       Attention\![lien](https://example.org)
+
+Text GLPI displays as markup is read back as that text, so ``&lt;b&gt;``
+reads as ``\<b>``, never as a live ``<b>``. What each kind of element
+becomes:
+
+* **Bold and italic** become ``**`` and ``*``, or raw ``<strong>`` and
+  ``<em>`` where CommonMark would not close the markers, for example bold
+  that ends in punctuation directly followed by a letter:
+  ``prix:<b>(10)</b>euros`` reads as ``prix:<strong>(10)</strong>euros``.
+* **Underline, highlight and inserted text** (``<u>``, ``<mark>``,
+  ``<ins>``) stay as those raw tags, and **struck text** (``<s>``,
+  ``<del>``, ``<strike>``) as a raw ``<s>``. CommonMark has no spelling for
+  any of them, and writing passes the tags through, so the formatting
+  survives. The cost is raw HTML in the Markdown.
+* **Links** become ``[text](https://... "title")``, and a link whose text is
+  its own URL, a pasted link, becomes the autolink ``<https://...>``. No
+  link target is filtered, ``javascript:`` included (see `It is not a
+  sanitiser`_). An **image** becomes ``![alt](src "title")``, its alt text
+  escaped like any other text.
+* **Lists** nest and keep their numbers, including an ``<ol start>``; a
+  ``start`` that is not a decimal number, such as ``²``, counts from 1, as
+  a browser does. **Tables** become GFM tables, and a ``<br>`` inside a cell
+  stays a raw ``<br>``, since a GFM cell is one line. A table inside a cell,
+  a heading or a link is written as its cells' text, spaced apart.
+* **Preformatted blocks** become fences that keep the ``language-`` class
+  cmark-gfm writes, with a fence longer than any run of backticks in the
+  code. **Inline code** holding a line break becomes one code span per line.
+* ``<div>`` and ``<center>`` are blocks. ``<head>``, ``<script>``,
+  ``<style>``, ``<template>`` and ``<title>`` are dropped, as a browser does
+  not display them. Styling such as ``<font>`` colours or ``<span style>``
+  keeps its text and loses the style.
+
 Writing, your Markdown is rendered by cmark-gfm. A newline is a line break,
 GFM tables work, and raw HTML passes through, so put a placeholder such as
 ``<login>`` in backticks. A write model keeps your Markdown verbatim unless
-it starts with an HTML tag, in which case it is read as HTML. A Markdown
-table needs a header row, so a header-less HTML table reads back with an
-empty one, and struck-through text stays as raw ``<s>``.
+it starts with ``<`` and holds an HTML element anywhere, in which case it is
+read as HTML: Markdown that opens with an autolink and carries an inline
+``<br>`` further on loses that autolink, so start such a value with
+something else. A Markdown table needs a header row, so a header-less HTML
+table reads back with an empty one, and struck-through text stays as raw
+``<s>``.
 
 .. note::
 
    Deeply nested HTML is the case worth knowing about. The HTML-to-Markdown
-   converter walks the document recursively and exhausts the interpreter's
-   stack at around 494 levels of nesting. ``.content`` does not try to
-   predict that -- it attempts the conversion and, when the walk does not
-   fit, strips the tags instead. **It degrades, it never truncates, and it
-   does not raise**: every character the normal rendering would have
-   produced still appears, so a body never says less because of how deeply
-   it happened to nest. What you lose is structure,
-   not words — link targets and image alt text, code-block fencing and
-   ``<pre>`` indentation, and ``&nbsp;``-padded alignment. Anything else
-   that goes wrong raises
+   converter walks the document recursively, so a deeply nested body can
+   exhaust the interpreter's stack. From a shallow stack, the deepest
+   ``<div>`` document that still converts with its structure is about 326
+   levels, and the deepest ``<blockquote>`` one about 194 (measured
+   2026-10-02 on CPython 3.12.3 and 3.13.14 with the default recursion
+   limit; 0.6.0 reached about 490 ``<div>`` levels, and 0.6.1's reader
+   spends one more frame per level). ``.content`` does not try to predict
+   that -- it attempts the conversion and, when the walk does not fit,
+   strips the tags instead. **It degrades and never truncates**: every
+   character the normal rendering would have produced still appears, so a
+   body never says less because of how deeply it happened to nest. What you
+   lose is structure, not words — link targets and image alt text,
+   code-block fencing and ``<pre>`` indentation, and ``&nbsp;``-padded
+   alignment. A ``colspan`` or ``start`` that markdownify cannot read as a
+   number, such as a ``colspan`` of ``"²"`` or a value of 5,000 digits,
+   takes the same path, and so does a document ``html.parser`` refuses
+   outright. Anything else that goes wrong raises
    :class:`~glpi_python_client.GlpiContentError`.
+
+   Because the budget is whatever stack is left when the call starts, the
+   same body can convert from one call site and degrade from a deeper one,
+   and a caller already close to the recursion limit can get an error after
+   all. Measured 2026-10-02 with the default limit of 1000: an ordinary body
+   converted when read from up to about 969 frames deep and degraded to text
+   from about 970. From about 975 frames it raised
+   :class:`~glpi_python_client.GlpiContentError`, and from about 994 a bare
+   :class:`RecursionError` escaped.
 
    Because the result is cached on first read, treat a read model as
    immutable afterwards. Assigning to ``content_html`` -- or
@@ -1814,6 +1883,129 @@ no longer in ``GetTicket.model_fields``, and ``GetTicket(...).model_dump()``
 emits ``content_html`` holding HTML where it used to emit ``content``
 holding Markdown. Pass ``by_alias=True`` for a dump keyed the way GLPI
 keys it.
+
+**CVE-2025-6069.** CPython's ``html.parser`` before 3.11.14, 3.12.12 and
+3.13.6 takes quadratic time on some unfinished markup
+(`python/cpython#135462 <https://github.com/python/cpython/issues/135462>`_).
+Many unfinished tags after a body's last ``>`` is the shape that reaches the
+converter, and a body is outside data, so reading spells every ``<`` after
+the last ``>`` as ``&lt;`` before parsing: no ``<`` there can finish a tag.
+As a side effect, an unfinished tag at the very end, ``x <a``, reads as the
+text ``x \<a`` on every interpreter, where a patched CPython would drop it.
+Prefer a patched interpreter anyway: the guard covers the converter's input,
+and the CPython fix covers the parser itself.
+
+It is not a sanitiser
+^^^^^^^^^^^^^^^^^^^^^
+
+Spelling literal text as text is not sanitising. Neither direction
+neutralises anything, by design: the Markdown is the caller's own, and
+cmark-gfm runs with its ``UNSAFE`` option, which is what lets ``<u>`` or a
+``<br>`` in a table cell through. So:
+
+* raw HTML in the Markdown is rendered verbatim, and
+  ``<script>alert(1)</script>`` goes out as a live ``<script>``;
+* a ``javascript:`` link target is rendered as a live ``href``;
+* ``<javascript:alert(1)>`` is a CommonMark autolink, which accepts any
+  scheme, so it too goes out as a live ``href``.
+
+Reading does not filter either: a body's ``javascript:`` link reads back as
+a ``javascript:`` link. What reading does guarantee is that text a body
+*displays* stays text: ``&lt;script&gt;`` reads back as ``\<script>``, and is
+written back as the same ``&lt;script&gt;``.
+
+A caller relaying Markdown it did not write must neutralise raw HTML and
+executable link schemes before writing it. A sync between two ITSMs is one
+such caller.
+
+What survives a round trip
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**Markdown written and read back.** Paragraphs, ``*emphasis*`` and
+``**strong**``, ATX headings, nested lists, numbered lists, block quotes,
+fences with their language, links with titles, autolinks, raw ``<u>`` and
+``<s>`` spans, accents and escaped literal text all come back as they were
+written. Other spellings come back in mdformat's canonical form, and display
+the same:
+
+* ``_em_`` and ``__strong__`` as ``*em*`` and ``**strong**``;
+* ``+`` and ``*`` bullets as ``-``, ``1)`` as ``1.``, and repeated ``1.``
+  items numbered ``1.``, ``2.``, ``3.``;
+* a setext heading as an ATX one, and ``***`` as ``---``;
+* a table's delimiter row as ``| -- |``;
+* a lone newline, or two trailing spaces, as a backslash hard break;
+* a link target holding parentheses wrapped in ``<...>``;
+* runs of blank lines as one, and a character reference such as ``&copy;``
+  as the character.
+
+A few things do not come back:
+
+* text in angle brackets that is not a URL, ``use the <Enter> key``, is sent
+  as a live unknown tag, and the browser and the reader both drop it;
+* an e-mail autolink comes back as an inline ``mailto:`` link;
+* a ``[`` or ``]`` in a link target comes back percent-encoded, as ``%5B``
+  and ``%5D``;
+* a no-break space or hard break at the end of a paragraph is dropped;
+* a line holding only ``*`` is an empty list item in CommonMark, and reads
+  back as nothing.
+
+After that first cycle, a further one changes nothing more, with two
+exceptions found with generated Markdown (2026-10-02, 23 of 4,500 bodies):
+two adjacent lists with different bullets read as one loose list, then as
+one tight list; and a fence whose info string holds a character reference,
+such as ``&amp;amp;``, loses one level of it on each cycle.
+
+**A body read, written back and read again.** This direction is held to
+more. The aim is that what the Markdown displays is what GLPI displayed, and
+that the Markdown is a fixed point from the first read. The converter's
+tests check both, by comparing what the HTML and the rendered Markdown
+display, on realistic and generated bodies. It is an aim, not a guarantee
+for every body.
+
+A few structures have no Markdown spelling. They keep their words and lose
+only their shape:
+
+* **a table nested in a table** has its grid flattened: each inner cell
+  becomes text in the outer cell, spaced apart, with every word kept and in
+  order. E-mail signatures and notification templates are often laid out
+  so. A table inside a heading or a link is flattened the same way;
+* **a table without a header row** gains an empty one, because GFM requires
+  a header;
+* a table cell holds one line, so the paragraphs inside a cell join, while a
+  ``<br>`` in a cell is kept as a raw ``<br>``;
+* a heading holds one line, so a ``<br>`` in a heading becomes a space;
+* trailing spaces at the end of a ``<pre>`` are dropped;
+* underline, highlight, insertion and strike are kept only as raw ``<u>``,
+  ``<mark>``, ``<ins>`` and ``<s>``, so a renderer that drops raw HTML shows
+  their text without the formatting;
+* two code spans with nothing between them become one span, which shows the
+  two backticks that joined them.
+
+**Known holes.** These shapes lose words, or display other than GLPI did.
+Each was found with synthetic input and reproduced on 2026-10-02:
+
+* a table row with more cells than the table's first row loses the extra
+  cells, with their words, at the first read;
+* a ``|`` inside a ``<pre>``, a link target or a title in a table cell
+  splits the row: the rest of the cell is lost or shows as Markdown source;
+* a ``<caption>`` or ``<colgroup>`` directly inside a ``<table>``, with no
+  ``<tbody>``, turns the table into lines of literal pipes;
+* an image whose title holds a ``"`` is lost, and shows as its Markdown
+  source;
+* a list or an ``<hr>`` inside a table cell shows as ``-`` or ``---`` text;
+* a heading followed by text in the same cell, or text sitting directly in
+  a nested table after its rows, runs into the next word (``titresuite``);
+* a table whose ``<td>`` and ``<tr>`` are never closed folds into one cell,
+  keeping its words;
+* a definition list (``<dl>``) reads as a ``term`` line and a
+  ``: definition`` line, so its display gains the colon.
+
+Some shapes are not fixed points at the first read, and settle after one
+more cycle. Adjacent lists read as one loose list, then as one tight list. A
+definition list's newline becomes a hard break. Bold inside bold
+(``<b><b>gras</b></b>``) reads as ``****gras****``, then as ``**gras**``. A
+link or image title loses a backslash before punctuation. The caption,
+colgroup and image-title shapes above settle too, on what they already lost.
 
 Retry behaviour
 ~~~~~~~~~~~~~~~
