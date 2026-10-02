@@ -21,6 +21,10 @@ changed two rules of the 0.6.0 oracle, each marked where it is:
 * an ordered list's ``start`` is read with ``isdecimal``, as the converter
   reads it, where ``isdigit`` made the oracle itself raise on ``"²"``.
 
+Since 0.6.1, with ``easyvista-python-client`` 0.4.1, a rule (``<hr>``)
+inside an inline element counts as a block, where the oracle read it as
+nothing: a browser draws ``<u><hr></u>`` as a rule.
+
 What the oracle cannot see: underline and highlight (``<u>``, ``<mark>``,
 ``<ins>``), struck text, link and image titles, and line breaks inside a
 heading.
@@ -144,8 +148,10 @@ def _inline(node: Tag, words: _Words, fmt: Format) -> None:
 
 
 def _has_block(node: Tag) -> bool:
+    # Since 0.6.1: a rule is a block too, so <u><hr></u> draws its rule.
     return any(
-        isinstance(child, Tag) and child.name in _BLOCKS for child in node.descendants
+        isinstance(child, Tag) and (child.name in _BLOCKS or child.name == "hr")
+        for child in node.descendants
     )
 
 

@@ -1812,7 +1812,11 @@ becomes:
   ``<ins>``) stay as those raw tags, and **struck text** (``<s>``,
   ``<del>``, ``<strike>``) as a raw ``<s>``. CommonMark has no spelling for
   any of them, and writing passes the tags through, so the formatting
-  survives. The cost is raw HTML in the Markdown.
+  survives. The cost is raw HTML in the Markdown. Markdown has no inline tag
+  round blocks, so a ``<u>``, ``<mark>`` or ``<ins>`` holding a table, a
+  list, a heading, a quote, a ``<pre>``, a rule or paragraphs is dropped and
+  its blocks kept; inside a table cell or a heading, which hold one line, it
+  stays.
 * **Links** become ``[text](https://... "title")``, and a link whose text is
   its own URL, a pasted link, becomes the autolink ``<https://...>``. No
   link target is filtered, ``javascript:`` included (see `It is not a
@@ -1998,7 +2002,12 @@ Each was found with synthetic input and reproduced on 2026-10-02:
 * a table whose ``<td>`` and ``<tr>`` are never closed folds into one cell,
   keeping its words;
 * a definition list (``<dl>``) reads as a ``term`` line and a
-  ``: definition`` line, so its display gains the colon.
+  ``: definition`` line, so its display gains the colon;
+* bold, italic or struck text (``<b>``, ``<em>``, ``<s>`` and their
+  synonyms) wrapped round blocks, other than a single paragraph, shows its
+  markers or its tag as text, and a list, a table or a heading inside it as
+  Markdown source; round a ``<pre>`` it leaves a fence open, so the rest of
+  the body shows as code. 0.6.0 read these the same way.
 
 Some shapes are not fixed points at the first read, and settle after one
 more cycle. Adjacent lists read as one loose list, then as one tight list. A

@@ -37,7 +37,14 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
 - **Two `<center>` blocks ran together.** `<center>` is a block, as `<div>`
   is, except inside `<pre>`.
 - **Underline, highlight and inserted text lost their formatting.** `<u>`,
-  `<mark>` and `<ins>` are kept as raw tags, as `<s>` already was.
+  `<mark>` and `<ins>` are kept as raw tags, as `<s>` already was. Round a
+  block (a table, a list, a heading, a quote, a code block, a rule or
+  paragraphs) the tag is dropped and the blocks read as 0.6.0 read them.
+  Markdown has no inline tag round blocks: `easyvista-python-client` 0.4.0,
+  which kept it, showed a table as pipe text and a list or a heading as its
+  Markdown source, and round a `<pre>` left a fence open to the end of the
+  body. Inside a table cell or a heading, whose blocks are one line, the tag
+  stays.
 - **A long ordered list was quadratic to read**: 5,000 items took 3.1 s,
   and take 0.6 s now (CPython 3.12.3). An `<ol start>` such as `²` or `½`
   counts from 1, as a browser does, instead of failing the body.

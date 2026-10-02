@@ -19,7 +19,8 @@ pins one, numbered as in both packages' changelogs:
 8. a block in such a table stays on its holder's line;
 9. bold at a flattened cell's edge still closes;
 10. ``<center>`` is a block, except inside ``<pre>``;
-11. ``<u>``, ``<mark>`` and ``<ins>`` stay raw HTML;
+11. ``<u>``, ``<mark>`` and ``<ins>`` stay raw HTML, except round a block,
+    where they are dropped and the blocks kept;
 12. an ordered list is numbered in linear time, and a ``start`` that is
     not a decimal number counts from 1;
 13. the regex splitting a text's edges is greedy, so linear;
@@ -28,11 +29,19 @@ pins one, numbered as in both packages' changelogs:
     guard).
 
 The cost side of 12, 13 and 15 is tested in :mod:`.test_cost`. Run against
-0.6.0 on 2026-10-02 (CPython 3.12.3), 36 of these 54 tests failed. Of the
-18 that passed there, 17 are controls, guards on a correction to a fix,
-pins of output a fix leaves as it was, or behaviour a cost fix had to keep,
-and each says which. The other is test 15's ``attribute`` case, which
-passed only because 3.12.3 predates CPython's own fix; that test says why.
+0.6.0 on 2026-10-02 (CPython 3.12.3), 36 of the 54 tests first ported
+failed. Of the 18 that passed there, 17 are controls, guards on a
+correction to a fix, pins of output a fix leaves as it was, or behaviour a
+cost fix had to keep, and each says which. The other is test 15's
+``attribute`` case, which passed only because 3.12.3 predates CPython's own
+fix; that test says why.
+
+The 42 tests added to section 11 for a block inside ``<u>``, ``<mark>`` or
+``<ins>`` pin the correction to fix 11, which wrapped blocks in the tag: run
+against easyvista-python-client 0.4.0's converter, 40 failed, and the two
+that passed are the one-line controls. They read such a body as 0.6.0 did,
+so on 0.6.0 only the three that need a tag kept fail.
+
 Every word is invented and every URL is under ``example.org``.
 """
 
@@ -394,6 +403,102 @@ def test_11_underline_inside_a_link() -> None:
     markdown = assert_survives('<p><a href="https://example.org/u"><u>lien</u></a></p>')
 
     assert markdown == "[<u>lien</u>](https://example.org/u)"
+
+
+_TABLE = (
+    "<table><tr><th>Nom</th><th>Valeur</th></tr>"
+    "<tr><td>serveur</td><td>srv01</td></tr></table>"
+)
+
+
+@pytest.mark.parametrize("tag", ["u", "mark", "ins"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(f"<p>Voir :</p><X>{_TABLE}</X><p>fin</p>", id="table"),
+        pytest.param("<X><ul><li>un</li><li>deux</li></ul></X>", id="list"),
+        pytest.param("<X><ol><li>un</li><li>deux</li></ol></X>", id="ordered-list"),
+        pytest.param("<X><h2>Titre</h2><p>texte</p></X>", id="heading"),
+        pytest.param("<X><blockquote>cite</blockquote></X>", id="quote"),
+        pytest.param("<X><pre>un\ndeux</pre></X>", id="pre"),
+        pytest.param("<p>a</p><X><hr></X><p>b</p>", id="rule"),
+        pytest.param("<X><p>un</p><p>deux</p></X>", id="paragraphs"),
+        pytest.param("<X><div>un</div><div>deux</div></X>", id="divs"),
+        pytest.param("<X>avant<p>milieu</p>apres</X>", id="text-around-a-block"),
+        pytest.param("<ul><li><X><p>un</p><p>deux</p></X></li></ul>", id="in-an-item"),
+        pytest.param(
+            "<blockquote><X><p>un</p><p>deux</p></X></blockquote>", id="in-a-quote"
+        ),
+    ],
+)
+def test_11_around_a_block_the_tag_is_dropped_and_the_blocks_kept(
+    body: str, tag: str
+) -> None:
+    """Markdown has no inline tag around blocks: fix 11 wrapped them anyway,
+    so a table read as pipe text, a list, heading, quote or rule as its
+    Markdown source, and paragraphs were not a fixed point. The tag is
+    dropped there and the blocks read as they would without it, as 0.6.0
+    read them; the underline is lost, which the display oracle cannot see."""
+
+    html = body.replace("<X>", f"<{tag}>").replace("</X>", f"</{tag}>")
+    bare = body.replace("<X>", "").replace("</X>", "")
+
+    markdown = assert_survives(html)
+
+    assert markdown == read(bare)
+    assert f"<{tag}>" not in markdown
+
+
+def test_11_a_pre_inside_underline_leaves_no_stray_fence() -> None:
+    """The worst of the shapes above: the closing fence took the ``</u>`` as
+    its info string, so it opened a new fence and everything after it,
+    ``apres`` included, displayed as code."""
+
+    markdown = assert_survives("<u><pre>code</pre></u><p>apres</p>")
+
+    assert markdown == "```\ncode\n```\n\napres"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<u><mark><ul><li>a</li></ul></mark></u>", "- a", id="both-around-a-list"
+        ),
+        pytest.param(
+            "<u><mark>x</mark><p>y</p></u>", "<mark>x</mark>\n\ny", id="inline-sibling"
+        ),
+        pytest.param(
+            "<u><p>a</p><mark><p>b</p></mark>c</u>", "a\n\nb\n\nc", id="inner-after"
+        ),
+    ],
+)
+def test_11_each_tag_around_a_block_is_dropped_and_no_other(
+    html: str, expected: str
+) -> None:
+    """Nested tags: each one holding a block is dropped, however deep the
+    block, and one that closed before the block keeps its raw tag."""
+
+    assert assert_survives(html) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<table><tr><th><u><p>a</p></u></th></tr>"
+            "<tr><td><u><p>b</p><p>c</p></u></td></tr></table>",
+            "| <u>a</u> |\n| -- |\n| <u>b c</u> |",
+            id="cell",
+        ),
+        pytest.param("<h2><u><p>titre</p></u></h2>", "## <u>titre</u>", id="heading"),
+    ],
+)
+def test_11_around_a_block_on_one_line_the_tag_stays(html: str, expected: str) -> None:
+    """The control: a cell or a heading writes its blocks on its one line,
+    so the tag wraps inline text there and is kept."""
+
+    assert assert_survives(html) == expected
 
 
 # ---------------------------------------------------------------------------

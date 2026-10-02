@@ -103,6 +103,11 @@ _EMPHASIS = frozenset({"b", "strong", "em", "i"})
 _BEFORE, _AFTER = "data-glpi-before", "data-glpi-after"
 _NUMBER = "data-glpi-number"  # an ordered item's number (_Converter.convert_li)
 
+#: The elements kept as raw tags (:meth:`_Converter.convert_u`), and the
+#: attribute marking one that holds a block (:func:`_note_blocks`).
+_RAW_INLINE = frozenset({"u", "mark", "ins"})
+_HOLDS_BLOCK = "data-glpi-block"
+
 #: Text split into leading line breaks and spaces, content, trailing ones.
 #: The content ends on its last character that is neither, found greedily:
 #: a lazy ``.*?`` rescanned the run after it at every step, quadratic.
@@ -295,6 +300,33 @@ def _note_sides(root: Tag) -> None:
         element[_AFTER] = " "
 
 
+def _note_blocks(root: Tag) -> None:
+    """Mark each ``<u>``, ``<mark>`` or ``<ins>`` that holds a block.
+
+    Markdown has no inline tag around blocks: such a tag wrapped round them
+    showed a table, a list or a heading as its Markdown source, and round a
+    ``<pre>`` left a fence open to the end of the body. One walk: a block
+    marks the open ones from the innermost out and stops at one already
+    marked, whose holders were marked with it, so each is marked once
+    however deeply they nest.
+    """
+
+    holders: list[Tag] = []
+    for node, entering in _walk(root):
+        if not isinstance(node, Tag):
+            continue
+        if node.name in _RAW_INLINE:
+            if entering:
+                holders.append(node)
+            else:
+                holders.pop()
+        elif entering and node.name in _BLOCKS:
+            for holder in reversed(holders):
+                if holder.has_attr(_HOLDS_BLOCK):
+                    break
+                holder[_HOLDS_BLOCK] = ""
+
+
 def _punctuation(char: str) -> bool:
     """Return whether CommonMark counts ``char`` as punctuation."""
 
@@ -391,8 +423,14 @@ class _Converter(MarkdownConverter):
     convert_strike = convert_s
 
     def convert_u(self, el: Tag, text: str, parent_tags: set[str]) -> str:
-        """Underlined or highlighted text: CommonMark has neither, so raw HTML."""
+        """Underlined or highlighted text: CommonMark has neither, so raw HTML.
 
+        Round a block the tag is dropped and the blocks kept, except on the
+        one line of a cell or a heading, where the blocks are inline text.
+        """
+
+        if el.has_attr(_HOLDS_BLOCK) and "_inline" not in parent_tags:
+            return text
         return self._markup(el, text, parent_tags, "", el.name)
 
     convert_mark = convert_ins = convert_u
@@ -670,6 +708,7 @@ def html_to_markdown(html: str) -> str:
     _flatten_nested_tables(soup)
     _drop_trailing_breaks(soup)
     _note_sides(soup)
+    _note_blocks(soup)
     return str(_FORMATTER.render(_CONVERTER.convert_soup(soup))).strip()
 
 
