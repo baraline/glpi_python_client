@@ -9,12 +9,13 @@ single object to reason about a ticket and its history.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from pydantic import Field
 
+from glpi_python_client.content.conversion import GlpiContentConverter
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import IdNameRef
 from glpi_python_client.models.api_schema.assistance._ticket import GetTicket
@@ -29,7 +30,18 @@ from glpi_python_client.models.api_schema.assistance.timeline._task import (
 )
 from glpi_python_client.models.api_schema.management._document import GetDocument
 
-_MAX_DATETIME = datetime.max.replace(tzinfo=timezone.utc)
+_MAX_DATETIME = datetime.max.replace(tzinfo=UTC)
+
+
+def _literal(text: str) -> str:
+    """Spell a name or a file name as one line of Markdown that shows it as typed.
+
+    User data is literal text, as a body's text is: ``__init__`` must not turn
+    bold, nor a file name starting ``1.`` start a list. The converter reads
+    plain text that way already.
+    """
+
+    return GlpiContentConverter.from_transport(" ".join(text.split()))
 
 
 def _ref_label(ref: IdNameRef | None) -> str | None:
@@ -83,7 +95,7 @@ def _subtitle_line(*parts: tuple[str, object | None]) -> str | None:
     for label, value in parts:
         rendered_value = _render_value(value)
         if rendered_value:
-            rendered_parts.append(f"{label}: {rendered_value}")
+            rendered_parts.append(f"{label}: {_literal(rendered_value)}")
     if not rendered_parts:
         return None
     return f"> {' | '.join(rendered_parts)}"
@@ -180,7 +192,7 @@ def _event_sort_key(event: Any) -> datetime:
     if created is None:
         return _MAX_DATETIME
     if created.tzinfo is None:
-        return created.replace(tzinfo=timezone.utc)
+        return created.replace(tzinfo=UTC)
     return created
 
 
@@ -255,7 +267,7 @@ class GlpiTicketContext(GlpiModel):
 
         lines: list[str] = []
         ticket = self.ticket
-        ticket_label = ticket.name or "(unnamed ticket)"
+        ticket_label = _literal(ticket.name) if ticket.name else "(unnamed ticket)"
         if ticket.id is not None:
             lines.append(f"# Ticket #{ticket.id} \u2014 {ticket_label}")
         else:
@@ -364,7 +376,7 @@ class GlpiTicketContext(GlpiModel):
                         else "document"
                     )
                 )
-                lines.append(f"- {label}")
+                lines.append(f"- {_literal(label)}")
 
         return "\n".join(lines).rstrip()
 

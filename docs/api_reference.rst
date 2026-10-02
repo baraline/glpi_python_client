@@ -113,18 +113,19 @@ conversion happens, which buys two things: listing records costs nothing
 per body, and a body that cannot be converted no longer stops the rest of
 its page being read.
 
+The Markdown is CommonMark with GFM tables, rendered by cmark-gfm. It
+spells a body's text as literal text -- ``\_\_init\_\_``, ``\\\serveur``,
+``\# pas un titre`` -- so rendering it displays what GLPI displayed and
+reading that back gives the same Markdown. A write model keeps the caller's
+Markdown verbatim unless it starts with an HTML tag. See
+:ref:`content-conversion`.
+
 Very deeply nested HTML is the case worth knowing about.
 ``markdownify`` walks the document recursively and runs out of stack at
-around 494 levels of nesting. The converter does not try to predict
-that: it attempts the conversion and, if the walk does not fit, strips
-tags instead. It degrades, it never truncates, and it does not raise:
-every character the normal rendering would have produced still appears.
-What is lost is structure rather than words — link targets and image alt
-text, code fencing and ``<pre>`` indentation, ``&nbsp;`` alignment.
-Because the budget is the stack left when the conversion starts, the
-same body can convert from one call site and degrade from a deeper one.
-Anything else that goes wrong in either direction raises
-:class:`GlpiContentError`.
+a few hundred levels of nesting. The converter attempts the conversion
+and, if the walk does not fit, reads the body's text instead, a line per
+block: the words survive, the structure does not. Anything else that goes
+wrong in either direction raises :class:`GlpiContentError`.
 
 Because the conversion is cached on first read, a read model should be
 treated as immutable afterwards: assigning to ``content_html``, or

@@ -13,12 +13,7 @@ thing that actually regresses. The real wheel is asserted in CI.
 from __future__ import annotations
 
 import pathlib
-import sys
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - exercised on 3.10 only
-    import tomli as tomllib
+import tomllib
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 

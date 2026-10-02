@@ -4,32 +4,94 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.6.0 — 2026-10-01
 
-### Added
+### Changed (breaking)
 
-- `Assets/Computer` endpoint support: `search_computers`,
-  `iter_search_computers`, `get_computer`, `create_computer`,
-  `update_computer`, `delete_computer`, and the `GetComputer` /
-  `PostComputer` / `PatchComputer` / `DeleteComputer` models.
-- Computer-to-contract links: `list_computer_contracts`,
-  `get_computer_contract`, `link_computer_contract`,
-  `update_computer_contract`, `unlink_computer_contract`. The client sets
-  the link's `itemtype` itself, because the GLPI contract types it as a
-  free string.
-- `Management/Contract` endpoint support, including the cost sub-resource
-  and the `Dropdowns/ContractType` dropdown.
-- `GlpiContractRenewalType` for the contract's documented `renewal_type`
-  enum (no renewal, tacit, explicit).
-- Two agent skills: `glpi-asset-workflow` and `glpi-contract-workflow`.
+- **Python 3.10 is no longer supported; 3.11 is the minimum.** The
+  `typing-extensions` and `tomli` backports it needed are dropped.
+- **Content conversion is rebuilt on three libraries: markdownify,
+  mdformat and cmark-gfm.** `from_transport` reads GLPI's HTML with
+  `markdownify`, and `mdformat` re-renders that Markdown from its syntax
+  tree, so it keeps only the escapes CommonMark needs. `to_transport`
+  renders through `cmark-gfm`, the GitHub reference implementation, in
+  place of python-markdown. A thin layer of glue sits on top. Measured on
+  346 real bodies sampled from a GLPI 11 instance:
+  - 322 display the same after a round trip, against 299 before;
+  - 344 read back as the same Markdown, against 240.
 
-### Notes
+  Of 205 realistic caller-written Markdown documents, all 205 survive
+  Markdown → HTML → Markdown with the same display.
+- **Markdown is rendered as CommonMark with GFM tables.** A newline is a
+  line break, as `nl2br` made it before. Raw HTML passes through.
+  Differences you may see in Markdown you write:
+  - a list or a table written straight after a line now starts a list or a
+    table, where python-markdown wanted a blank line first;
+  - lists nested by two or three spaces nest;
+  - `1)` starts a numbered list;
+  - `#Important`, with no space, is text rather than a heading;
+  - `*a **b** c*` keeps its bold;
+  - a backslash ending a line is a line break, so write `C:\Temp\` at the
+    end of a line as `` `C:\Temp\` ``;
+  - `<word>` is read as an HTML tag, so put a placeholder such as `<login>`
+    in backticks.
+- **`.content` is spelled as canonical CommonMark.** A line break reads
+  back as `\` and a newline, a nested list is indented by its bullet's
+  width, and a table comes back unpadded. Text that would otherwise read as
+  syntax is escaped: `__init__` reads `\_\_init\_\_`, and a `* point` line
+  reads `\* point`. Stored digests of `.content` change once.
+- **A plain-text body is literal text on the read path.** A value with no
+  HTML element used to come back verbatim and be rendered as Markdown. It is
+  now read as GLPI displays it, its lines as lines.
+  `GlpiContentConverter.from_transport` takes `plain_text_is_markdown`.
+  `True` is what the write models' validator passes: caller-authored
+  Markdown passes verbatim unless it starts with an HTML tag, so Markdown
+  carrying an inline `<br>` or `<kbd>` stays Markdown.
+- **Dependencies.**
+  - Added: `cmarkgfm>=2025.10` (compiled wheels for CPython 3.11–3.14 on
+    Linux, macOS and Windows), `mdformat>=0.7.22,<0.8`,
+    `mdformat-tables>=1.0` and `markdown-it-py>=3.0`.
+  - Dropped: `markdown`. python-markdown 3.11 had broken the previous
+    reader.
+  - Raised: `beautifulsoup4>=4.15`, which fixed the parser defect that
+    dropped the text after a `<br />` in a body that also held a bare
+    `<br>`. That removes the workaround.
 
-- `Contract.date_begin` is modelled as `datetime.date`, not `datetime`.
-  The GLPI contract declares `format: date`, and keeping it a plain date
-  keeps it out of the server-clock conversion that rewrites aware
-  timestamps — which on a date-only field could roll the value to the
-  previous or next day.
+### Fixed
+
+- **Literal text came back as Markdown syntax.** These now read back as the
+  text a user typed:
+  - `\serveur\compta`, which had lost a backslash;
+  - `__init__` and `______`, which had become bold;
+  - a `-----` line under text, which had made a heading;
+  - `* point` and `> merci` lines, which had become a list and a quote;
+  - `[1]: https://...`, which had been consumed as a reference definition;
+  - a `|` in a table cell, which had dropped the rest of the row.
+- **A table nested in a table cell lost all its text.** That is the usual
+  layout of an e-mail signature. The inner table is now written as its
+  cells' text, its line breaks kept as `<br>`.
+- **Nested lists flattened on the first write.** Nested items, the text
+  after a nested list, and numbering, `start` included, survive.
+- `<script>`, `<style>` and `<title>` bodies no longer leak into the text.
+- A blank line inside a paragraph (`<br><br>`, or Outlook's
+  `<br>&nbsp;<br>`) is kept.
+- A label in bold right before a figure, as in `<b>Total:</b>12`, keeps its
+  bold.
+- A code fence keeps its language, and a `|` inside code in a table cell no
+  longer splits the row.
+- A long body converts in linear time, and a body nested deeper than the
+  stack is read as its text instead of raising.
+
+### Known limitations
+
+- A Markdown table needs a header row and the same number of cells in every
+  row. A header-less HTML table gains an empty header row, and a row that
+  spans the table gains empty cells.
+- Struck-through text is kept as raw `<s>`, since CommonMark has no
+  strikethrough.
+- Literal text that looks like syntax is sometimes escaped where
+  CommonMark would not need it, for example `5\*3` or `x \<= y`. It
+  displays as typed.
 
 ## 0.5.0 — 2026-09-08
 

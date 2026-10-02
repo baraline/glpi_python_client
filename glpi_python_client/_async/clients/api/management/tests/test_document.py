@@ -294,10 +294,10 @@ def _pin_token(client: Any) -> None:
     helper runs through it, so the token has to be supplied here instead.
     """
 
-    from datetime import datetime, timedelta, timezone
+    from datetime import UTC, datetime, timedelta
 
     client._auth.access_token = "stub-token"
-    client._auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(days=1)
+    client._auth.token_expires_at = datetime.now(tz=UTC) + timedelta(days=1)
 
 
 async def test_stream_document_content_yields_chunks(client: Any) -> None:

@@ -14,13 +14,8 @@ no second definition to keep in step.
 from __future__ import annotations
 
 import logging
-import sys
 from types import TracebackType
-
-if sys.version_info >= (3, 11):
-    from typing import Self
-else:  # pragma: no cover - fallback for Python 3.10
-    from typing_extensions import Self
+from typing import Self
 
 from glpi_python_client._sync.clients._base_client import _BaseGlpiClient
 from glpi_python_client._sync.clients.api import (

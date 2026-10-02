@@ -1758,6 +1758,36 @@ The whole page is built in one pass, so a single unconvertible record used
 to make its page-mates unreadable too. The failure is now scoped to the
 record whose body you actually read.
 
+The Markdown is CommonMark with GFM tables. Rendering it -- as the package
+does on the way back to GLPI, with cmark-gfm -- displays what GLPI
+displayed, and reading that rendering back gives the same Markdown. Text in
+a body is literal: Markdown has one spelling for ``__init__`` typed by a
+user and for bold ``init``, so text that would read as syntax is escaped:
+
+.. code-block:: python
+
+   from glpi_python_client.content import GlpiContentConverter
+
+   GlpiContentConverter.from_transport(
+       r"<p>Voir __init__ et \\serveur\compta</p><p># pas un titre</p>"
+   )
+   # Voir \_\_init\_\_ et \\\serveur\compta
+   #
+   # \# pas un titre
+
+Ordinary prose stays as typed: ``fichier_de_test_v2.xlsx``, ``C:\Temp``,
+``R&D``, a ``#`` mid-sentence. The spelling is canonical: a line break reads
+back as ``\`` and a newline, a nested list is indented by its bullet's width,
+and a table comes back unpadded. A body with no HTML element is plain text
+and is read as GLPI shows it, its lines as lines.
+
+Writing, your Markdown is rendered by cmark-gfm. A newline is a line break,
+GFM tables work, and raw HTML passes through, so put a placeholder such as
+``<login>`` in backticks. A write model keeps your Markdown verbatim unless
+it starts with an HTML tag, in which case it is read as HTML. A Markdown
+table needs a header row, so a header-less HTML table reads back with an
+empty one, and struck-through text stays as raw ``<s>``.
+
 .. note::
 
    Deeply nested HTML is the case worth knowing about. The HTML-to-Markdown

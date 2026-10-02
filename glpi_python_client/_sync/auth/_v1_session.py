@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import httpx
@@ -170,7 +170,7 @@ class GLPIV1Session:
             raise GlpiProtocolError("GLPI v1 initSession returned no session_token")
 
         self._session_token = str(token)
-        self._session_started_at = datetime.now(tz=timezone.utc)
+        self._session_started_at = datetime.now(tz=UTC)
         logger.info("GLPI v1 session initialised.")
 
     def _ensure_session(self) -> None:
@@ -196,7 +196,7 @@ class GLPIV1Session:
 
         if self._session_started_at is None:
             return True
-        return datetime.now(tz=timezone.utc) >= (
+        return datetime.now(tz=UTC) >= (
             self._session_started_at + self._session_refresh_interval
         )
 

@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Check out repository
@@ -100,10 +100,7 @@ jobs:
           normalized_tag="${release_tag#v}"
           pyproject_version="$(python - <<'PY'
           from pathlib import Path
-          try:
-              from tomllib import loads as toml_loads
-          except ModuleNotFoundError:
-              from tomli import loads as toml_loads
+          from tomllib import loads as toml_loads
 
           pyproject = toml_loads(Path('pyproject.toml').read_text(encoding='utf-8'))
           print(pyproject['project']['version'])

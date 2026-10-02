@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import httpx
@@ -125,8 +125,8 @@ async def test_token_manager_refreshes_when_configured_interval_elapses() -> Non
     )
     auth.access_token = "old-token"
     auth.refresh_token = "refresh-token"
-    auth.token_updated_at = datetime.now(tz=timezone.utc) - timedelta(seconds=61)
-    auth.token_expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=1)
+    auth.token_updated_at = datetime.now(tz=UTC) - timedelta(seconds=61)
+    auth.token_expires_at = datetime.now(tz=UTC) + timedelta(hours=1)
 
     await auth.ensure_token()
 
@@ -166,7 +166,7 @@ def test_token_manager_logout_clears_cached_tokens() -> None:
     )
     auth.access_token = "access-token"
     auth.refresh_token = "refresh-token"
-    auth.token_updated_at = datetime.now(tz=timezone.utc)
+    auth.token_updated_at = datetime.now(tz=UTC)
     auth.token_expires_at = auth.token_updated_at + timedelta(hours=1)
 
     auth.logout()
@@ -282,8 +282,8 @@ def _make_refresh_ready_manager(
     )
     manager.access_token = "stale-token"
     manager.refresh_token = "refresh-token"
-    manager.token_updated_at = datetime.now(tz=timezone.utc) - timedelta(hours=2)
-    manager.token_expires_at = datetime.now(tz=timezone.utc) - timedelta(seconds=1)
+    manager.token_updated_at = datetime.now(tz=UTC) - timedelta(hours=2)
+    manager.token_expires_at = datetime.now(tz=UTC) - timedelta(seconds=1)
     return manager
 
 

@@ -2,10 +2,10 @@
 name: glpi-asset-workflow
 description: "Search, fetch, create, update, and delete GLPI computers, and read or write the contracts covering them, with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the GetComputer/PostComputer/PatchComputer/DeleteComputer and GetContractItem/PostContractItem models. Use for GLPI asset inventory, computer records, asset serial numbers, asset locations, or finding which contracts cover a machine."
 license: MIT
-compatibility: "Requires Python 3.10+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write assets."
+compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write assets."
 metadata:
   package: glpi-python-client
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # GLPI Asset Workflow

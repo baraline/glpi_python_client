@@ -16,6 +16,7 @@ import pytest
 
 from glpi_python_client._sync.clients.commons._payloads import model_to_payload
 from glpi_python_client.content import conversion
+from glpi_python_client.content.tests.display import displayed
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema.assistance import (
     GetTicket,
@@ -46,9 +47,9 @@ def _count_conversions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     seen: list[str] = []
     real = conversion.GlpiContentConverter.from_transport
 
-    def _record(value: object) -> str:
+    def _record(value: object, **options: bool) -> str:
         seen.append(str(value))
-        return real(value)
+        return real(value, **options)
 
     monkeypatch.setattr(
         conversion.GlpiContentConverter, "from_transport", staticmethod(_record)
@@ -135,16 +136,15 @@ def test_outgoing_empty_string_renders_empty() -> None:
 # Round-trip corpus
 # ---------------------------------------------------------------------------
 #
-# ``from_transport(to_transport(m)) == m`` is the property the content layer
-# would like to hold. It does not hold universally, and cannot: the two
-# libraries either side of the wire disagree about a handful of constructs,
-# and no option on either fixes them.
+# Markdown written by a caller goes to GLPI as HTML and reads back as
+# Markdown. It reads back in the converter's canonical spelling -- a line
+# break as a backslash, a nested list indented by its bullet's width, a table
+# unpadded -- which displays the same and reads back as itself. Each entry
+# names that spelling when it differs from the caller's, and the test asserts
+# both: the canonical Markdown, and the same display as what was sent.
 #
-# So the corpus is an inventory rather than a property test. Every case is
-# listed, the lossy ones carry ``xfail(strict=True)``, and that strictness is
-# the point -- fixing one of them turns its xfail into an XPASS and fails the
-# suite, forcing the inventory to be updated rather than quietly drifting out
-# of date. A regression in a passing case fails immediately.
+# A loss carries ``xfail(strict=True)``, so fixing it fails the suite until
+# the inventory is updated.
 
 
 def _lossy(reason: str) -> pytest.MarkDecorator:
@@ -154,68 +154,77 @@ def _lossy(reason: str) -> pytest.MarkDecorator:
 
 
 ROUND_TRIP_CORPUS = [
-    pytest.param("The printer is offline.", id="plain"),
-    pytest.param("The printer is **offline**.", id="bold"),
-    pytest.param("This is *emphasis*.", id="italic"),
-    pytest.param("Run `systemctl restart` now.", id="inline-code"),
-    pytest.param("# Title\n\nBody text.", id="heading"),
-    pytest.param("## Section\n\nBody text.", id="subheading"),
-    pytest.param("First para.\n\nSecond para.", id="paragraphs"),
-    pytest.param("line one  \nline two", id="hard-break"),
-    pytest.param("- alpha\n- beta\n- gamma", id="bullets"),
-    pytest.param("1. one\n2. two", id="numbered"),
-    pytest.param("> quoted text", id="blockquote"),
-    pytest.param("See [the doc](https://example.test/doc).", id="link"),
-    pytest.param("```\nx = 1\n```", id="fence"),
-    pytest.param("| a | b |\n| --- | --- |\n| 1 | 2 |", id="table"),
-    pytest.param("The snake_case name.", id="underscore"),
-    pytest.param("5 * 3 = 15", id="asterisk"),
-    pytest.param("# Title\n\n- alpha\n- beta\n\nClosing **note**.", id="mixed"),
+    pytest.param("The printer is offline.", None, id="plain"),
+    pytest.param("The printer is **offline**.", None, id="bold"),
+    pytest.param("This is *emphasis*.", None, id="italic"),
+    pytest.param("Run `systemctl restart` now.", None, id="inline-code"),
+    pytest.param("# Title\n\nBody text.", None, id="heading"),
+    pytest.param("## Section\n\nBody text.", None, id="subheading"),
+    pytest.param("First para.\n\nSecond para.", None, id="paragraphs"),
+    pytest.param("line one  \nline two", "line one\\\nline two", id="hard-break"),
+    pytest.param("line one\nline two", "line one\\\nline two", id="soft-newline"),
+    pytest.param("- alpha\n- beta\n- gamma", None, id="bullets"),
+    pytest.param("1. one\n2. two", None, id="numbered"),
+    pytest.param("> quoted text", None, id="blockquote"),
+    pytest.param("See [the doc](https://example.test/doc).", None, id="link"),
+    pytest.param("```\nx = 1\n```", None, id="fence"),
+    pytest.param("```python\nx = 1\n```", None, id="fence-with-language"),
     pytest.param(
-        "line one\nline two",
-        id="soft-newline",
-        marks=_lossy(
-            "nl2br renders a lone newline as <br>, which markdownify reads "
-            "back as a hard break (two trailing spaces). Semantically "
-            "equivalent and stable after one cycle; see issue #32."
-        ),
+        "| a | b |\n| --- | --- |\n| 1 | 2 |",
+        "| a | b |\n| -- | -- |\n| 1 | 2 |",
+        id="table",
+    ),
+    pytest.param("The snake_case name.", None, id="underscore"),
+    pytest.param("5 * 3 = 15", None, id="asterisk"),
+    pytest.param("# Title\n\n- alpha\n- beta\n\nClosing **note**.", None, id="mixed"),
+    pytest.param(
+        "- alpha\n    - inner\n- beta", "- alpha\n  - inner\n- beta", id="nested-list"
     ),
     pytest.param(
-        "- alpha\n    - inner\n- beta",
-        id="nested-list",
-        marks=_lossy(
-            "markdownify indents nested items by 2 spaces; python-markdown "
-            "needs 4 to keep the nesting, so a second cycle flattens it."
-        ),
+        "1. one\n    1. inner\n2. two",
+        "1. one\n   1. inner\n2. two",
+        id="nested-numbered-list",
+    ),
+    pytest.param("intro\n\n3. three\n4. four", None, id="numbered-from-three"),
+    pytest.param(
+        r"\#4521: module \_\_init\_\_.",
+        r"#4521: module \_\_init\_\_.",
+        id="escaped-literals",
+    ),
+    pytest.param(r"Share \\\server\share and C:\Temp.", None, id="backslashes"),
+    pytest.param(
+        r"Press &lt;Enter> and see \*x\*.",
+        r"Press \<Enter> and see \*x\*.",
+        id="escaped-markup",
     ),
     pytest.param(
-        "```python\nx = 1\n```",
-        id="fence-with-language",
-        marks=_lossy(
-            "fenced_code emits class='language-python' and markdownify drops "
-            "the class, so the language tag cannot survive."
-        ),
+        "| cmd |\n| --- |\n| ps aux \\| grep java |",
+        "| cmd |\n| -- |\n| ps aux \\| grep java |",
+        id="pipe-in-a-cell",
     ),
     pytest.param(
         "use the <Enter> key",
+        None,
         id="angle-bracket-text",
         marks=_lossy(
-            "to_transport does not escape raw markup, so the text reaches "
-            "GLPI as a live unknown tag -- which the web UI drops too. "
-            "Escaping it is a separate change to the outbound direction."
+            "to_transport passes raw markup through, so the text reaches GLPI "
+            "as a live unknown tag, which the web UI drops too. Write it in "
+            "backticks."
         ),
     ),
 ]
 
 
-@pytest.mark.parametrize("markdown", ROUND_TRIP_CORPUS)
-def test_round_trip_corpus(markdown: str) -> None:
+@pytest.mark.parametrize(("markdown", "canonical"), ROUND_TRIP_CORPUS)
+def test_round_trip_corpus(markdown: str, canonical: str | None) -> None:
     """Markdown survives a full write-then-read cycle through GLPI's HTML."""
 
     outgoing = model_to_payload(PostTicket(name="Round trip", content=markdown))
     incoming = GetTicket.model_validate({"name": "Round trip", **outgoing})
 
-    assert incoming.content == markdown
+    assert incoming.content == (canonical or markdown)
+    rendered = conversion.GlpiContentConverter.to_transport(incoming.content)
+    assert displayed(rendered) == displayed(outgoing["content"])
 
 
 # ---------------------------------------------------------------------------

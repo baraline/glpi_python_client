@@ -7,7 +7,7 @@ and a payload carrying both kinds is what makes a plain comparison raise.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Annotated
 
 import pytest
@@ -145,7 +145,7 @@ def test_aware_datetime_is_converted_to_the_server_clock_and_stripped() -> None:
     the conversion rather than written out.
     """
 
-    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=UTC))
 
     dumped = stamped.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
 
@@ -169,7 +169,7 @@ def test_serialisation_without_a_context_leaves_the_offset_alone() -> None:
     one would be the same silent shift the conversion exists to prevent.
     """
 
-    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc))
+    stamped = _Stamped(id=1, date=datetime(2024, 1, 1, 12, 0, tzinfo=UTC))
 
     assert stamped.model_dump(mode="json")["date"] == "2024-01-01T12:00:00Z"
 
@@ -179,7 +179,7 @@ def test_the_serialisation_timezone_reaches_a_nested_model() -> None:
 
     nested = _Nested(
         id=1,
-        inner=_Stamped(id=2, date=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)),
+        inner=_Stamped(id=2, date=datetime(2024, 1, 1, 12, 0, tzinfo=UTC)),
     )
 
     dumped = nested.model_dump(mode="json", context={"server_timezone": _PARIS_WINTER})
