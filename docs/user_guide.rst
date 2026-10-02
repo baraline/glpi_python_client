@@ -1843,7 +1843,9 @@ read as HTML: Markdown that opens with an autolink and carries an inline
 ``<br>`` further on loses that autolink, so start such a value with
 something else. A Markdown table needs a header row, so a header-less HTML
 table reads back with an empty one, and struck-through text stays as raw
-``<s>``.
+``<s>``. A lone UTF-16 surrogate in a write model's Markdown, which UTF-8
+cannot encode, is sent as U+FFFD; ``GlpiContentConverter.to_transport``
+called directly raises on one.
 
 .. note::
 

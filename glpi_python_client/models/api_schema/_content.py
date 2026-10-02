@@ -83,6 +83,7 @@ Rewrite the raw field, or rebuild through ``model_validate``.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -159,6 +160,9 @@ _LAST_CONTENT_FAULT: ContextVar[GlpiContentError | None] = ContextVar(
     "glpi_last_content_fault", default=None
 )
 
+#: A UTF-16 surrogate standing alone, which UTF-8 cannot encode.
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
 
 def _to_transport(value: str | None) -> str | None:
     """Render an outbound Markdown content value as the HTML GLPI expects.
@@ -166,6 +170,12 @@ def _to_transport(value: str | None) -> str | None:
     ``None`` is preserved so ``model_dump(exclude_none=True)`` continues to
     drop unset fields from request bodies. Empty Markdown is rendered as an
     empty string to stay consistent with the inbound converter behaviour.
+
+    A lone surrogate is written as U+FFFD, the way CommonMark writes a NUL:
+    cmark-gfm renders UTF-8, which cannot carry one, so the whole write
+    failed on a single character. Python strings can hold one -- decoding
+    with ``surrogateescape``, or ``json.loads`` of an unpaired ``\\ud800``
+    escape -- and the rest of the body keeps its Markdown.
 
     A failure is recorded in :data:`_LAST_CONTENT_FAULT` before it is
     raised, because raising it is not enough on its own: see
@@ -175,7 +185,7 @@ def _to_transport(value: str | None) -> str | None:
     if value is None:
         return None
     try:
-        return GlpiContentConverter.to_transport(value)
+        return GlpiContentConverter.to_transport(_LONE_SURROGATE.sub("�", value))
     except GlpiContentError as exc:
         _LAST_CONTENT_FAULT.set(exc)
         raise

@@ -114,6 +114,44 @@ def test_a_content_fault_on_the_write_path_stays_in_the_taxonomy(
     assert isinstance(caught.value.__context__, PydanticSerializationError)
 
 
+@pytest.mark.parametrize(
+    ("markdown", "html"),
+    [
+        pytest.param("a\ud800b", "<p>a�b</p>", id="high"),
+        pytest.param("**gras** a\udc00", "<p><strong>gras</strong> a�</p>", id="low"),
+        pytest.param(  # built with chr(): a literal "😀" is one character
+            chr(0xD83D) + chr(0xDE00), "<p>��</p>", id="a-pair-kept-apart"
+        ),
+    ],
+)
+def test_a_lone_surrogate_is_written_as_a_replacement_character(
+    markdown: str, html: str
+) -> None:
+    """UTF-8 cannot encode a lone UTF-16 surrogate, so cmark-gfm could not
+    render a body holding one and the whole write failed with
+    ``GlpiContentError``. Each surrogate is written as U+FFFD instead, as
+    CommonMark replaces a NUL, and the rest of the body keeps its Markdown;
+    a pair left as two code points is two of them. The write model's own
+    value is left as the caller gave it."""
+
+    model = PostTicket(name="surrogate", content=markdown)
+
+    assert model.content == markdown
+    assert model_to_payload(model)["content"] == html
+
+
+def test_a_lone_surrogate_reaches_glpi_as_a_replacement_character() -> None:
+    """The same through the client: the write is sent, not refused."""
+
+    client = make_client()
+    recorder = TransportRecorder()
+    recorder.install(client)
+
+    client.create_ticket(PostTicket(name="surrogate", content="a\ud800b"))
+
+    assert recorder.calls[-1]["json"]["content"] == "<p>a�b</p>"
+
+
 def test_a_serialisation_fault_that_is_not_content_is_not_mislabelled() -> None:
     """Only a stashed content fault becomes a ``GlpiContentError``.
 

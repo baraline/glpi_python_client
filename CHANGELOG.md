@@ -53,6 +53,12 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
 - **A `colspan` or `start` markdownify cannot read as a number raised
   `GlpiContentError`** from `.content` (`colspan="²"`, or 5,000 digits). The
   body degrades to its text instead, every word kept.
+- **A lone surrogate in a write model's Markdown failed the whole write**
+  with `GlpiContentError`: cmark-gfm renders UTF-8, which cannot encode
+  one. Each lone surrogate is written as U+FFFD instead, as CommonMark
+  replaces a NUL, and the rest of the body keeps its Markdown. Calling
+  `GlpiContentConverter.to_transport` directly still raises, as
+  `easyvista-python-client`'s converter does.
 - **A run of unfinished tags at the end of a body was quadratic to read** on
   CPython before 3.11.14, 3.12.12 and 3.13.6 (CVE-2025-6069). Every `<`
   after the body's last `>` is read as text, so `x <a b` at the very end
