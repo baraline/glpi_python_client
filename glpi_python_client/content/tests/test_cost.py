@@ -17,13 +17,13 @@ where those tests had 20,000 -- and the runner's speed cancels out.
 Ported from easyvista-python-client 0.4.0, whose converter is this one.
 The shapes are 0.6.0's four long bodies, in this form; three bodies dense
 with syntax from that package's earlier tests; and one per fix that
-removed a quadratic. Measured 2026-10-02, timed the way :func:`growth`
-times, at these sizes, three readings per shape: this converter grew by
-3.0 to 7.5 on CPython 3.12.3 and by 2.6 to 5.7 on 3.13.14. On 3.12.3,
-0.6.0 grew by 10.3 and 10.4 on the ordered list, 14.2 and 15.5 on bold
-holding line breaks and 30.9 and 34.4 on the unfinished-tag tail (two
-readings each), and reverting fix 12, 13 or 15 alone grew by 10.4, 14.1
-and 33.2 on its shape (one reading each).
+removed a quadratic. Measured 2026-10-02 on an otherwise idle machine,
+timed by :func:`growth` at these sizes, three readings per shape: this
+converter grew by 3.8 to 5.4 on CPython 3.12.3 and by 2.9 to 4.5 on
+3.13.14. On 3.12.3, 0.6.0 grew by 10.9 to 11.3 on the ordered list, 13.0
+to 17.1 on bold holding line breaks and 28.5 to 31.1 on the unfinished-tag
+tail, and reverting fix 12, 13 or 15 alone grew by 10.4 to 12.0, 16.8 to
+17.4 and 31.9 to 33.0 on its shape.
 
 A ratio between 8 and 10 is measured once more and the second reading
 decides, so that one burst of load cannot fail a linear pass; a reading of
@@ -161,7 +161,7 @@ def test_a_long_ordered_list_converts_in_linear_time() -> None:
     """Fix 12: each item takes its number from the item before it.
 
     markdownify counted every sibling before each item, which was quadratic.
-    On 5,000 items 0.6.0 took 3.9 seconds against 0.8 with the fix
+    On 5,000 items 0.6.0 took 3.1 seconds against 0.6 with the fix
     (measured 2026-10-02, CPython 3.12.3, best of three). The list is
     written one item per line, as an editor writes it: each newline is one
     more sibling to count, which makes the quadratic easier to see.
