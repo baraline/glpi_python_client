@@ -38,7 +38,9 @@ import time
 from collections.abc import Callable
 
 import pytest
+from bs4 import Tag
 
+from glpi_python_client.content import conversion
 from glpi_python_client.content.conversion import GlpiContentConverter
 
 read = GlpiContentConverter.from_transport
@@ -189,6 +191,45 @@ def test_a_tail_of_unfinished_tags_converts_in_linear_time() -> None:
     """
 
     assert_linear(lambda n: "<p>r</p>" + "x <a " * n, 500)
+
+
+def test_the_walk_round_blocks_checks_each_tag_about_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The walk marking a ``<u>``, ``<mark>`` or ``<ins>`` that holds a block
+    stops at the first tag already marked, so a block checks only the tags
+    marked since the last one.
+
+    Without the stop, every block checked every tag open around it: blocks
+    times depth. The output is the same either way, and a body nested past
+    markdownify's stack, which still pays for the walk before it falls back
+    to text, is where the cost would show. A ratio at sizes a test can
+    afford does not tell the two apart reliably, so this counts the checks:
+    about one per tag here, against one per tag per block without the stop.
+    The floor fails a rewrite that checks some other way, rather than
+    letting it pass on a count of nothing.
+    """
+
+    checks = 0
+    has_attr, get = Tag.has_attr, Tag.get
+
+    def counting_has_attr(self: Tag, key: str) -> bool:
+        nonlocal checks
+        checks += key == conversion._HOLDS_BLOCK
+        return has_attr(self, key)
+
+    def counting_get(self: Tag, key: str, default: object = None) -> object:
+        nonlocal checks
+        checks += key == conversion._HOLDS_BLOCK
+        return get(self, key, default)
+
+    monkeypatch.setattr(Tag, "has_attr", counting_has_attr)
+    monkeypatch.setattr(Tag, "get", counting_get)
+    depth = 50
+
+    read("<u>" * depth + "<p>x</p>" * depth + "</u>" * depth)
+
+    assert depth <= checks <= 4 * depth
 
 
 def test_a_body_too_deep_to_convert_keeps_its_text() -> None:

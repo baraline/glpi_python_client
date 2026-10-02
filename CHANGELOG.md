@@ -103,6 +103,13 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
 - `content/tests/test_cost.py` replaces the 20-second budgets on long bodies
   with growth tests, `time(4n) / time(n) < 8`, which a quadratic pass fails
   at a few thousand items.
+- Four guards that no test caught are pinned, each by a test that fails
+  without it: a second `<` before a space keeps one escape, a header cell
+  escapes a `|` in `<kbd>` or `<samp>` and splits a line break in inline
+  code, a table inside an `<a>` without `href` stays a table, and an ordered
+  item numbered 10 or more indents its content by its bullet's width. A
+  count pins that the walk finding blocks inside `<u>`, `<mark>` and `<ins>`
+  checks each tag about once.
 - The display oracle treats a flattened cell's edge as a word boundary, as a
   browser does, and reads `start` with `isdecimal`.
 

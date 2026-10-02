@@ -42,6 +42,12 @@ against easyvista-python-client 0.4.0's converter, 40 failed, and the two
 that passed are the one-line controls. They read such a body as 0.6.0 did,
 so on 0.6.0 only the three that need a tag kept fail.
 
+Twelve more pin four guards a review found no test caught: a second ``<``
+before a space (section 5), a header cell (6), an anchor without ``href``
+(7) and an item numbered 10 or more (12). Each fails when its guard alone
+is removed. On 0.6.0, which behaved the same there except for fix 6, only
+the three header-cell cases that need fix 6 fail.
+
 Every word is invented and every URL is under ``example.org``.
 """
 
@@ -217,6 +223,24 @@ def test_5_a_second_less_than_stays_text(html: str) -> None:
     assert "\\<\\<" in markdown
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>&lt;&lt; b</p>", "\\<< b", id="before-a-space"),
+        pytest.param("<p>x &lt;&lt; &lt;b&gt;</p>", "x \\<< \\<b>", id="then-a-tag"),
+    ],
+)
+def test_5_a_second_less_than_before_a_space_is_not_escaped(
+    html: str, expected: str
+) -> None:
+    """Before a space a ``<`` opens neither an autolink nor a tag, so the fix
+    leaves it as mdformat wrote it. Both spellings display the same: this
+    pins the spelling, which digests of the Markdown depend on and which the
+    two packages' readers share."""
+
+    assert assert_survives(html) == expected
+
+
 # ---------------------------------------------------------------------------
 # 6. A line break in inline code
 # ---------------------------------------------------------------------------
@@ -241,6 +265,12 @@ def test_5_a_second_less_than_stays_text(html: str) -> None:
             "| H |\n| -- |\n| a `un`<br>`deux` b |",
             id="cell",
         ),
+        pytest.param(
+            "<table><tr><th>a <code>un<br>deux</code> b</th></tr><tr><td>x</td></tr>"
+            "</table>",
+            "| a `un`<br>`deux` b |\n| -- |\n| x |",
+            id="header-cell",
+        ),
     ],
 )
 def test_6_a_line_break_in_inline_code_splits_the_span(
@@ -262,12 +292,20 @@ def test_6_a_line_break_in_inline_code_in_a_heading_is_a_space() -> None:
     )
 
 
+@pytest.mark.parametrize("cell", ["td", "th"])
 @pytest.mark.parametrize("tag", ["code", "kbd", "samp"])
-def test_6_a_pipe_in_inline_code_in_a_cell_stays_in_the_cell(tag: str) -> None:
+def test_6_a_pipe_in_inline_code_in_a_cell_stays_in_the_cell(
+    tag: str, cell: str
+) -> None:
     """GFM splits a row on ``|`` before it reads code. ``code`` is the control:
-    0.6.0 escaped it there already, but not in ``kbd`` or ``samp``."""
+    0.6.0 escaped it there already, but not in ``kbd`` or ``samp``. A
+    header cell is a cell too."""
 
-    html = f"<table><tr><th>H</th></tr><tr><td><{tag}>a|b</{tag}> fin</td></tr></table>"
+    content = f"<{cell}><{tag}>a|b</{tag}> fin</{cell}>"
+    if cell == "td":
+        html = f"<table><tr><th>H</th></tr><tr>{content}</tr></table>"
+    else:
+        html = f"<table><tr>{content}</tr><tr><td>x</td></tr></table>"
 
     markdown = assert_survives(html)
 
@@ -312,6 +350,27 @@ def test_7_a_table_inside_a_cell_is_its_cells_text() -> None:
     )
 
     assert markdown == "| A |\n| -- |\n| un deux |"
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param('<a name="x">TABLE</a>', id="named-anchor"),
+        pytest.param('<p>avant</p><a id="ancre">TABLE</a>', id="anchor-with-an-id"),
+    ],
+)
+def test_7_a_table_inside_an_anchor_without_a_target_stays_a_table(
+    html: str,
+) -> None:
+    """The control: an ``<a>`` without ``href`` is no link, so it holds no
+    line, and a table inside it stays a table. Some mail clients wrap a
+    message's content in such named anchors."""
+
+    table = "<table><tr><th>a</th><th>b</th></tr><tr><td>c</td><td>d</td></tr></table>"
+
+    markdown = assert_survives(html.replace("TABLE", table))
+
+    assert markdown.endswith("| a | b |\n| -- | -- |\n| c | d |")
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +592,42 @@ def test_12_an_ordered_item_is_numbered_one_past_the_item_before(
     changed there is the cost (:mod:`.test_cost`), and the first two cases
     pin that the rewrite numbers as markdownify did.
     """
+
+    assert assert_survives(html) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            '<ol start="10"><li>a<ul><li>b</li></ul></li></ol>',
+            "10. a\n    - b",
+            id="nested-list",
+        ),
+        pytest.param(
+            '<ol start="10"><li><p>a</p><p>b</p></li></ol>',
+            "10. a\n\n    b",
+            id="second-paragraph",
+        ),
+        pytest.param(
+            '<ol start="9"><li>a</li><li>b<ul><li>c</li></ul></li></ol>',
+            "09. a\n10. b\n    - c",
+            id="tenth-item",
+        ),
+        pytest.param(
+            '<ol start="100"><li>a<ul><li>b</li></ul></li></ol>',
+            "100. a\n     - b",
+            id="three-digits",
+        ),
+    ],
+)
+def test_12_an_items_content_is_indented_by_its_bullets_width(
+    html: str, expected: str
+) -> None:
+    """A line belongs to an item only if indented by its bullet's width: four
+    for ``10. ``, five for ``100. ``. markdownify indented so; the rewrite
+    does it itself, and only an item numbered 10 or more tells the bullet's
+    width from a fixed three, the width of ``1. ``."""
 
     assert assert_survives(html) == expected
 
