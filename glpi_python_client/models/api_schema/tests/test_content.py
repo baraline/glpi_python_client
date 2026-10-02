@@ -117,10 +117,12 @@ def test_a_content_fault_on_the_write_path_stays_in_the_taxonomy(
 @pytest.mark.parametrize(
     ("markdown", "html"),
     [
-        pytest.param("a\ud800b", "<p>a�b</p>", id="high"),
-        pytest.param("**gras** a\udc00", "<p><strong>gras</strong> a�</p>", id="low"),
-        pytest.param(  # built with chr(): a literal "😀" is one character
-            chr(0xD83D) + chr(0xDE00), "<p>��</p>", id="a-pair-kept-apart"
+        pytest.param("a\ud800b", "<p>a\ufffdb</p>", id="high"),
+        pytest.param(
+            "**gras** a\udc00", "<p><strong>gras</strong> a\ufffd</p>", id="low"
+        ),
+        pytest.param(  # built with chr(): \ud83d\ude00 in a literal is one character
+            chr(0xD83D) + chr(0xDE00), "<p>\ufffd\ufffd</p>", id="a-pair-kept-apart"
         ),
     ],
 )
@@ -149,7 +151,7 @@ def test_a_lone_surrogate_reaches_glpi_as_a_replacement_character() -> None:
 
     client.create_ticket(PostTicket(name="surrogate", content="a\ud800b"))
 
-    assert recorder.calls[-1]["json"]["content"] == "<p>a�b</p>"
+    assert recorder.calls[-1]["json"]["content"] == "<p>a\ufffdb</p>"
 
 
 def test_a_serialisation_fault_that_is_not_content_is_not_mislabelled() -> None:

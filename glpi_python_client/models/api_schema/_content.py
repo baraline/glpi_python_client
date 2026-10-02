@@ -186,7 +186,7 @@ def _to_transport(value: str | None) -> str | None:
     if value is None:
         return None
     try:
-        return GlpiContentConverter.to_transport(_LONE_SURROGATE.sub("�", value))
+        return GlpiContentConverter.to_transport(_LONE_SURROGATE.sub("\ufffd", value))
     except GlpiContentError as exc:
         _LAST_CONTENT_FAULT.set(exc)
         raise
