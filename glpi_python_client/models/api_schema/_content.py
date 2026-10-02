@@ -54,7 +54,8 @@ Note that the inbound converter also runs on **outbound** content: the
 ``BeforeValidator`` below fires when a caller constructs a ``Post*`` model,
 so caller-authored Markdown passes through it before the serializer renders
 it. It runs with ``plain_text_is_markdown=True``, which keeps the caller's
-Markdown verbatim unless it starts with an HTML tag -- reading it as literal
+Markdown as written, stripped at both ends, unless it starts with ``<`` and
+holds an HTML element -- reading it as literal
 text would escape it, and GLPI would receive literal asterisks.
 
 One sharp edge comes with the read side, from ``functools.cached_property``:

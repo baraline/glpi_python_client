@@ -1822,9 +1822,10 @@ becomes:
   link target is filtered, ``javascript:`` included (see `It is not a
   sanitiser`_). An **image** becomes ``![alt](src "title")``, its alt text
   escaped like any other text.
-* **Lists** nest and keep their numbers, including an ``<ol start>``; a
-  ``start`` that is not a decimal number, such as ``²``, counts from 1, as
-  a browser does. **Tables** become GFM tables, and a ``<br>`` inside a cell
+* **Lists** nest and keep their numbers, including an ``<ol start>``. A
+  ``start`` that is not a decimal number counts from 1, as a browser counts
+  one holding no digit, such as ``²``; a browser reads ``" 3"``, ``"+3"``
+  or ``"3abc"`` as 3. **Tables** become GFM tables, and a ``<br>`` inside a cell
   stays a raw ``<br>``, since a GFM cell is one line. A table inside a cell,
   a heading or a link is written as its cells' text, spaced apart.
 * **Preformatted blocks** become fences that keep the ``language-`` class
@@ -1837,15 +1838,18 @@ becomes:
 
 Writing, your Markdown is rendered by cmark-gfm. A newline is a line break,
 GFM tables work, and raw HTML passes through, so put a placeholder such as
-``<login>`` in backticks. A write model keeps your Markdown verbatim unless
-it starts with ``<`` and holds an HTML element anywhere, in which case it is
-read as HTML: Markdown that opens with an autolink and carries an inline
-``<br>`` further on loses that autolink, so start such a value with
-something else. A Markdown table needs a header row, so a header-less HTML
-table reads back with an empty one, and struck-through text stays as raw
-``<s>``. A lone UTF-16 surrogate in a write model's Markdown, which UTF-8
-cannot encode, is sent as U+FFFD; ``GlpiContentConverter.to_transport``
-called directly raises on one.
+``<login>`` in backticks. A write model keeps your Markdown as written,
+stripped at both ends, unless it starts with ``<`` and holds an HTML
+element anywhere, in which case it is read as HTML. Stripping unindents the
+first line of a body that opens with an indented code block, which then
+reads as a paragraph, so open such a body with a fence. Read as HTML,
+Markdown that opens with an autolink and carries an inline ``<br>`` further
+on loses that autolink, so start such a value with something else. A
+Markdown table needs a header row, so a header-less HTML table reads back
+with an empty one, and struck-through text stays as raw ``<s>``. A lone
+UTF-16 surrogate in a write model's Markdown, which UTF-8 cannot encode, is
+sent as U+FFFD; ``GlpiContentConverter.to_transport`` called directly raises
+on one.
 
 .. note::
 
@@ -1863,10 +1867,11 @@ called directly raises on one.
    body never says less because of how deeply it happened to nest. What you
    lose is structure, not words — link targets and image alt text,
    code-block fencing and ``<pre>`` indentation, and ``&nbsp;``-padded
-   alignment. A ``colspan`` or ``start`` that markdownify cannot read as a
-   number, such as a ``colspan`` of ``"²"`` or a value of 5,000 digits,
-   takes the same path, and so does a document ``html.parser`` refuses
-   outright. Anything else that goes wrong raises
+   alignment. Any ``ValueError`` from the conversion takes the same path:
+   markdownify raises one for a ``colspan`` or ``start`` it cannot read as
+   a number, such as a ``colspan`` of ``"²"`` or a value of 5,000 digits.
+   So does a document ``html.parser`` refuses outright. Anything else that
+   goes wrong raises
    :class:`~glpi_python_client.GlpiContentError`.
 
    Because the budget is whatever stack is left when the call starts, the
@@ -1896,8 +1901,12 @@ keys it.
 Many unfinished tags after a body's last ``>`` is the shape that reaches the
 converter, and a body is outside data, so reading spells every ``<`` after
 the last ``>`` as ``&lt;`` before parsing: no ``<`` there can finish a tag.
-As a side effect, an unfinished tag at the very end, ``x <a``, reads as the
-text ``x \<a`` on every interpreter, where a patched CPython would drop it.
+As a side effect, whatever follows the body's last ``>`` reads as text on
+every interpreter, where a patched CPython drops some of it: an unfinished
+tag at the very end, ``x <a``, reads as ``x \<a``; an unterminated
+comment, ``<!-- note``, as ``\<!-- note``; and a closing tag cut short
+inside a link, ``<a href="...">lien</a``, leaves ``\</a`` in the link's
+text.
 Prefer a patched interpreter anyway: the guard covers the converter's input,
 and the CPython fix covers the parser itself.
 

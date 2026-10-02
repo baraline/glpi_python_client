@@ -18,8 +18,9 @@ synthetic shapes still lose words or the fixed point; the user guide's
 three libraries leave out: plain text, line breaks a browser does not
 show, bold and italic CommonMark would not close, link targets, and an
 mdformat set up without its nesting cap and with its quadratic lookups made
-linear. A body nested too deeply for the stack, or holding a ``colspan`` or
-``start`` markdownify cannot read as a number, is read as its text
+linear. A body nested too deeply for the stack, or on which the
+conversion raises ``ValueError`` -- markdownify does for a ``colspan`` or
+``start`` it cannot read as a number -- is read as its text
 (:func:`_text_of`); anything else that fails raises
 :class:`~glpi_python_client.GlpiContentError`.
 
@@ -766,9 +767,10 @@ class GlpiContentConverter:
         ------
         GlpiContentError
             The value could not be converted. A body nested too deeply for
-            the stack left, or holding a ``colspan`` or ``start``
-            markdownify cannot read as a number, is read as its text
-            instead, so this is a backstop.
+            the stack left, or on which the conversion raises
+            ``ValueError`` (a ``colspan`` or ``start`` markdownify cannot
+            read as a number, among others), is read as its text instead,
+            so this is a backstop.
         RecursionError
             Only when called from within a few frames of the recursion
             limit, where no stack is left even to report the failure as

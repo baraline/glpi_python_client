@@ -47,12 +47,14 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
   stays.
 - **A long ordered list was quadratic to read**: 5,000 items took 3.1 s,
   and take 0.6 s now (CPython 3.12.3). An `<ol start>` such as `²` or `½`
-  counts from 1, as a browser does, instead of failing the body.
+  counts from 1, as a browser counts a start holding no digit, instead of
+  failing the body.
 - **A run of spaces or line breaks at the edge of bold, italic or a link was
   quadratic to read.** It is linear.
 - **A `colspan` or `start` markdownify cannot read as a number raised
   `GlpiContentError`** from `.content` (`colspan="²"`, or 5,000 digits). The
-  body degrades to its text instead, every word kept.
+  body degrades to its text instead, every word kept. Any other
+  `ValueError` raised while converting takes the same path.
 - **A lone surrogate in a write model's Markdown failed the whole write**
   with `GlpiContentError`: cmark-gfm renders UTF-8, which cannot encode
   one. Each lone surrogate is written as U+FFFD instead, as CommonMark
@@ -96,6 +98,13 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
 - The `glpi-ticket-timeline`, `glpi-ticket-workflow` and
   `glpi-knowledge-base` skills describe raw `<u>`, `<mark>`, `<ins>` and
   `<s>`, the write-model rule exactly, and the new depth.
+- Corrected after review: a write model keeps the caller's Markdown
+  stripped at both ends, not verbatim; the `glpi-knowledge-base` and
+  `glpi-plugin-fields` skills no longer say a deep body never raises; any
+  `ValueError` degrades to text, not only a `colspan` or `start`; a
+  `start` counts as a browser counts it only when it holds no digit; and
+  the CVE-2025-6069 note says that everything after a body's last `>`,
+  an unterminated comment or a cut-short closing tag included, is shown.
 
 ### Tests
 

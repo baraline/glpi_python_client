@@ -86,8 +86,9 @@ python -m pytest
   articles (`content` and `description`) and article revisions. It is
   wired into the models by `models/api_schema/_content.py`, eagerly on
   the write models and through a cached property on the read ones.
-  Inbound HTML too deep for `markdownify` to walk, or holding a
-  `colspan` or `start` it cannot read as a number, is tag-stripped
+  Inbound HTML too deep for `markdownify` to walk, or on which it
+  raises `ValueError` (a `colspan` or `start` it cannot read as a
+  number, among others), is tag-stripped
   rather than parsed. The depth is not predicted: the conversion is
   attempted and the `RecursionError` answered, because the budget is the
   caller's remaining stack and no bound computed in advance can know it.

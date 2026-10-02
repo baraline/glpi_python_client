@@ -19,7 +19,10 @@ changed two rules of the 0.6.0 oracle, each marked where it is:
   a nested table's cell is a word boundary, as a browser shows it (a new
   line, a new box) and as the converter writes it (a space); and
 * an ordered list's ``start`` is read with ``isdecimal``, as the converter
-  reads it, where ``isdigit`` made the oracle itself raise on ``"²"``.
+  reads it, where ``isdigit`` made the oracle itself raise on ``"²"``. So
+  the oracle cannot see where a browser numbers otherwise: from 3 for
+  ``" 3"``, ``"+3"`` or ``"3abc"``, and from 1 for a full-width 3
+  (U+FF13).
 
 Since 0.6.1, with ``easyvista-python-client`` 0.4.1, a rule (``<hr>``)
 inside an inline element counts as a block, where the oracle read it as

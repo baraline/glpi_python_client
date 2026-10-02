@@ -585,8 +585,13 @@ def test_12_an_ordered_item_is_numbered_one_past_the_item_before(
 ) -> None:
     """Each item keeps its number for the next, where markdownify counted
     every item before each one. ``isdecimal``, where markdownify's
-    ``isnumeric`` let ``int("½")`` raise -- a browser counts such a list
-    from 1, and so does the converter now.
+    ``isnumeric`` let ``int("½")`` raise: the converter now counts such a
+    list from 1, as a browser counts one whose ``start`` holds no ASCII
+    digit. A browser, under the HTML standard's rules for parsing integers,
+    reads ``" 3"``, ``"+3"`` and ``"3abc"`` as 3, which the converter counts
+    from 1, and a full-width 3 (U+FF13), which the converter reads as 3, as
+    no number. The display oracle reads ``start`` as the converter does, so
+    these tests cannot see that.
 
     With a decimal ``start``, 0.6.0 numbered the same: what the fix
     changed there is the cost (:mod:`.test_cost`), and the first two cases
@@ -734,6 +739,14 @@ def test_14_a_number_markdownify_cannot_read_falls_back_to_text(html: str) -> No
         pytest.param("<p>r</p>x <<a", "r\n\nx \\<\\<a", id="doubled"),
         pytest.param(  # the control: a bare '<' was text on every release
             "<p>r</p>fin <", "r\n\nfin \\<", id="bare"
+        ),
+        pytest.param(  # a side effect: shown, where a patched parser hides it
+            "<p>r</p><!-- cache", "r\n\n\\<!-- cache", id="unterminated-comment"
+        ),
+        pytest.param(  # the same for a closing tag cut short inside a link
+            '<p><a href="https://example.org/u">lien</a',
+            "[lien\\</a](https://example.org/u)",
+            id="truncated-end-tag",
         ),
     ],
 )
