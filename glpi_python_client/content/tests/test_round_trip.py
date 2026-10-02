@@ -11,11 +11,11 @@ The contract, checked with an HTML parser (:mod:`.display`) rather than by eye:
 
 The bodies are the shapes GLPI's editor and the mail collector store, and
 the Markdown is what an integrator writes. From easyvista-python-client
-0.4.0, whose converter is this one: a body shaped like an e-mail
-notification template, two plain-text cases (a CR LF, an entity), a pin on
-what ``plain_text_is_markdown=True`` reads as HTML, and the HTML of that
-package's earlier regression bodies. The long-body tests are growth tests
-in :mod:`.test_cost`.
+0.4.0, whose converter, as 0.4.1 corrected it, is this one: a body shaped
+like an e-mail notification template, two plain-text cases (a CR LF, an
+entity), a pin on what ``plain_text_is_markdown=True`` reads as HTML, and
+the HTML of that package's earlier regression bodies. The long-body tests
+are growth tests in :mod:`.test_cost`.
 
 Adversarial input -- syntax characters packed into every position -- is
 :mod:`.test_properties`' subject; this module holds the converter to

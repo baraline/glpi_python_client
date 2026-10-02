@@ -6,11 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 0.6.1 — 2026-10-02
 
-The reader now gives the same Markdown as `easyvista-python-client` 0.4.0,
-whose converter is this package's 0.6.0 converter plus fifteen fixes. This
-release ports those fixes, with their tests. The two conversion modules now
-differ only in names, error messages, docstrings and that package's
-optional-dependency import guard. Writing (`to_transport`) is unchanged.
+The reader now gives the same Markdown as `easyvista-python-client` 0.4.1,
+whose converter is this package's 0.6.0 converter plus fifteen fixes and a
+correction to one of them. This release ports those fixes and the
+correction, with their tests. The two conversion modules now differ only in
+names, error messages, docstrings and that package's optional-dependency
+import guard. The converter's writing (`to_transport`) is unchanged; a
+write model now sends a lone surrogate as U+FFFD.
 
 ### Fixed
 
@@ -109,8 +111,10 @@ optional-dependency import guard. Writing (`to_transport`) is unchanged.
 ### Tests
 
 - `content/tests/test_fixes.py` pins each of the fifteen fixes; run against
-  0.6.0, 36 of its 54 tests fail on CPython 3.12.3 and 37 on 3.13.14, the
-  rest being controls and pins. Reverting any one fix alone fails at least
+  0.6.0, 36 of the 54 tests first ported fail on CPython 3.12.3 and 37 on
+  3.13.14, the rest being controls and pins. Section 11 also pins the
+  correction to fix 11 with 42 tests, 40 of which fail on
+  `easyvista-python-client` 0.4.0's converter. Reverting any one fix alone fails at least
   one test of the content suite on both.
 - `content/tests/test_properties.py` holds seeded generators to three
   properties: a body displays what its HTML displayed, is a fixed point,

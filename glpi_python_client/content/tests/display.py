@@ -11,7 +11,7 @@ cell, as a browser shows it inside the cell. A table with no row displays
 nothing.
 
 Kept identical, but for the package's names, to the oracle of
-``easyvista-python-client`` 0.4.0, whose converter is this one. That
+``easyvista-python-client`` 0.4.1, whose converter is this one. That
 package added :func:`one_line`, :func:`text_words` and :func:`loose`, and
 changed two rules of the 0.6.0 oracle, each marked where it is:
 

@@ -14,7 +14,8 @@ long enough to cost 20 seconds, and the tests then spend most of their
 time converting. A ratio needs far shorter bodies -- a few thousand items
 where those tests had 20,000 -- and the runner's speed cancels out.
 
-Ported from easyvista-python-client 0.4.0, whose converter is this one.
+Ported from easyvista-python-client 0.4.0, whose converter, as 0.4.1
+corrected it, is this one.
 The shapes are 0.6.0's four long bodies, in this form; three bodies dense
 with syntax from that package's earlier tests; and one per fix that
 removed a quadratic. Measured 2026-10-02 on an otherwise idle machine,

@@ -24,12 +24,14 @@ conversion raises ``ValueError`` -- markdownify does for a ``colspan`` or
 (:func:`_text_of`); anything else that fails raises
 :class:`~glpi_python_client.GlpiContentError`.
 
-The reader is ``easyvista-python-client`` 0.4.0's, helper for helper: that
+The reader is ``easyvista-python-client`` 0.4.1's, helper for helper: that
 package ported this module at commit ``917f030`` and added fifteen fixes,
-which 0.6.1 ports back. The two modules differ only in names, messages,
-docstrings and that package's optional-dependency import guard, and should
-move together: the hard part of both is the behaviour of the same
-libraries, not anything either ITSM does.
+which 0.6.1 ports back with the correction to fix 11 both packages now
+carry (a ``<u>``, ``<mark>`` or ``<ins>`` round a block is dropped). The
+two modules differ only in names, messages, docstrings and that package's
+optional-dependency import guard, and should move together: the hard part
+of both is the behaviour of the same libraries, not anything either ITSM
+does.
 """
 
 from __future__ import annotations
