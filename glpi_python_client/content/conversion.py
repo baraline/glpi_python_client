@@ -44,6 +44,7 @@ from mdformat.renderer import (
     RenderContext,
     RenderTreeNode,
 )
+from mdformat.renderer.typing import Postprocess
 
 from glpi_python_client._errors import GlpiContentError
 
@@ -316,6 +317,16 @@ class _Converter(MarkdownConverter):
     def _inherited(self, name: str) -> Any:
         return getattr(super(), name)
 
+    def escape(self, text: str, parent_tags: set[str]) -> str:
+        """Escape a text's last ``!`` as well: before a link it makes an image.
+
+        A ``!`` meets a ``[`` only there, markdownify escaping a ``[`` in text;
+        mdformat keeps that escape before a link and drops it anywhere else.
+        """
+
+        text = str(self._inherited("escape")(text, parent_tags))
+        return text[:-1] + "\\!" if text.endswith("!") else text
+
     def _markup(
         self, el: Tag, text: str, parent_tags: set[str], markers: str, tag: str
     ) -> str:
@@ -415,6 +426,8 @@ class _Converter(MarkdownConverter):
 
         alt = " ".join(str(el.get("alt") or "").split())
         alt = str(self._inherited("escape")(alt, parent_tags))
+        if alt.startswith("^") and "_noformat" not in parent_tags:
+            alt = "\\" + alt  # cmark-gfm reads "![^" as "!" and a link
         src = _destination(str(el.get("src") or ""))
         return f"![{alt}]({src}{_title(str(el.get('title') or ''))})"
 
@@ -473,6 +486,10 @@ def _list_item(node: RenderTreeNode, context: RenderContext) -> str:
 #: character no backslash escapes. ``2k - 1`` read as the same ``k`` there.
 _NEEDLESS_DOUBLING = re.compile(r"(?<!\\)((?:\\\\)+)(?=[^!-/:-@\[-`{-~\\\s])")
 
+#: The ``<`` mdformat leaves bare after one it escaped: its pattern eats the
+#: next character, so ``<<a@b.c>`` became ``\<<a@b.c>``, an autolink.
+_SECOND_LESS_THAN = re.compile(r"(?<=\\<)<(?=[^ ]|$)")
+
 
 def _text(node: RenderTreeNode, context: RenderContext) -> str:
     """Render text as mdformat does, less one backslash where it escapes nothing.
@@ -481,7 +498,12 @@ def _text(node: RenderTreeNode, context: RenderContext) -> str:
     """
 
     text = DEFAULT_RENDERERS["text"](node, context)
+    text = _SECOND_LESS_THAN.sub(r"\\<", text)
     return _NEEDLESS_DOUBLING.sub(lambda found: found.group(1)[:-1], text)
+
+
+#: A paragraph line opening with ``~~~``, which CommonMark reads as a fence.
+_TILDE_FENCE = re.compile("^~~~", re.MULTILINE)
 
 
 class _Lists:
@@ -491,6 +513,13 @@ class _Lists:
         "list_item": _list_item,
         "text": _text,
         "hr": lambda node, context: "---",
+    }
+    #: What mdformat drops: an escape or entity in an image's alt text, which
+    #: markdown-it-py 3 leaves a ``text_special`` token mdformat renders as
+    #: nothing, and the escape on a paragraph line opening with ``~~~``.
+    POSTPROCESSORS: Mapping[str, Postprocess] = {
+        "text_special": lambda text, node, context: node.markup,
+        "paragraph": lambda text, node, context: _TILDE_FENCE.sub(r"\\~~~", text),
     }
 
 
