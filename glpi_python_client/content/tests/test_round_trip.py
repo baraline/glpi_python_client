@@ -18,8 +18,6 @@ realistic content.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from glpi_python_client.content.conversion import GlpiContentConverter
@@ -314,37 +312,3 @@ def test_caller_markdown_displays_the_same_after_the_round_trip(markdown: str) -
 
     assert displayed(render(back)) == displayed(html)
     assert read(render(back)) == back
-
-
-# ---------------------------------------------------------------------------
-# Cost and depth
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "html",
-    [
-        pytest.param("<p>" + "ligne<br>" * 20_000 + "</p>", id="line-breaks"),
-        pytest.param("<ul>" + "<li>x</li>" * 20_000 + "</ul>", id="list-items"),
-        pytest.param("<ul>" + "<li></li>" * 20_000 + "</ul>", id="empty-items"),
-        pytest.param("<p>" + "<b>gras</b> mot " * 20_000 + "</p>", id="emphasis"),
-    ],
-)
-def test_a_long_body_converts_in_linear_time(html: str) -> None:
-    """The budget is generous on purpose: this guards the complexity, not the speed."""
-
-    started = time.perf_counter()
-    read(html)
-
-    assert time.perf_counter() - started < 20
-
-
-def test_a_body_too_deep_to_convert_keeps_its_text() -> None:
-    """markdownify recurses per nesting level; past the stack, the text is kept."""
-
-    html = "<div>" * 3000 + "<p>__init__ au fond</p>" + "</div>" * 3000
-
-    markdown = read(html)
-
-    assert "init" in markdown
-    assert "au fond" in render(markdown)

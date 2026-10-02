@@ -118,6 +118,51 @@ def test_markup_the_parser_rejects_degrades_to_its_text(
 def test_an_inbound_fault_surfaces_as_a_glpi_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The fault is a ``RuntimeError``: since fix 14 a ``ValueError`` goes to
+    the text fallback first (:func:`test_a_value_error_is_retried_as_text_first`),
+    and a ``RuntimeError`` reaches the error path directly."""
+
+    def failing(html: str) -> str:
+        raise RuntimeError("converter fault")
+
+    monkeypatch.setattr(conversion, "html_to_markdown", failing)
+
+    with pytest.raises(GlpiContentError) as caught:
+        read("<p>x</p>")
+
+    assert isinstance(caught.value, GlpiError)
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "Could not convert GLPI HTML content to Markdown" in str(caught.value)
+
+
+def test_a_value_error_is_retried_as_text_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fix 14: a ``ValueError`` is answered like a ``RecursionError``, by the text.
+
+    markdownify calls ``int()`` on a ``colspan`` or a ``start``, which raises
+    on ``"²"`` or on more digits than CPython converts. The body is read again
+    as its text; only if that fails too is the error reported.
+    """
+
+    calls: list[str] = []
+    convert = conversion.html_to_markdown
+
+    def failing_once(html: str) -> str:
+        calls.append(html)
+        if len(calls) == 1:
+            raise ValueError("invalid literal for int()")
+        return convert(html)
+
+    monkeypatch.setattr(conversion, "html_to_markdown", failing_once)
+
+    assert read("<p>un <b>deux</b></p>") == "un deux"
+    assert len(calls) == 2
+
+
+def test_a_value_error_on_the_text_path_too_is_a_glpi_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def failing(html: str) -> str:
         raise ValueError("converter fault")
 
@@ -126,7 +171,6 @@ def test_an_inbound_fault_surfaces_as_a_glpi_error(
     with pytest.raises(GlpiContentError) as caught:
         read("<p>x</p>")
 
-    assert isinstance(caught.value, GlpiError)
     assert isinstance(caught.value.__cause__, ValueError)
 
 
@@ -142,6 +186,7 @@ def test_an_outbound_fault_surfaces_as_a_glpi_error(
         render("**x**")
 
     assert isinstance(caught.value.__cause__, RuntimeError)
+    assert "Could not render Markdown content as GLPI HTML" in str(caught.value)
 
 
 def test_deeply_nested_markdown_renders() -> None:

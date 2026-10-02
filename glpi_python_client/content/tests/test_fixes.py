@@ -19,18 +19,37 @@ pins one, numbered as in both packages' changelogs:
 8. a block in such a table stays on its holder's line;
 9. bold at a flattened cell's edge still closes;
 10. ``<center>`` is a block, except inside ``<pre>``;
-11. ``<u>``, ``<mark>`` and ``<ins>`` stay raw HTML.
+11. ``<u>``, ``<mark>`` and ``<ins>`` stay raw HTML;
+12. an ordered list is numbered in linear time, and a ``start`` that is
+    not a decimal number counts from 1;
+13. the regex splitting a text's edges is greedy, so linear;
+14. a number markdownify cannot read sends the body to the text fallback;
+15. an unfinished tag at the very end is read as text (the CVE-2025-6069
+    guard).
 
+The cost side of 12, 13 and 15 is tested in :mod:`.test_cost`. Run against
+0.6.0 on 2026-10-02 (CPython 3.12.3), 36 of these 54 tests failed. Of the
+18 that passed there, 17 are controls, guards on a correction to a fix,
+pins of output a fix leaves as it was, or behaviour a cost fix had to keep,
+and each says which. The other is test 15's ``attribute`` case, which
+passed only because 3.12.3 predates CPython's own fix; that test says why.
 Every word is invented and every URL is under ``example.org``.
 """
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from bs4 import BeautifulSoup
 
+from glpi_python_client.content import conversion
 from glpi_python_client.content.conversion import GlpiContentConverter
-from glpi_python_client.content.tests.display import displayed, one_line
+from glpi_python_client.content.tests.display import (
+    displayed,
+    one_line,
+    text_words,
+)
 from glpi_python_client.content.tests.test_round_trip import assert_survives
 
 read = GlpiContentConverter.from_transport
@@ -375,3 +394,166 @@ def test_11_underline_inside_a_link() -> None:
     markdown = assert_survives('<p><a href="https://example.org/u"><u>lien</u></a></p>')
 
     assert markdown == "[<u>lien</u>](https://example.org/u)"
+
+
+# ---------------------------------------------------------------------------
+# 12. Ordered-list numbering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            '<ol start="3"><li>a</li><li>b</li><li>c<ol><li>d</li></ol></li></ol>',
+            "3. a\n4. b\n5. c\n   1. d",
+            id="start-and-a-nested-list",
+        ),
+        pytest.param(
+            '<ol start="0"><li>a</li><li>b</li></ol>', "0. a\n1. b", id="start-zero"
+        ),
+        pytest.param('<ol start="½"><li>a</li><li>b</li></ol>', "1. a\n2. b", id="½"),
+        pytest.param('<ol start="²"><li>a</li><li>b</li></ol>', "1. a\n2. b", id="²"),
+    ],
+)
+def test_12_an_ordered_item_is_numbered_one_past_the_item_before(
+    html: str, expected: str
+) -> None:
+    """Each item keeps its number for the next, where markdownify counted
+    every item before each one. ``isdecimal``, where markdownify's
+    ``isnumeric`` let ``int("½")`` raise -- a browser counts such a list
+    from 1, and so does the converter now.
+
+    With a decimal ``start``, 0.6.0 numbered the same: what the fix
+    changed there is the cost (:mod:`.test_cost`), and the first two cases
+    pin that the rewrite numbers as markdownify did.
+    """
+
+    assert assert_survives(html) == expected
+
+
+def test_12_an_empty_ordered_item_still_counts_for_the_next() -> None:
+    """An empty item takes a number and writes nothing.
+
+    Markdown has no empty ordered item, so the item cannot survive: the
+    browser shows ``3. a`` and ``5. c``, and the Markdown, renumbered by
+    mdformat, shows ``3. a`` and ``4. c``. The words and the fixed point
+    are kept. 0.6.0 wrote the same; this pins that the rewrite still
+    does, and no other test reaches its branch for an empty ordered item.
+    """
+
+    html = '<ol start="3"><li>a</li><li></li><li>c</li></ol>'
+
+    markdown = read(html)
+
+    assert markdown == "3. a\n4. c"
+    assert text_words(render(markdown)) == text_words(html)
+    assert read(render(markdown)) == markdown
+
+
+# ---------------------------------------------------------------------------
+# 13. The edge regex is greedy
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "groups"),
+    [
+        pytest.param("  a b  ", ("  ", "a b", "  "), id="spaces"),
+        pytest.param("\\\n a\\\n", ("\\\n ", "a", "\\\n"), id="hard-breaks"),
+        pytest.param("a\\b", ("", "a\\b", ""), id="inner-backslash"),
+        pytest.param("x\\", ("", "x\\", ""), id="trailing-backslash"),
+        pytest.param(" \n ", (" \n ", "", ""), id="nothing-inside"),
+        pytest.param("", ("", "", ""), id="empty"),
+    ],
+)
+def test_13_the_edge_regex_splits_leading_content_and_trailing(
+    text: str, groups: tuple[str, str, str]
+) -> None:
+    """Leading breaks and spaces, the content, trailing ones. The greedy
+    pattern finds the content's last character from the end, where the
+    lazy one rescanned the run after it at every step. The lazy one split
+    the same way, only slower: these pin that the rewrite still does, and
+    :mod:`.test_cost` pins the cost."""
+
+    edges = conversion._EDGES.fullmatch(text)
+
+    assert edges is not None
+    assert edges.groups() == groups
+
+
+# ---------------------------------------------------------------------------
+# 14. A number markdownify cannot read
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param(
+            '<table><tr><td colspan="²">trelm</td><td>vosk</td></tr></table>',
+            id="colspan-²",
+        ),
+        pytest.param(
+            '<ol start="' + "7" * 5000 + '"><li>trelm</li><li>vosk</li></ol>',
+            id="start-of-5000-digits",
+        ),
+    ],
+)
+def test_14_a_number_markdownify_cannot_read_falls_back_to_text(html: str) -> None:
+    """markdownify's ``int()`` raised ``ValueError`` -- on ``"²"``, or on more
+    digits than CPython converts -- and the whole body failed. Now the body
+    is read as its text: every word, one line per row or item.
+
+    The digit limit is pinned to CPython's default of 4,300: the
+    interpreter takes another from ``PYTHONINTMAXSTRDIGITS``, and ``0``
+    lifts it, under which 5,000 digits are a number and the case tests
+    nothing.
+    """
+
+    limit = sys.get_int_max_str_digits()
+    sys.set_int_max_str_digits(4300)
+    try:
+        markdown = read(html)
+    finally:
+        sys.set_int_max_str_digits(limit)
+
+    assert text_words(render(markdown)) == ["trelm", "vosk"]
+    assert read(render(markdown)) == markdown
+
+
+# ---------------------------------------------------------------------------
+# 15. An unfinished tag at the very end
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>r</p>x <a b", "r\n\nx \\<a b", id="attribute"),
+        pytest.param("<p>r</p>x <<a", "r\n\nx \\<\\<a", id="doubled"),
+        pytest.param(  # the control: a bare '<' was text on every release
+            "<p>r</p>fin <", "r\n\nfin \\<", id="bare"
+        ),
+    ],
+)
+def test_15_an_unfinished_tag_at_the_end_reads_as_text(
+    html: str, expected: str
+) -> None:
+    """No ``<`` after the last ``>`` can finish a tag, so each is text.
+
+    CPython's ``html.parser`` before 3.11.14, 3.12.12 and 3.13.6 rescanned
+    to the end for each such ``<`` -- quadratic, CVE-2025-6069 -- and the
+    releases that fixed it drop the unfinished tag instead: on 3.13.14,
+    0.6.0 read ``x <a b`` as ``x``, where 3.12.3 kept it (measured
+    2026-10-02). With the guard every release reads it the same way, as
+    text.
+
+    So what these cases detect depends on the interpreter. ``attribute``
+    fails without the guard only on a patched release; on an unpatched one,
+    3.12.3 included, the parser keeps the text by itself, and only the
+    cost test in :mod:`.test_cost` notices the guard is gone. ``doubled``
+    also depends on fix 5, and fails on every release without that one.
+    """
+
+    assert read(html) == expected

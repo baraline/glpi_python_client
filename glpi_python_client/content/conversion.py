@@ -91,9 +91,14 @@ _HIDDEN = ["head", "script", "style", "template", "title"]
 #: carry the characters displayed on either side of one (:func:`_note_sides`).
 _EMPHASIS = frozenset({"b", "strong", "em", "i"})
 _BEFORE, _AFTER = "data-glpi-before", "data-glpi-after"
+_NUMBER = "data-glpi-number"  # an ordered item's number (_Converter.convert_li)
 
 #: Text split into leading line breaks and spaces, content, trailing ones.
-_EDGES = re.compile(r"((?:\\\n|\s)*)(.*?)((?:\\\n|\s)*)", re.DOTALL)
+#: The content ends on its last character that is neither, found greedily:
+#: a lazy ``.*?`` rescanned the run after it at every step, quadratic.
+_EDGES = re.compile(
+    r"((?:\\\n|\s)*)((?:.*(?:[^\\\s]|\\(?!\n)))?)((?:\\\n|\s)*)", re.DOTALL
+)
 
 #: A URL that is its own CommonMark autolink and that markdown-it leaves as it
 #: is: printable ASCII it does not percent-encode.
@@ -431,6 +436,27 @@ class _Converter(MarkdownConverter):
     convert_ul = convert_list
     convert_ol = convert_list
 
+    def convert_li(self, el: Tag, text: str, parent_tags: set[str]) -> str:
+        """An item; an ordered one numbered one past the item before it.
+
+        markdownify counts every item before each one, quadratic in a long
+        list, so each item keeps its number for the next. ``isdecimal``,
+        where markdownify's ``isnumeric`` let ``int("²")`` raise.
+        """
+
+        if el.parent is None or el.parent.name != "ol":
+            return str(self._inherited("convert_li")(el, text, parent_tags))
+        before = el.find_previous_sibling("li")
+        start = str(el.parent.get("start") or "")
+        first = int(start) if start.isdecimal() else 1
+        number = int(str(before[_NUMBER])) + 1 if isinstance(before, Tag) else first
+        el[_NUMBER] = str(number)
+        if not text.strip():
+            return "\n"
+        bullet = f"{number}. "
+        body = re.sub("^(?=.)", " " * len(bullet), text.strip(), flags=re.M)
+        return bullet + body[len(bullet) :] + "\n"
+
     def convert_pre(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """A fenced block, its fence longer than any backtick run in the code."""
 
@@ -701,10 +727,15 @@ class GlpiContentConverter:
             return content
         if not _looks_like_html(content):
             content = _plain_text_html(content)
+        # No "<" after the last ">" can finish a tag; CPython's html.parser before
+        # 3.11.14/3.12.12/3.13.6 rescans to the end for each (quadratic).
+        head, end, tail = content.rpartition(">")
+        content = head + end + tail.replace("<", "&lt;")
         try:
             try:
                 return html_to_markdown(content)
-            except RecursionError:
+            except (RecursionError, ValueError):  # ValueError: markdownify's
+                # int() of a colspan or start such as "²" or 5,000 digits
                 return html_to_markdown(_plain_text_html(_text_of(content)))
             except ParserRejectedMarkup:
                 # html.parser gives up on a few malformed declarations; the
