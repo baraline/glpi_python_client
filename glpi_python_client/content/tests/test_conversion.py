@@ -195,3 +195,50 @@ def test_deeply_nested_markdown_renders() -> None:
     markdown = "".join(" " * (2 * level) + "- x\n" for level in range(600))
 
     assert render(markdown).count("<li>") == 600
+
+
+# ---------------------------------------------------------------------------
+# It is not a sanitiser
+# ---------------------------------------------------------------------------
+#
+# What the user guide ("Rich-text content", docs/user_guide.rst) says,
+# pinned exactly: a cmark-gfm option or release that changed any of it would
+# make the documentation wrong in one direction or the other. The writing
+# direction neutralises nothing; the reading direction keeps a body's link
+# targets, and keeps text a body displays as text. easyvista-python-client
+# 0.4.0 pins the same.
+
+
+@pytest.mark.parametrize(
+    ("markdown", "html"),
+    [
+        pytest.param(
+            "<script>alert(1)</script>", "<script>alert(1)</script>", id="raw-html"
+        ),
+        pytest.param(
+            "[x](javascript:alert(1))",
+            '<p><a href="javascript:alert(1)">x</a></p>',
+            id="link-target",
+        ),
+        pytest.param(  # python-markdown, before 0.6.0, left this as raw markup
+            "<javascript:alert(1)>",
+            '<p><a href="javascript:alert(1)">javascript:alert(1)</a></p>',
+            id="autolink",
+        ),
+    ],
+)
+def test_the_write_path_renders_what_it_is_given_live(markdown: str, html: str) -> None:
+    assert render(markdown) == html
+
+
+def test_the_read_path_keeps_a_bodys_javascript_link() -> None:
+    assert read('<p><a href="javascript:alert(1)">x</a></p>') == (
+        "[x](<javascript:alert(1)>)"
+    )
+
+
+def test_markup_a_body_displays_as_text_stays_text_both_ways() -> None:
+    markdown = read("<p>&lt;script&gt;</p>")
+
+    assert markdown == "\\<script>"
+    assert render(markdown) == "<p>&lt;script&gt;</p>"
