@@ -4,6 +4,134 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.1 — 2026-10-02
+
+The reader now gives the same Markdown as `easyvista-python-client` 0.4.1,
+whose converter is this package's 0.6.0 converter plus fifteen fixes and a
+correction to one of them. This release ports those fixes and the
+correction, with their tests. The two conversion modules now differ only in
+names, error messages, docstrings and that package's optional-dependency
+import guard. The converter's writing (`to_transport`) is unchanged; a
+write model now sends a lone surrogate as U+FFFD.
+
+### Fixed
+
+- **Image alt text lost its escapes**: `a_b_c.png` read back as `abc.png`.
+  Escapes and character references in alt text are kept.
+- **A line opening with `~~~` became a code fence** that swallowed the rest
+  of the body. It reads as `\~~~`.
+- **A `!` right before a link turned the link into an image**
+  (`Attention!` then a link). It reads as `\!`.
+- **An image whose alt text starts with `^` stopped being an image** once
+  rendered, since cmark-gfm never opens one on `![^`. The `^` is escaped.
+- **`<<a@example.org>` became an autolink** behind an escaped `<`. The second
+  `<` is escaped too.
+- **A line break inside inline code showed as a literal backslash.**
+  `<code>`, `<kbd>` and `<samp>` holding a `<br>` become one span per line;
+  a `|` in `<kbd>` or `<samp>` in a table cell no longer splits the row.
+- **A table inside a heading or a link showed its pipes as text**, and
+  inside a link did not read back as itself. It is written as its cells'
+  text, as a table inside a cell already was.
+- **A block inside such a flattened table broke its holder's line.** It
+  stays on that line.
+- **Bold ending in punctuation at a flattened cell's edge came back as raw
+  `<strong>`**, which read back as `**`. It stays Markdown bold.
+- **Two `<center>` blocks ran together.** `<center>` is a block, as `<div>`
+  is, except inside `<pre>`.
+- **Underline, highlight and inserted text lost their formatting.** `<u>`,
+  `<mark>` and `<ins>` are kept as raw tags, as `<s>` already was. Round a
+  block (a table, a list, a heading, a quote, a code block, a rule or
+  paragraphs) the tag is dropped and the blocks read as 0.6.0 read them.
+  Markdown has no inline tag round blocks: `easyvista-python-client` 0.4.0,
+  which kept it, showed a table as pipe text and a list or a heading as its
+  Markdown source, and round a `<pre>` left a fence open to the end of the
+  body. Inside a table cell or a heading, whose blocks are one line, the tag
+  stays.
+- **A long ordered list was quadratic to read**: 5,000 items took 3.1 s,
+  and take 0.6 s now (CPython 3.12.3). An `<ol start>` such as `²` or `½`
+  counts from 1, as a browser counts a start holding no digit, instead of
+  failing the body.
+- **A run of spaces or line breaks at the edge of bold, italic or a link was
+  quadratic to read.** It is linear.
+- **A `colspan` or `start` markdownify cannot read as a number raised
+  `GlpiContentError`** from `.content` (`colspan="²"`, or 5,000 digits). The
+  body degrades to its text instead, every word kept. Any other
+  `ValueError` raised while converting takes the same path.
+- **A lone surrogate in a write model's Markdown failed the whole write**
+  with `GlpiContentError`: cmark-gfm renders UTF-8, which cannot encode
+  one. Each lone surrogate is written as U+FFFD instead, as CommonMark
+  replaces a NUL, and the rest of the body keeps its Markdown. Calling
+  `GlpiContentConverter.to_transport` directly still raises, as
+  `easyvista-python-client`'s converter does.
+- **A run of unfinished tags at the end of a body was quadratic to read** on
+  CPython before 3.11.14, 3.12.12 and 3.13.6 (CVE-2025-6069). Every `<`
+  after the body's last `>` is read as text, so `x <a b` at the very end
+  reads as `x \<a b` on every interpreter, where a patched one dropped it.
+
+### Changed
+
+- **`.content` changes once** for a body holding any shape above, so stored
+  digests of such bodies change once.
+- **Deeply nested HTML degrades to text sooner.** The reader spends one more
+  stack frame per level: from a shallow stack, the deepest `<div>` document
+  read with its structure went from about 490 levels to about 326 (CPython
+  3.12.3 and 3.13.14, default recursion limit). `<blockquote>` stays at
+  about 194. The words are kept either way.
+- **Dependency bounds** are now those of `easyvista-python-client[content]`
+  0.4.0, so the two packages resolve to the same libraries side by side:
+  `markdown-it-py>=3.0,<4` (the alt-text fix relies on 3.x's `text_special`
+  tokens, and `mdformat` 0.7.22 requires `<4` anyway),
+  `markdownify>=1.2.3,<1.3` and `mdformat-tables>=1.0,<1.1`.
+  `mdformat>=0.7.22,<0.8` is unchanged. The reader overrides private
+  surfaces of `markdownify` and `mdformat`; `pyproject.toml` gives the
+  reason for each bound.
+
+### Documentation
+
+- The user guide's rich-text section now says what each element becomes,
+  that neither direction sanitises, what survives a round trip, and the
+  known holes, all reproduced on 2026-10-02. Its claim that a read always
+  displays the same and reads back as itself is now stated as the aim it
+  is, as in the API reference and the module docstring.
+- The deep-nesting note gives the measured depths, and that a read started
+  within about 30 frames of the recursion limit can still raise.
+- `GlpiContentError`'s docstring named python-markdown as the writer; it is
+  cmark-gfm.
+- The `glpi-ticket-timeline`, `glpi-ticket-workflow` and
+  `glpi-knowledge-base` skills describe raw `<u>`, `<mark>`, `<ins>` and
+  `<s>`, the write-model rule exactly, and the new depth.
+- Corrected after review: a write model keeps the caller's Markdown
+  stripped at both ends, not verbatim; the `glpi-knowledge-base` and
+  `glpi-plugin-fields` skills no longer say a deep body never raises; any
+  `ValueError` degrades to text, not only a `colspan` or `start`; a
+  `start` counts as a browser counts it only when it holds no digit; and
+  the CVE-2025-6069 note says that everything after a body's last `>`,
+  an unterminated comment or a cut-short closing tag included, is shown.
+
+### Tests
+
+- `content/tests/test_fixes.py` pins each of the fifteen fixes; run against
+  0.6.0, 36 of the 54 tests first ported fail on CPython 3.12.3 and 37 on
+  3.13.14, the rest being controls and pins. Section 11 also pins the
+  correction to fix 11 with 42 tests, 40 of which fail on
+  `easyvista-python-client` 0.4.0's converter. Reverting any one fix alone fails at least
+  one test of the content suite on both.
+- `content/tests/test_properties.py` holds seeded generators to three
+  properties: a body displays what its HTML displayed, is a fixed point,
+  and keeps its words in order. Against 0.6.0 all 16 tests fail.
+- `content/tests/test_cost.py` replaces the 20-second budgets on long bodies
+  with growth tests, `time(4n) / time(n) < 8`, which a quadratic pass fails
+  at a few thousand items.
+- Four guards that no test caught are pinned, each by a test that fails
+  without it: a second `<` before a space keeps one escape, a header cell
+  escapes a `|` in `<kbd>` or `<samp>` and splits a line break in inline
+  code, a table inside an `<a>` without `href` stays a table, and an ordered
+  item numbered 10 or more indents its content by its bullet's width. A
+  count pins that the walk finding blocks inside `<u>`, `<mark>` and `<ins>`
+  checks each tag about once.
+- The display oracle treats a flattened cell's edge as a word boundary, as a
+  browser does, and reads `start` with `isdecimal`.
+
 ## 0.6.0 — 2026-10-01
 
 ### Changed (breaking)

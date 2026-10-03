@@ -115,17 +115,23 @@ its page being read.
 
 The Markdown is CommonMark with GFM tables, rendered by cmark-gfm. It
 spells a body's text as literal text -- ``\_\_init\_\_``, ``\\\serveur``,
-``\# pas un titre`` -- so rendering it displays what GLPI displayed and
-reading that back gives the same Markdown. A write model keeps the caller's
-Markdown verbatim unless it starts with an HTML tag. See
-:ref:`content-conversion`.
+``\# pas un titre`` -- so that rendering it displays what GLPI displayed and
+reading that back gives the same Markdown. That is the aim; the user guide
+lists the shapes where it falls short. Underline, highlight and struck text
+stay as raw ``<u>``, ``<mark>``, ``<ins>`` and ``<s>``. Neither direction
+sanitises: raw HTML and ``javascript:`` links pass through. A write model
+keeps the caller's Markdown as written, stripped at both ends, unless it
+starts with ``<`` and holds an HTML element, and sends a lone surrogate as
+U+FFFD. See :ref:`content-conversion`.
 
 Very deeply nested HTML is the case worth knowing about.
 ``markdownify`` walks the document recursively and runs out of stack at
 a few hundred levels of nesting. The converter attempts the conversion
 and, if the walk does not fit, reads the body's text instead, a line per
-block: the words survive, the structure does not. Anything else that goes
-wrong in either direction raises :class:`GlpiContentError`.
+block: the words survive, the structure does not. Any ``ValueError`` from
+the conversion degrades the same way: markdownify raises one for a
+``colspan`` or ``start`` it cannot read as a number. Anything else that
+goes wrong in either direction raises :class:`GlpiContentError`.
 
 Because the conversion is cached on first read, a read model should be
 treated as immutable afterwards: assigning to ``content_html``, or

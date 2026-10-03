@@ -6,7 +6,12 @@ Requirements
 
 ``glpi-python-client`` supports Python 3.11 and newer. Runtime dependencies are installed
 from the package metadata and include ``httpx``, ``tenacity``,
-``beautifulsoup4``, ``lxml``, and ``pydantic``.
+``beautifulsoup4``, ``lxml``, and ``pydantic``, plus the libraries the
+rich-text converter is built on: ``markdownify``, ``mdformat``,
+``mdformat-tables`` and ``markdown-it-py`` to read, and ``cmarkgfm`` to
+write. The reader overrides private surfaces of ``markdownify`` and
+``mdformat``, so those four carry upper bounds; ``pyproject.toml`` gives the
+reason for each.
 
 Install from PyPI
 -----------------
