@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
 metadata:
   package: glpi-python-client
-  version: "0.6.1"
+  version: "0.6.2"
 ---
 
 # GLPI Ticket Workflow
