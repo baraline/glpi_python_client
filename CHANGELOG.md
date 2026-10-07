@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.2 — 2026-10-07
+
+A patch release of the converter's writing: a link written into GLPI opens in
+a new window. Reading is unchanged. `easyvista-python-client` 0.4.2 makes the
+same change, so the two converters still write the same HTML.
+
+### Changed
+
+- **Every link `to_transport` writes carries `target="_blank"
+  rel="noopener noreferrer"`**, as a link written in GLPI's own editor carries
+  `target="_blank"`. Without it a link opens in place of the page showing it.
+  Write models render through the same function, so a followup, task,
+  solution or ticket body written through them carries it too. Reading
+  ignores both attributes, so `from_transport(to_transport(m))` is unchanged
+  for every link.
+
 ## 0.6.1 — 2026-10-02
 
 The reader now gives the same Markdown as `easyvista-python-client` 0.4.1,

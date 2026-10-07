@@ -1838,7 +1838,9 @@ becomes:
 
 Writing, your Markdown is rendered by cmark-gfm. A newline is a line break,
 GFM tables work, and raw HTML passes through, so put a placeholder such as
-``<login>`` in backticks. A write model keeps your Markdown as written,
+``<login>`` in backticks. A link opens in a new window, as a link written in
+GLPI's editor does: each ``<a href>`` the renderer writes carries
+``target="_blank" rel="noopener noreferrer"``, which reading ignores. A write model keeps your Markdown as written,
 stripped at both ends, unless it starts with ``<`` and holds an HTML
 element anywhere, in which case it is read as HTML. Stripping unindents the
 first line of a body that opens with an indented code block, which then

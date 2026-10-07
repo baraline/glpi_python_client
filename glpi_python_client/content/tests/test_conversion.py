@@ -17,6 +17,9 @@ from glpi_python_client.content.tests.display import displayed
 read = GlpiContentConverter.from_transport
 render = GlpiContentConverter.to_transport
 
+#: What every rendered link carries: GLPI's editor writes it on a link it makes.
+NEW_WINDOW = ' target="_blank" rel="noopener noreferrer"'
+
 
 def test_content_is_markdown_in_python_and_html_for_glpi() -> None:
     assert read("<p>The printer is <strong>offline</strong>.</p>") == (
@@ -217,12 +220,12 @@ def test_deeply_nested_markdown_renders() -> None:
         ),
         pytest.param(
             "[x](javascript:alert(1))",
-            '<p><a href="javascript:alert(1)">x</a></p>',
+            f'<p><a href="javascript:alert(1)"{NEW_WINDOW}>x</a></p>',
             id="link-target",
         ),
         pytest.param(  # python-markdown, before 0.6.0, left this as raw markup
             "<javascript:alert(1)>",
-            '<p><a href="javascript:alert(1)">javascript:alert(1)</a></p>',
+            f'<p><a href="javascript:alert(1)"{NEW_WINDOW}>javascript:alert(1)</a></p>',
             id="autolink",
         ),
     ],
@@ -242,3 +245,62 @@ def test_markup_a_body_displays_as_text_stays_text_both_ways() -> None:
 
     assert markdown == "\\<script>"
     assert render(markdown) == "<p>&lt;script&gt;</p>"
+
+
+# A link opens in a new window, as a link written in GLPI's editor does
+# (``target="_blank"``), rather than in place of the page showing it. The same
+# attributes as ``easyvista-python-client`` 0.4.2 writes, so the twins agree.
+
+
+@pytest.mark.parametrize(
+    ("markdown", "html"),
+    [
+        pytest.param(
+            "[voir](https://example.org/p)",
+            f'<p><a href="https://example.org/p"{NEW_WINDOW}>voir</a></p>',
+            id="link",
+        ),
+        pytest.param(
+            '[voir](https://example.org/p "le titre")',
+            f'<p><a href="https://example.org/p" title="le titre"{NEW_WINDOW}>'
+            "voir</a></p>",
+            id="titled",
+        ),
+        pytest.param(
+            "<https://example.org/p>",
+            f'<p><a href="https://example.org/p"{NEW_WINDOW}>https://example.org/p</a></p>',
+            id="autolink",
+        ),
+        pytest.param(
+            "[![a](https://example.org/i.png)](https://example.org/p)",
+            f'<p><a href="https://example.org/p"{NEW_WINDOW}>'
+            '<img src="https://example.org/i.png" alt="a" /></a></p>',
+            id="image-link",
+        ),
+    ],
+)
+def test_every_link_written_opens_in_a_new_window(markdown: str, html: str) -> None:
+    assert render(markdown) == html
+
+
+def test_a_link_shown_as_code_is_text_and_gains_nothing() -> None:
+    assert render('`<a href="https://example.org">x</a>`') == (
+        "<p><code>&lt;a href=&quot;https://example.org&quot;&gt;x&lt;/a&gt;</code></p>"
+    )
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "[voir](https://example.org/p)",
+        '[voir](https://example.org/p "le titre")',
+        "<https://example.org/p>",
+        "[![a](https://example.org/i.png)](https://example.org/p)",
+    ],
+    ids=["link", "titled", "autolink", "image-link"],
+)
+def test_a_link_written_to_open_in_a_new_window_reads_back_as_written(
+    markdown: str,
+) -> None:
+    # Reading ignores ``target`` and ``rel``, so a round trip stays exact.
+    assert read(render(markdown)) == markdown
