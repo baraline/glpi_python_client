@@ -127,10 +127,10 @@ class TransportRecorder:
             )
             return FakeResponse(status_code=self._delete_status, payload={})
 
-        client._get_request = _get  # type: ignore[method-assign, assignment]
-        client._post_request = _post  # type: ignore[method-assign, assignment]
-        client._update_request = _patch  # type: ignore[method-assign, assignment]
-        client._delete_request = _delete  # type: ignore[method-assign, assignment]
+        client._get_request = _get  # type: ignore[method-assign, assignment, unused-ignore]
+        client._post_request = _post  # type: ignore[method-assign, assignment, unused-ignore]
+        client._update_request = _patch  # type: ignore[method-assign, assignment, unused-ignore]
+        client._delete_request = _delete  # type: ignore[method-assign, assignment, unused-ignore]
 
 
 class FailingTransportRecorder(TransportRecorder):
