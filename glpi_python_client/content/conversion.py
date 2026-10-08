@@ -40,9 +40,12 @@ import re
 import string
 import unicodedata
 from collections.abc import Callable, Iterator, Mapping, MutableMapping, Sequence
+from contextvars import ContextVar
+from dataclasses import dataclass
 from functools import cached_property
 from html import escape, unescape
 from typing import Any, cast
+from urllib.parse import parse_qs, urlsplit
 
 import cmarkgfm
 import mdformat_tables
@@ -59,7 +62,7 @@ from mdformat.renderer import (
 )
 from mdformat.renderer.typing import Postprocess
 
-from glpi_python_client._errors import GlpiContentError
+from glpi_python_client._errors import GlpiContentError, GlpiValidationError
 
 #: Element names that make a ``<...>`` sequence markup rather than text: the
 #: HTML5 elements, then the obsolete ones old editors and mail clients write.
@@ -363,6 +366,97 @@ def _title(title: str) -> str:
     return ' "' + re.sub(r'[\\"]', r"\\\g<0>", title) + '"' if title else ""
 
 
+#: The page GLPI serves a document from. Its editor embeds a pasted image as
+#: ``<img src=".../front/document.send.php?docid=N&itemtype=Ticket&items_id=T">``
+#: inside a link to the same URL, and links an attachment the same way.
+_DOCUMENT_PAGE = "front/document.send.php"
+
+#: A document id, as the ``docid`` parameter carries one: ASCII digits only,
+#: since ``int`` also reads other scripts' digits.
+_DOCUMENT_ID = re.compile(r"[0-9]{1,18}")
+
+#: An item type, as ``itemtype`` names one: a PHP class name.
+_ITEMTYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_\\]{0,99}")
+
+
+@dataclass(frozen=True, slots=True)
+class Link:
+    """A link or an image the reader meets, as a ``rewrite_link`` callback sees it.
+
+    Attributes
+    ----------
+    href : str
+        An ``<a>``'s ``href`` or an ``<img>``'s ``src``, character references
+        decoded.
+    text : str
+        An ``<a>``'s displayed text or an ``<img>``'s ``alt``, whitespace
+        collapsed.
+    title : str
+        The ``title``, or ``""``.
+    image : bool
+        ``True`` for an ``<img>``.
+    document_id : int or None
+        For a link or an image whose URL is GLPI's document page with a
+        ``docid`` (:meth:`GlpiContentConverter.document_id_of`), that id;
+        ``None`` otherwise.
+    enclosing_href : str or None
+        For an ``<img>`` inside a link, that link's ``href``; ``None``
+        otherwise. The image is read before the link around it.
+    """
+
+    href: str
+    text: str = ""
+    title: str = ""
+    image: bool = False
+    document_id: int | None = None
+    enclosing_href: str | None = None
+
+
+#: A ``rewrite_link`` callback: called with each link and image a read meets,
+#: outside code. ``None`` keeps what the reader writes without one. A ``str`` is
+#: written instead, as literal text. A :class:`Link` is written in the reader's
+#: own spelling: a link's ``href`` and ``title``, around the link's content as
+#: read; an image's ``href`` as its ``src``, ``text`` as its ``alt`` and
+#: ``title``. An empty ``href`` drops a link and keeps its content, and writes an
+#: image as its ``text``.
+RewriteLink = Callable[[Link], "Link | str | None"]
+
+_REWRITE: ContextVar[RewriteLink | None] = ContextVar("rewrite_link", default=None)
+"""The callback of the read in progress. A context variable rather than state
+on the shared converter: each thread and each task reads with its own."""
+
+
+class _CallbackRaised(Exception):
+    """What a ``rewrite_link`` callback raised, carried past the reader's fallbacks.
+
+    The reader answers a ``ValueError`` by reading the body as its text; a
+    callback's own ``ValueError`` must not pass for markdownify's and quietly
+    cost the body its formatting.
+    """
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(error)
+        self.error = error
+
+
+def _rewritten(link: Link) -> Link | str | None:
+    """Ask the read's callback about ``link``; ``None`` when there is none."""
+
+    rewrite = _REWRITE.get()
+    if rewrite is None:
+        return None
+    try:
+        answer: object = rewrite(link)  # typed as what it is, not what it should be
+    except Exception as exc:
+        raise _CallbackRaised(exc) from exc
+    if answer is None or isinstance(answer, (Link, str)):
+        return answer
+    error = TypeError(
+        f"rewrite_link returned {type(answer).__name__}; expected Link, str or None"
+    )
+    raise _CallbackRaised(error)
+
+
 class _Converter(MarkdownConverter):
     """``markdownify``, with what CommonMark and the reader's glue need on top.
 
@@ -520,15 +614,34 @@ class _Converter(MarkdownConverter):
         body, _, tail = rest.rpartition("```")
         return f"{head}{fence}{body}{fence}{tail}"
 
+    def _literal(self, text: str, parent_tags: set[str]) -> str:
+        """``text`` escaped as the reader escapes a text node: displayed as it is."""
+
+        return self.escape(" ".join(text.split()), parent_tags)
+
     def convert_a(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """A link; ``<url>`` when its text is its URL and reads back unchanged."""
 
+        if "_noformat" in parent_tags:
+            return text
         href = str(el.get("href") or "")
+        title = str(el.get("title") or "")
+        answer = _rewritten(
+            Link(
+                href,
+                " ".join(el.get_text().split()),
+                title,
+                document_id=GlpiContentConverter.document_id_of(href),
+            )
+        )
+        if isinstance(answer, str):
+            return self._literal(answer, parent_tags)
+        if answer is not None:
+            href, title = answer.href, answer.title
         edges = _EDGES.fullmatch(text)
-        if "_noformat" in parent_tags or not href or edges is None or not edges[2]:
+        if not href or edges is None or not edges[2]:
             return text
         before, inner, after = edges.groups()
-        title = str(el.get("title") or "")
         if not title and el.get_text() == href and _AUTOLINK.fullmatch(href):
             return f"{before}<{href}>{after}"
         return f"{before}[{inner}]({_destination(href)}{_title(title)}){after}"
@@ -536,12 +649,37 @@ class _Converter(MarkdownConverter):
     def convert_img(self, el: Tag, text: str, parent_tags: set[str]) -> str:
         """An image, wherever it is: a cell or a heading holds one too."""
 
+        src = str(el.get("src") or "")
         alt = " ".join(str(el.get("alt") or "").split())
+        title = str(el.get("title") or "")
+        if "_noformat" not in parent_tags:
+            around = el.find_parent("a")
+            answer = _rewritten(
+                Link(
+                    src,
+                    alt,
+                    title,
+                    image=True,
+                    document_id=GlpiContentConverter.document_id_of(src),
+                    enclosing_href=(
+                        None if around is None else str(around.get("href") or "")
+                    ),
+                )
+            )
+            if isinstance(answer, str):
+                return self._literal(answer, parent_tags)
+            if answer is not None and not answer.href:
+                return self._literal(answer.text, parent_tags)
+            if answer is not None:
+                src, alt, title = (
+                    answer.href,
+                    " ".join(answer.text.split()),
+                    answer.title,
+                )
         alt = str(self._inherited("escape")(alt, parent_tags))
         if alt.startswith("^") and "_noformat" not in parent_tags:
             alt = "\\" + alt  # cmark-gfm reads "![^" as "!" and a link
-        src = _destination(str(el.get("src") or ""))
-        return f"![{alt}]({src}{_title(str(el.get('title') or ''))})"
+        return f"![{alt}]({_destination(src)}{_title(title)})"
 
 
 class _Node(RenderTreeNode):
@@ -752,11 +890,45 @@ def _text_of(html: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def _converted(content: str) -> str:
+    """Read HTML, falling back to its text where the conversion cannot."""
+
+    try:
+        try:
+            return html_to_markdown(content)
+        except (RecursionError, ValueError):  # ValueError: markdownify's
+            # int() of a colspan or start such as "²" or 5,000 digits
+            return html_to_markdown(_plain_text_html(_text_of(content)))
+        except ParserRejectedMarkup:
+            # html.parser gives up on a few malformed declarations; the
+            # body's words are still worth more than an exception.
+            text = unescape(_ANY_TAG.sub(" ", content))
+            return html_to_markdown(_plain_text_html(" ".join(text.split())))
+    except _CallbackRaised:
+        raise
+    except Exception as exc:
+        raise GlpiContentError(
+            "Could not convert GLPI HTML content to Markdown "
+            f"({type(exc).__name__}: {exc})."
+        ) from exc
+
+
+def _positive(value: object) -> bool:
+    """Whether ``value`` is a positive ``int`` and not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 class GlpiContentConverter:
     """Convert content between GLPI HTML payloads and canonical Markdown."""
 
     @staticmethod
-    def from_transport(value: object, *, plain_text_is_markdown: bool = False) -> str:
+    def from_transport(
+        value: object,
+        *,
+        plain_text_is_markdown: bool = False,
+        rewrite_link: RewriteLink | None = None,
+    ) -> str:
         """Convert one GLPI transport value into Markdown.
 
         Parameters
@@ -774,6 +946,12 @@ class GlpiContentConverter:
             Markdown, but Markdown that opens with an autolink or other
             angle-bracketed text and carries inline HTML further on is read
             as HTML, and loses that autolink.
+        rewrite_link : callable, optional
+            Called with a :class:`Link` for each link and image the read
+            meets outside code, an image before the link around it; its
+            answer decides what is written (:data:`RewriteLink`). Not called
+            for a value passed through as Markdown, nor for a body read as
+            its text. Without one, the read is what it always was.
 
         Returns
         -------
@@ -793,6 +971,10 @@ class GlpiContentConverter:
             limit, where no stack is left even to report the failure as
             ``GlpiContentError`` (the user guide gives the measured
             depths).
+        Exception
+            Whatever ``rewrite_link`` raised, unchanged; ``TypeError`` when it
+            answered something other than a :class:`Link`, a ``str`` or
+            ``None``.
         """
 
         content = str(value or "").strip()
@@ -808,22 +990,96 @@ class GlpiContentConverter:
         # 3.11.14/3.12.12/3.13.6 rescans to the end for each (quadratic).
         head, end, tail = content.rpartition(">")
         content = head + end + tail.replace("<", "&lt;")
+        token = _REWRITE.set(rewrite_link)
         try:
-            try:
-                return html_to_markdown(content)
-            except (RecursionError, ValueError):  # ValueError: markdownify's
-                # int() of a colspan or start such as "²" or 5,000 digits
-                return html_to_markdown(_plain_text_html(_text_of(content)))
-            except ParserRejectedMarkup:
-                # html.parser gives up on a few malformed declarations; the
-                # body's words are still worth more than an exception.
-                text = unescape(_ANY_TAG.sub(" ", content))
-                return html_to_markdown(_plain_text_html(" ".join(text.split())))
-        except Exception as exc:
-            raise GlpiContentError(
-                "Could not convert GLPI HTML content to Markdown "
-                f"({type(exc).__name__}: {exc})."
-            ) from exc
+            return _converted(content)
+        except _CallbackRaised as raised:
+            callback_error = raised.error
+        finally:
+            _REWRITE.reset(token)
+        raise callback_error  # outside the handler: the callback's, as it raised it
+
+    @staticmethod
+    def document_id_of(url: str) -> int | None:
+        """Return the document id a URL to GLPI's document page names.
+
+        ``None`` unless ``url`` -- relative, rooted or absolute, with any
+        path in front -- is ``front/document.send.php`` with exactly one
+        ``docid`` parameter, in any position, made of digits.
+        """
+
+        try:
+            parts = urlsplit(url)
+        except ValueError:  # an unclosed "[" in a host, among others
+            return None
+        path = parts.path
+        if path != _DOCUMENT_PAGE and not path.endswith("/" + _DOCUMENT_PAGE):
+            return None
+        values = parse_qs(parts.query).get("docid", [])
+        if len(values) != 1 or not _DOCUMENT_ID.fullmatch(values[0]):
+            return None
+        document_id = int(values[0])
+        return document_id if document_id > 0 else None
+
+    @staticmethod
+    def document_image(
+        document_id: int,
+        *,
+        alt: str = "",
+        itemtype: str | None = None,
+        items_id: int | None = None,
+    ) -> str:
+        """Return the Markdown of an image embedding one of GLPI's documents.
+
+        :meth:`to_transport` renders it as GLPI's editor writes a pasted image
+        -- the ``<img>`` inside a link to the same URL,
+        ``/front/document.send.php?docid=<document_id>``, then
+        ``&itemtype=...&items_id=...`` when given -- and :meth:`from_transport`
+        reads that back as this same Markdown: it is spelled by the reader
+        itself. The URL is rooted, as the editor wrote it on the instance
+        measured; GLPI checks the reader's right to the document when it
+        serves it.
+
+        Parameters
+        ----------
+        document_id : int
+            The document's id.
+        alt : str, optional
+            The image's alternative text.
+        itemtype, items_id : str and int, optional
+            The item the document is attached to, such as ``"Ticket"`` and
+            its id. Both or neither.
+
+        Raises
+        ------
+        GlpiValidationError
+            ``document_id`` or ``items_id`` is not a positive ``int``,
+            ``itemtype`` is not a class name, or only one of the two was
+            given.
+        """
+
+        if not _positive(document_id):
+            raise GlpiValidationError(f"not a GLPI document id: {document_id!r}")
+        url = f"/{_DOCUMENT_PAGE}?docid={document_id}"
+        if (itemtype is None) != (items_id is None):
+            raise GlpiValidationError(
+                "itemtype and items_id go together: give both or neither"
+            )
+        if itemtype is not None:
+            if not _ITEMTYPE.fullmatch(itemtype):
+                raise GlpiValidationError(f"not a GLPI item type: {itemtype!r}")
+            if not _positive(items_id):
+                raise GlpiValidationError(f"not a GLPI item id: {items_id!r}")
+            url += f"&itemtype={itemtype}&items_id={items_id}"
+        native = (
+            f'<p><a href="{escape(url)}" target="_blank">'
+            f'<img src="{escape(url)}" alt="{escape(" ".join(alt.split()))}" /></a></p>'
+        )
+        token = _REWRITE.set(None)  # a callback in force for an enclosing read
+        try:
+            return html_to_markdown(native)
+        finally:
+            _REWRITE.reset(token)
 
     @staticmethod
     def to_transport(value: object) -> str:

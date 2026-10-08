@@ -41,6 +41,12 @@ _ALLOWED = {
     "transport_error_from",
     "RuntimeError",  # exempt by design -- see module docstring
     "TypeError",  # exempt by design -- see module docstring
+    # The content reader's rewrite_link hook: a private carrier taking what the
+    # caller's own callback raised past the reader's ValueError fallback, and
+    # from_transport re-raising that same exception. It is the caller's error,
+    # not the library's, so it reaches the caller unchanged.
+    "_CallbackRaised",
+    "callback_error",
 }
 
 

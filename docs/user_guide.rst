@@ -1912,6 +1912,63 @@ text.
 Prefer a patched interpreter anyway: the guard covers the converter's input,
 and the CPython fix covers the parser itself.
 
+Document images, and rewriting links as they are read
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+GLPI's editor keeps an image pasted into a body as a document and embeds it
+from the page that serves documents, inside a link to the same URL:
+``<a href="/front/document.send.php?docid=N&itemtype=Ticket&items_id=T">``
+around ``<img src="...same URL...">``. Without a callback the reader writes
+that as any linked image, ``[![alt](url)](url)``, which displays nowhere but in
+GLPI. Three helpers let a caller do better.
+
+``GlpiContentConverter.document_id_of(url)`` returns the document id a URL
+names -- ``front/document.send.php`` with one ``docid``, relative, rooted or
+absolute, under any path -- or ``None``. ``document_image(document_id,
+alt=..., itemtype=..., items_id=...)`` returns the Markdown of the editor's
+form, spelled exactly as the reader spells it, so ``to_transport`` writes it
+and ``from_transport`` reads it back unchanged. Its URL is rooted, as the
+editor wrote it on the instance measured.
+
+``from_transport(..., rewrite_link=callback)`` calls ``callback`` with a
+:class:`~glpi_python_client.content.Link` for each link and each image it
+meets outside code, an image before the link around it. A ``Link`` carries the
+``href`` (an image's ``src``), the ``text`` (an image's ``alt``), the
+``title``, whether it is an ``image``, the ``document_id`` its URL names, and
+for an image inside a link that link's ``enclosing_href``. What the callback
+answers is written:
+
+* ``None``: what the reader writes without a callback;
+* a ``str``: that text, literally -- escaped as any text the body displays, so
+  it cannot become markup;
+* a ``Link``: a link's ``href`` and ``title`` around the link's content as
+  read, or an image's ``href`` as its ``src``, ``text`` as its ``alt`` and
+  ``title``;
+* a ``Link`` with an empty ``href``: a link is dropped and its content kept, an
+  image is written as its ``text``.
+
+.. code-block:: python
+
+    from glpi_python_client.content import GlpiContentConverter, Link
+
+    def name_documents(link: Link) -> Link | str | None:
+        if link.document_id is None:
+            return None
+        if link.image:
+            return f"[document {link.document_id}]"
+        return Link("")  # the editor's link around it: keep only its content
+
+    GlpiContentConverter.from_transport(body, rewrite_link=name_documents)
+
+The callback is held for the duration of one read, per thread and per task,
+so concurrent reads each use their own, and a read inside a callback has its
+own too. What the callback raises reaches the caller unchanged -- a
+``ValueError`` included, which the reader would otherwise take for one of
+markdownify's and answer by reading the body as its text. An answer of any
+other type raises ``TypeError``. It is not called for a value passed through
+as Markdown (``plain_text_is_markdown=True``), nor for a body read as its text.
+``easyvista-python-client`` 0.4.3 carries the same hook.
+
 It is not a sanitiser
 ^^^^^^^^^^^^^^^^^^^^^
 

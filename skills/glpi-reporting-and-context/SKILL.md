@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read tickets, tasks, users, entities, and timeline records."
 metadata:
   package: glpi-python-client
-  version: "0.6.2"
+  version: "0.6.3"
 ---
 
 # GLPI Reporting And Context

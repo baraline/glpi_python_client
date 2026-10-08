@@ -6,6 +6,10 @@ payloads and the package's canonical Markdown and typed-record representations.
 
 from __future__ import annotations
 
-from glpi_python_client.content.conversion import GlpiContentConverter
+from glpi_python_client.content.conversion import (
+    GlpiContentConverter,
+    Link,
+    RewriteLink,
+)
 
-__all__ = ["GlpiContentConverter"]
+__all__ = ["GlpiContentConverter", "Link", "RewriteLink"]

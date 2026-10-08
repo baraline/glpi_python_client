@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.3 — 2026-10-08
+
+A patch release of the converter's reading: a caller can recognise the
+documents a body embeds or links and decide, link by link, what a read
+writes. Without the new argument a read is unchanged, byte for byte; writing
+is unchanged. `easyvista-python-client` 0.4.3 adds the same hook.
+
+### Added
+
+- **`from_transport(..., rewrite_link=callback)`.** The callback is called with
+  a `Link` for each link and image the read meets outside code -- an image
+  before the link around it, with that link's `enclosing_href` -- and its
+  answer is written: `None` keeps the reader's output, a `str` is written as
+  literal text, a `Link` replaces the target (an empty `href` drops a link and
+  keeps its content, or writes an image as its text). The callback is held in
+  a context variable, so concurrent reads each use their own. What it raises
+  reaches the caller unchanged; a `ValueError` is not taken for markdownify's
+  and answered with the text fallback.
+- **`Link` and `RewriteLink`**, exported from `glpi_python_client.content`.
+- **`GlpiContentConverter.document_id_of(url)`** returns the document id a URL
+  to `front/document.send.php` names (relative, rooted or absolute, one
+  `docid` in any position), and **`document_image(document_id, alt=...,
+  itemtype=..., items_id=...)`** the Markdown of an embedded document image as
+  GLPI's editor writes one -- the image inside a link to the same URL --
+  spelled as the reader spells it. A `Link` whose URL names a document carries
+  its `document_id`.
+
 ## 0.6.2 — 2026-10-07
 
 A patch release of the converter's writing: a link written into GLPI opens in
