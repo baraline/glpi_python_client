@@ -84,6 +84,7 @@ def test_no_timeline_is_an_alias_of_invalid() -> None:
     assert GlpiTimelinePosition.NO_TIMELINE is GlpiTimelinePosition.INVALID
     assert GlpiTimelinePosition.NO_TIMELINE == -1
     assert GlpiTimelinePosition(-1) is GlpiTimelinePosition.INVALID
+    assert GlpiTimelinePosition(-1).name == "INVALID"
 
 
 def test_one_reads_left() -> None:

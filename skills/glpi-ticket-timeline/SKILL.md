@@ -17,6 +17,7 @@ The ticket timeline is exposed by four resource families under `/Assistance/Tick
 
 1. Create a `GlpiClient` from the `glpi-client-setup` skill.
 2. Read collections with `list_ticket_followups`, `list_ticket_tasks`, `list_ticket_solutions`, and `list_ticket_timeline_documents`.
+   An image pasted into a followup is linked to the followup, not the ticket, so `list_ticket_timeline_documents` omits it; read those with `list_ticket_followup_documents` (needs the v1 session).
 3. Read individual records with `get_ticket_followup`, `get_ticket_task`, `get_ticket_solution`, `get_ticket_timeline_document`.
 4. Create entries with `create_ticket_followup(ticket_id, followup: PostFollowup)`, `create_ticket_task(ticket_id, task: PostTicketTask)` or `create_ticket_solution(ticket_id, solution: PostSolution)`. Each returns the new identifier as `int`. `link_ticket_timeline_document(ticket_id, document_link: PostTimelineDocument)` also returns an `int`, but it cannot be told *which* existing document to link -- see the note under "Attach a document" and prefer `upload_document(..., ticket_id=...)`.
 5. Update entries with, exactly:

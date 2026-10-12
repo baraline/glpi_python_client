@@ -33,6 +33,9 @@ from glpi_python_client.models.api_schema.assistance.timeline._document import (
     PatchTimelineDocument,
     PostTimelineDocument,
 )
+from glpi_python_client.models.api_schema.assistance.timeline._followup import (
+    GetFollowup,
+)
 from glpi_python_client.models.api_schema.management._document import GetDocument
 from glpi_python_client.models.api_schema.management._document_item import (
     FollowupDocuments,
@@ -177,7 +180,9 @@ class TimelineDocumentMixin(TransportMixin):
         read. Only followups are walked: tasks and solutions are not.
 
         This call needs the legacy v1 session (``v1_base_url`` and
-        ``v1_user_token``). Without one it raises ``RuntimeError``.
+        ``v1_user_token``). Without one it raises ``RuntimeError``. It issues
+        one v1 request per kept followup, all at once on the asynchronous
+        surface and one after the other on the synchronous one.
 
         Parameters
         ----------
@@ -214,16 +219,19 @@ class TimelineDocumentMixin(TransportMixin):
             for followup in followups
             if include_private or followup.is_private is False
         ]
-        if any(followup.id is None for followup in kept):
-            raise GlpiValidationError(
-                f"A followup of ticket {ticket_id} has no id, "
-                "so its document links cannot be read"
-            )
-        kept.sort(key=lambda followup: followup.id)
+        keyed: list[tuple[int, GetFollowup]] = []
+        for followup in kept:
+            if followup.id is None:
+                raise GlpiValidationError(
+                    f"A followup of ticket {ticket_id} has no id, "
+                    "so its document links cannot be read"
+                )
+            keyed.append((followup.id, followup))
+        keyed.sort(key=lambda pair: pair[0])
         link_lists = await gather(
             *(
-                self.list_item_documents(_FOLLOWUP_ITEMTYPE, followup.id)
-                for followup in kept
+                self.list_item_documents(_FOLLOWUP_ITEMTYPE, followup_id)
+                for followup_id, _ in keyed
             )
         )
         return [
@@ -233,10 +241,10 @@ class TimelineDocumentMixin(TransportMixin):
                     row
                     for row in rows
                     if row.itemtype == _FOLLOWUP_ITEMTYPE
-                    and row.items_id == followup.id
+                    and row.items_id == followup_id
                 ],
             )
-            for followup, rows in zip(kept, link_lists, strict=True)
+            for (followup_id, followup), rows in zip(keyed, link_lists, strict=True)
         ]
 
     async def get_ticket_timeline_document(

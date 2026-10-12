@@ -379,8 +379,9 @@ The full set is re-exported from the package root, including
 ``GetLocation`` / ``PostLocation`` / ``PatchLocation`` / ``DeleteLocation``,
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
 ``GetFollowup``, ``GetTicketTask``, ``GetSolution``, ``GetTimelineDocument``,
-``GetTeamMember``, ``GetDocumentItem``, ``FollowupDocuments``, and ``GetDocument`` together with their post / patch /
-delete variants.
+``GetTeamMember``, and ``GetDocument`` together with their post / patch /
+delete variants. The read-only ``GetDocumentItem`` and ``FollowupDocuments``
+have no post / patch / delete variants.
 
 All models inherit from a permissive base: the GLPI server is the
 authoritative validator, so any extra keys returned by the live server
