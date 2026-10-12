@@ -379,7 +379,7 @@ The full set is re-exported from the package root, including
 ``GetLocation`` / ``PostLocation`` / ``PatchLocation`` / ``DeleteLocation``,
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
 ``GetFollowup``, ``GetTicketTask``, ``GetSolution``, ``GetTimelineDocument``,
-``GetTeamMember``, and ``GetDocument`` together with their post / patch /
+``GetTeamMember``, ``GetDocumentItem``, and ``GetDocument`` together with their post / patch /
 delete variants.
 
 All models inherit from a permissive base: the GLPI server is the

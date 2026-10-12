@@ -135,9 +135,14 @@ class GlpiTimelinePosition(GlpiEnum):
     The contract advertises ``[-1, 0, 1, 2, 3, 4]`` on
     ``timeline_position``. ``LEFT`` and ``RIGHT`` follow the GLPI UI
     conventions.
+
+    ``NO_TIMELINE`` is GLPI's own name for ``-1`` and an alias of
+    ``INVALID``. GLPI's editor writes it on the link of an image it embeds
+    in a text, and such a link is hidden from the ticket's Documents tab.
     """
 
     INVALID = -1
+    NO_TIMELINE = -1
     NONE = 0
     LEFT = 1
     RIGHT = 2
