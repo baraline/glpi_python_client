@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from glpi_python_client import (
+    FollowupDocuments,
     GetDocumentItem,
     GlpiStatusError,
     GlpiValidationError,
@@ -268,3 +269,173 @@ async def test_list_item_documents_refuses_a_full_page(client: Any) -> None:
     client._v1 = _FakeV1([_link_row(i, i) for i in range(1, 1001)])
     with pytest.raises(GlpiValidationError):
         await client.list_item_documents("ITILFollowup", 7)
+
+
+class _RoutedV1:
+    """V1 stand-in that answers per path and records every path asked."""
+
+    def __init__(self, routes: dict[str, object]) -> None:
+        self.routes = routes
+        self.paths: list[str] = []
+
+    async def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        failure_message: str | None = None,
+    ) -> object:
+        self.paths.append(path)
+        answer = self.routes[path]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    async def close(self) -> None:
+        """No-op; the real session is closed with the client."""
+
+
+def _followup(followup_id: int | None, is_private: bool | None) -> dict[str, Any]:
+    row: dict[str, Any] = {"content": "text"}
+    if followup_id is not None:
+        row["id"] = followup_id
+    if is_private is not None:
+        row["is_private"] = is_private
+    return row
+
+
+def _followup_link(
+    followup_id: int, documents_id: int, **overrides: Any
+) -> dict[str, Any]:
+    row = _link_row(row_id=documents_id + 100, documents_id=documents_id)
+    row["items_id"] = followup_id
+    row.update(overrides)
+    return row
+
+
+def _install_followups(client: Any, followups: list[dict[str, Any]]) -> None:
+    TransportRecorder(get_payload=followups).install(client)
+
+
+async def test_followup_documents_lists_public_followups_in_id_order(
+    client: Any,
+) -> None:
+    """Public followups come back by ascending id, links attached, empties kept."""
+
+    _install_followups(client, [_followup(12, False), _followup(11, False)])
+    fake = _RoutedV1(
+        {
+            "ITILFollowup/11/Document_Item": [
+                _followup_link(11, 21),
+                _followup_link(11, 22),
+            ],
+            "ITILFollowup/12/Document_Item": [],
+        }
+    )
+    client._v1 = fake
+    entries = await client.list_ticket_followup_documents(7)
+    assert all(isinstance(entry, FollowupDocuments) for entry in entries)
+    assert [entry.followup.id for entry in entries] == [11, 12]
+    assert [d.documents_id for d in entries[0].documents] == [21, 22]
+    assert entries[1].documents == []
+    assert sorted(fake.paths) == [
+        "ITILFollowup/11/Document_Item",
+        "ITILFollowup/12/Document_Item",
+    ]
+
+
+async def test_followup_documents_skips_private_and_flagless_by_default(
+    client: Any,
+) -> None:
+    """Private and flag-less followups are absent and never queried."""
+
+    _install_followups(
+        client, [_followup(11, False), _followup(12, True), _followup(13, None)]
+    )
+    fake = _RoutedV1({"ITILFollowup/11/Document_Item": [_followup_link(11, 21)]})
+    client._v1 = fake
+    entries = await client.list_ticket_followup_documents(7)
+    assert [entry.followup.id for entry in entries] == [11]
+    assert fake.paths == ["ITILFollowup/11/Document_Item"]
+
+
+async def test_followup_documents_include_private_keeps_every_followup(
+    client: Any,
+) -> None:
+    """With ``include_private`` every followup is listed, flags intact."""
+
+    _install_followups(
+        client, [_followup(13, None), _followup(11, False), _followup(12, True)]
+    )
+    client._v1 = _RoutedV1(
+        {
+            "ITILFollowup/11/Document_Item": [_followup_link(11, 21)],
+            "ITILFollowup/12/Document_Item": [_followup_link(12, 22)],
+            "ITILFollowup/13/Document_Item": [],
+        }
+    )
+    entries = await client.list_ticket_followup_documents(7, include_private=True)
+    assert [entry.followup.id for entry in entries] == [11, 12, 13]
+    assert [entry.followup.is_private for entry in entries] == [False, True, None]
+    assert [len(entry.documents) for entry in entries] == [1, 1, 0]
+
+
+async def test_followup_documents_drops_foreign_link_rows(client: Any) -> None:
+    """A row naming another followup or another itemtype is dropped."""
+
+    _install_followups(client, [_followup(11, False)])
+    client._v1 = _RoutedV1(
+        {
+            "ITILFollowup/11/Document_Item": [
+                _followup_link(11, 21),
+                _followup_link(12, 22),
+                _followup_link(11, 23, itemtype="Ticket"),
+                _followup_link(11, 24, items_id=None),
+            ]
+        }
+    )
+    entries = await client.list_ticket_followup_documents(7)
+    assert [d.documents_id for d in entries[0].documents] == [21]
+
+
+async def test_followup_documents_propagates_a_failed_read(client: Any) -> None:
+    """One failing followup read fails the call, with no partial list."""
+
+    _install_followups(client, [_followup(11, False), _followup(12, False)])
+    client._v1 = _RoutedV1(
+        {
+            "ITILFollowup/11/Document_Item": [_followup_link(11, 21)],
+            "ITILFollowup/12/Document_Item": GlpiValidationError("boom"),
+        }
+    )
+    with pytest.raises(GlpiValidationError, match="boom"):
+        await client.list_ticket_followup_documents(7)
+
+
+async def test_followup_documents_rejects_a_followup_without_an_id(
+    client: Any,
+) -> None:
+    """A followup that cannot be queried raises rather than being skipped."""
+
+    _install_followups(client, [_followup(11, False), _followup(None, False)])
+    fake = _RoutedV1({"ITILFollowup/11/Document_Item": []})
+    client._v1 = fake
+    with pytest.raises(GlpiValidationError):
+        await client.list_ticket_followup_documents(7)
+
+
+async def test_followup_documents_without_a_v1_session_raises(client: Any) -> None:
+    """The v1 session is required even when no followup exists."""
+
+    _install_followups(client, [])
+    with pytest.raises(RuntimeError):
+        await client.list_ticket_followup_documents(7)
+
+
+async def test_followup_documents_no_followups_gives_empty_list(client: Any) -> None:
+    """A ticket without followups gives an empty list."""
+
+    _install_followups(client, [])
+    client._v1 = _RoutedV1({})
+    assert await client.list_ticket_followup_documents(7) == []

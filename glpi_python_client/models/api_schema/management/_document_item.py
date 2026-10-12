@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from pydantic import ConfigDict
+
 from glpi_python_client.models._base import GlpiModel
+from glpi_python_client.models.api_schema.assistance.timeline._followup import (
+    GetFollowup,
+)
 from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
 
 
@@ -58,4 +63,26 @@ class GetDocumentItem(GlpiModel):
     timeline_position: GlpiTimelinePosition | None = None
 
 
-__all__ = ["GetDocumentItem"]
+class FollowupDocuments(GlpiModel):
+    """One ticket followup together with its document links.
+
+    Returned by ``list_ticket_followup_documents``. The followup is kept
+    whole, so a caller reads ``followup.is_private`` to classify every link
+    without a second read.
+
+    Parameters
+    ----------
+    followup : GetFollowup
+        The followup, as the ticket's followup listing returned it.
+    documents : list[GetDocumentItem]
+        The ``Document_Item`` rows linked to this followup. Empty when the
+        followup has no document.
+    """
+
+    model_config = ConfigDict(extra="allow", frozen=True)
+
+    followup: GetFollowup
+    documents: list[GetDocumentItem]
+
+
+__all__ = ["FollowupDocuments", "GetDocumentItem"]

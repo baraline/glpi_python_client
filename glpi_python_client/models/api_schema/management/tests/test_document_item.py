@@ -7,8 +7,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
+from glpi_python_client.models.api_schema.assistance.timeline import GetFollowup
 from glpi_python_client.models.api_schema.enums import GlpiTimelinePosition
-from glpi_python_client.models.api_schema.management import GetDocumentItem
+from glpi_python_client.models.api_schema.management import (
+    FollowupDocuments,
+    GetDocumentItem,
+)
 
 _PARIS_SUMMER = timezone(timedelta(hours=2))
 
@@ -118,3 +122,16 @@ def test_naive_datetimes_are_localised_to_the_server_timezone() -> None:
     assert item.date_mod.tzinfo == _PARIS_SUMMER
     assert item.date is not None
     assert item.date.tzinfo == _PARIS_SUMMER
+
+
+def test_followup_documents_holds_a_followup_and_its_links() -> None:
+    """The result model carries the followup whole and is frozen."""
+
+    entry = FollowupDocuments(
+        followup=GetFollowup.model_validate({"id": 42, "is_private": False}),
+        documents=[GetDocumentItem.model_validate(_row())],
+    )
+    assert entry.followup.is_private is False
+    assert entry.documents[0].documents_id == 11
+    with pytest.raises(ValidationError):
+        entry.documents = []

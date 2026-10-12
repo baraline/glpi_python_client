@@ -320,6 +320,11 @@ Documents
    :undoc-members:
    :show-inheritance:
 
+.. autoclass:: FollowupDocuments
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 .. autoclass:: PostDocument
    :members:
    :undoc-members:

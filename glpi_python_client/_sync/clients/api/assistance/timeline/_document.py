@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from glpi_python_client._sync._concurrency import gather
 from glpi_python_client._sync.clients.commons._constants import (
     TICKET_ENDPOINT,
     TIMELINE_DOCUMENT_SUFFIX,
@@ -34,6 +35,7 @@ from glpi_python_client.models.api_schema.assistance.timeline._document import (
 )
 from glpi_python_client.models.api_schema.management._document import GetDocument
 from glpi_python_client.models.api_schema.management._document_item import (
+    FollowupDocuments,
     GetDocumentItem,
 )
 
@@ -41,6 +43,7 @@ _ITEM_DOCUMENT_RANGE = "0-999"
 _ITEM_DOCUMENT_PAGE_SIZE = 1000
 _ITEMTYPE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _V1_FEATURE_LABEL = "item document link listing"
+_FOLLOWUP_ITEMTYPE = "ITILFollowup"
 
 
 class TimelineDocumentMixin(TransportMixin):
@@ -158,6 +161,82 @@ class TimelineDocumentMixin(TransportMixin):
                 GetDocumentItem, row, server_timezone=self.server_timezone
             )
             for row in payload
+        ]
+
+    def list_ticket_followup_documents(
+        self, ticket_id: GlpiId, *, include_private: bool = False
+    ) -> list[FollowupDocuments]:
+        """List the document links of each followup of one ticket.
+
+        GLPI's editor links an image pasted into a followup to the followup,
+        not to the ticket. :meth:`list_ticket_timeline_documents` therefore
+        never returns such an image, and this method does.
+
+        Each entry holds the followup and its links, so a caller reads
+        ``followup.is_private`` to classify every link without a second
+        read. Only followups are walked: tasks and solutions are not.
+
+        This call needs the legacy v1 session (``v1_base_url`` and
+        ``v1_user_token``). Without one it raises ``RuntimeError``.
+
+        Parameters
+        ----------
+        ticket_id : GlpiId
+            Numeric identifier of the parent ticket.
+        include_private : bool, optional
+            When false (the default), private followups and followups whose
+            ``is_private`` flag is missing are dropped and not queried, so
+            only what a requester can see is returned. A missing flag counts
+            as private. When true, every followup is kept.
+
+        Returns
+        -------
+        list[FollowupDocuments]
+            One entry per kept followup, in ascending followup id, including
+            a followup with no link (an empty ``documents`` list). A link row
+            that does not name that followup as its item is dropped.
+
+        Raises
+        ------
+        RuntimeError
+            If the client was built without a v1 session.
+        GlpiValidationError
+            If a kept followup has no identifier, or if reading the links of
+            a followup fails validation. A partial list is never returned.
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        self._require_v1_session(_V1_FEATURE_LABEL)
+        followups = self.list_ticket_followups(ticket_id)  # type: ignore[attr-defined]
+        kept = [
+            followup
+            for followup in followups
+            if include_private or followup.is_private is False
+        ]
+        if any(followup.id is None for followup in kept):
+            raise GlpiValidationError(
+                f"A followup of ticket {ticket_id} has no id, "
+                "so its document links cannot be read"
+            )
+        kept.sort(key=lambda followup: followup.id)
+        link_lists = gather(
+            *(
+                self.list_item_documents(_FOLLOWUP_ITEMTYPE, followup.id)
+                for followup in kept
+            )
+        )
+        return [
+            FollowupDocuments(
+                followup=followup,
+                documents=[
+                    row
+                    for row in rows
+                    if row.itemtype == _FOLLOWUP_ITEMTYPE
+                    and row.items_id == followup.id
+                ],
+            )
+            for followup, rows in zip(kept, link_lists, strict=True)
         ]
 
     def get_ticket_timeline_document(
