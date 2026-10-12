@@ -17,18 +17,30 @@ as :class:`GetDocument`.
 
 from __future__ import annotations
 
+import re
+
 from glpi_python_client._async.clients.commons._constants import (
     TICKET_ENDPOINT,
     TIMELINE_DOCUMENT_SUFFIX,
     GlpiId,
 )
+from glpi_python_client._async.clients.commons._payloads import model_from_payload
 from glpi_python_client._async.clients.commons._transport import TransportMixin
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.models.api_schema.assistance.timeline._document import (
     DeleteTimelineDocument,
     PatchTimelineDocument,
     PostTimelineDocument,
 )
 from glpi_python_client.models.api_schema.management._document import GetDocument
+from glpi_python_client.models.api_schema.management._document_item import (
+    GetDocumentItem,
+)
+
+_ITEM_DOCUMENT_RANGE = "0-999"
+_ITEM_DOCUMENT_PAGE_SIZE = 1000
+_ITEMTYPE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_V1_FEATURE_LABEL = "item document link listing"
 
 
 class TimelineDocumentMixin(TransportMixin):
@@ -61,6 +73,92 @@ class TimelineDocumentMixin(TransportMixin):
             ),
             unwrap_envelope=True,
         )
+
+    async def list_item_documents(
+        self, itemtype: str, items_id: GlpiId
+    ) -> list[GetDocumentItem]:
+        """List the document links of one item, over the legacy v1 API.
+
+        Only the followup route (``itemtype="ITILFollowup"``) has been
+        checked against a live server.  Other itemtypes are sent to the same
+        v1 sub-route unchanged.
+
+        Unlike :meth:`list_ticket_timeline_documents`, this call needs the
+        legacy v1 session (``v1_base_url`` and ``v1_user_token``).  Without
+        one it raises ``RuntimeError``.
+
+        It returns link rows, not documents.  A caller resolves each
+        ``documents_id`` with ``get_document``.
+
+        The library does not filter private followups, tasks or solutions
+        for the caller: every link the authenticated user can read is
+        returned.
+
+        GLPI's editor links an image pasted into a followup to the followup,
+        not to the ticket.  A caller that wants such images therefore walks
+        the ticket's followups and lists each one.
+
+        Parameters
+        ----------
+        itemtype : str
+            GLPI itemtype owning the links, for example ``"ITILFollowup"``.
+            It must start with a letter and contain only letters, digits and
+            underscores, because it is placed in the URL path.
+        items_id : GlpiId
+            Positive numeric identifier of the item.
+
+        Returns
+        -------
+        list[GetDocumentItem]
+            Link rows, with naive timestamps localised to the server
+            timezone.  An empty answer gives an empty list.
+
+        Raises
+        ------
+        RuntimeError
+            If the client was built without a v1 session.
+        GlpiValidationError
+            If ``itemtype`` or ``items_id`` is invalid, if GLPI answers
+            something other than a list or an empty body, or if it answers a
+            full page of 1000 rows or more, which may be truncated.  A
+            partial list is never returned.
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
+        if not _ITEMTYPE_PATTERN.fullmatch(itemtype):
+            raise GlpiValidationError(
+                f"itemtype must match {_ITEMTYPE_PATTERN.pattern!r}, got {itemtype!r}"
+            )
+        if items_id <= 0:
+            raise GlpiValidationError(
+                f"items_id must be a positive integer, got {items_id!r}"
+            )
+        payload = await v1.request_json(
+            "GET",
+            f"{itemtype}/{items_id}/Document_Item",
+            params={"range": _ITEM_DOCUMENT_RANGE},
+            failure_message=(f"Failed to list document links of {itemtype} {items_id}"),
+        )
+        if isinstance(payload, dict) and not payload:
+            return []
+        if not isinstance(payload, list):
+            raise GlpiValidationError(
+                f"Unexpected document link answer for {itemtype} {items_id}: "
+                f"{type(payload).__name__}"
+            )
+        if len(payload) >= _ITEM_DOCUMENT_PAGE_SIZE:
+            raise GlpiValidationError(
+                f"{itemtype} {items_id} returned {len(payload)} document links, "
+                "a full page that may be truncated"
+            )
+        return [
+            model_from_payload(
+                GetDocumentItem, row, server_timezone=self.server_timezone
+            )
+            for row in payload
+        ]
 
     async def get_ticket_timeline_document(
         self, ticket_id: GlpiId, document_link_id: GlpiId
