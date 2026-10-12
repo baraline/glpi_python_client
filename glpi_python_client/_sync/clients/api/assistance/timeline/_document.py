@@ -17,18 +17,36 @@ as :class:`GetDocument`.
 
 from __future__ import annotations
 
+import re
+
+from glpi_python_client._sync._concurrency import gather
 from glpi_python_client._sync.clients.commons._constants import (
     TICKET_ENDPOINT,
     TIMELINE_DOCUMENT_SUFFIX,
     GlpiId,
 )
+from glpi_python_client._sync.clients.commons._payloads import model_from_payload
 from glpi_python_client._sync.clients.commons._transport import TransportMixin
+from glpi_python_client._errors import GlpiValidationError
 from glpi_python_client.models.api_schema.assistance.timeline._document import (
     DeleteTimelineDocument,
     PatchTimelineDocument,
     PostTimelineDocument,
 )
+from glpi_python_client.models.api_schema.assistance.timeline._followup import (
+    GetFollowup,
+)
 from glpi_python_client.models.api_schema.management._document import GetDocument
+from glpi_python_client.models.api_schema.management._document_item import (
+    FollowupDocuments,
+    GetDocumentItem,
+)
+
+_ITEM_DOCUMENT_RANGE = "0-999"
+_ITEM_DOCUMENT_PAGE_SIZE = 1000
+_ITEMTYPE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_V1_FEATURE_LABEL = "item document link listing"
+_FOLLOWUP_ITEMTYPE = "ITILFollowup"
 
 
 class TimelineDocumentMixin(TransportMixin):
@@ -61,6 +79,173 @@ class TimelineDocumentMixin(TransportMixin):
             ),
             unwrap_envelope=True,
         )
+
+    def list_item_documents(
+        self, itemtype: str, items_id: GlpiId
+    ) -> list[GetDocumentItem]:
+        """List the document links of one item, over the legacy v1 API.
+
+        Only the followup route (``itemtype="ITILFollowup"``) has been
+        checked against a live server.  Other itemtypes are sent to the same
+        v1 sub-route unchanged.
+
+        Unlike :meth:`list_ticket_timeline_documents`, this call needs the
+        legacy v1 session (``v1_base_url`` and ``v1_user_token``).  Without
+        one it raises ``RuntimeError``.
+
+        It returns link rows, not documents.  A caller resolves each
+        ``documents_id`` with ``get_document``.
+
+        The library does not filter private followups, tasks or solutions
+        for the caller: every link the authenticated user can read is
+        returned.
+
+        GLPI's editor links an image pasted into a followup to the followup,
+        not to the ticket.  A caller that wants such images therefore walks
+        the ticket's followups and lists each one.
+
+        Parameters
+        ----------
+        itemtype : str
+            GLPI itemtype owning the links, for example ``"ITILFollowup"``.
+            It must start with a letter and contain only letters, digits and
+            underscores, because it is placed in the URL path.
+        items_id : GlpiId
+            Positive numeric identifier of the item.
+
+        Returns
+        -------
+        list[GetDocumentItem]
+            Link rows, with naive timestamps localised to the server
+            timezone.  An empty answer gives an empty list.
+
+        Raises
+        ------
+        RuntimeError
+            If the client was built without a v1 session.
+        GlpiValidationError
+            If ``itemtype`` or ``items_id`` is invalid, if GLPI answers
+            something other than a list or an empty body, or if it answers a
+            full page of 1000 rows or more, which may be truncated.  A
+            partial list is never returned.
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        v1 = self._require_v1_session(_V1_FEATURE_LABEL)
+        if not _ITEMTYPE_PATTERN.fullmatch(itemtype):
+            raise GlpiValidationError(
+                f"itemtype must match {_ITEMTYPE_PATTERN.pattern!r}, got {itemtype!r}"
+            )
+        if items_id <= 0:
+            raise GlpiValidationError(
+                f"items_id must be a positive integer, got {items_id!r}"
+            )
+        payload = v1.request_json(
+            "GET",
+            f"{itemtype}/{items_id}/Document_Item",
+            params={"range": _ITEM_DOCUMENT_RANGE},
+            failure_message=(f"Failed to list document links of {itemtype} {items_id}"),
+        )
+        if isinstance(payload, dict) and not payload:
+            return []
+        if not isinstance(payload, list):
+            raise GlpiValidationError(
+                f"Unexpected document link answer for {itemtype} {items_id}: "
+                f"{type(payload).__name__}"
+            )
+        if len(payload) >= _ITEM_DOCUMENT_PAGE_SIZE:
+            raise GlpiValidationError(
+                f"{itemtype} {items_id} returned {len(payload)} document links, "
+                "a full page that may be truncated"
+            )
+        return [
+            model_from_payload(
+                GetDocumentItem, row, server_timezone=self.server_timezone
+            )
+            for row in payload
+        ]
+
+    def list_ticket_followup_documents(
+        self, ticket_id: GlpiId, *, include_private: bool = False
+    ) -> list[FollowupDocuments]:
+        """List the document links of each followup of one ticket.
+
+        GLPI's editor links an image pasted into a followup to the followup,
+        not to the ticket. :meth:`list_ticket_timeline_documents` therefore
+        never returns such an image, and this method does.
+
+        Each entry holds the followup and its links, so a caller reads
+        ``followup.is_private`` to classify every link without a second
+        read. Only followups are walked: tasks and solutions are not.
+
+        This call needs the legacy v1 session (``v1_base_url`` and
+        ``v1_user_token``). Without one it raises ``RuntimeError``. It issues
+        one v1 request per kept followup, all at once on the asynchronous
+        surface and one after the other on the synchronous one.
+
+        Parameters
+        ----------
+        ticket_id : GlpiId
+            Numeric identifier of the parent ticket.
+        include_private : bool, optional
+            When false (the default), private followups and followups whose
+            ``is_private`` flag is missing are dropped and not queried, so
+            only what a requester can see is returned. A missing flag counts
+            as private. When true, every followup is kept.
+
+        Returns
+        -------
+        list[FollowupDocuments]
+            One entry per kept followup, in ascending followup id, including
+            a followup with no link (an empty ``documents`` list). A link row
+            that does not name that followup as its item is dropped.
+
+        Raises
+        ------
+        RuntimeError
+            If the client was built without a v1 session.
+        GlpiValidationError
+            If a kept followup has no identifier, or if reading the links of
+            a followup fails validation. A partial list is never returned.
+        GlpiStatusError
+            If the GLPI server returns a non-success HTTP status.
+        """
+
+        self._require_v1_session(_V1_FEATURE_LABEL)
+        followups = self.list_ticket_followups(ticket_id)  # type: ignore[attr-defined]
+        kept = [
+            followup
+            for followup in followups
+            if include_private or followup.is_private is False
+        ]
+        keyed: list[tuple[int, GetFollowup]] = []
+        for followup in kept:
+            if followup.id is None:
+                raise GlpiValidationError(
+                    f"A followup of ticket {ticket_id} has no id, "
+                    "so its document links cannot be read"
+                )
+            keyed.append((followup.id, followup))
+        keyed.sort(key=lambda pair: pair[0])
+        link_lists = gather(
+            *(
+                self.list_item_documents(_FOLLOWUP_ITEMTYPE, followup_id)
+                for followup_id, _ in keyed
+            )
+        )
+        return [
+            FollowupDocuments(
+                followup=followup,
+                documents=[
+                    row
+                    for row in rows
+                    if row.itemtype == _FOLLOWUP_ITEMTYPE
+                    and row.items_id == followup_id
+                ],
+            )
+            for (followup_id, followup), rows in zip(keyed, link_lists, strict=True)
+        ]
 
     def get_ticket_timeline_document(
         self, ticket_id: GlpiId, document_link_id: GlpiId

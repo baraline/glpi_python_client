@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and v1 credentials configured on the client for binary uploads."
 metadata:
   package: glpi-python-client
-  version: "0.6.3"
+  version: "0.6.4"
 ---
 
 # GLPI Document Workflow
@@ -71,3 +71,4 @@ document_id = await client.create_document(PostDocument(name="Diagnostic notes")
 - `mime_type` defaults to `application/octet-stream` when omitted on `upload_document`.
 - The snippets above use `AsyncGlpiClient`, so every call is awaited. The same methods on the synchronous `GlpiClient` are plain blocking calls -- drop the `await`.
 - The `delete_document(force=True)` flag permanently deletes; omit (or `False`) to move to the trash.
+- `list_item_documents(itemtype, items_id)` lists the `GetDocumentItem` link rows of one item over the v1 session, and raises `RuntimeError` without one. It returns links, so resolve each `documents_id` with `get_document`. GLPI's editor links an image pasted into a followup to the followup, not the ticket, so walk the ticket's followups with `list_item_documents("ITILFollowup", followup_id)`. The primitive does not filter private followups. `list_ticket_followup_documents(ticket_id, *, include_private=False)` does that walk for you: it returns one `FollowupDocuments` (the followup and its links) per followup in id order, and by default drops private and flag-less followups without querying them. Only the followup route is measured live, and an answer of 1000 rows or more raises `GlpiValidationError` rather than returning a partial list.

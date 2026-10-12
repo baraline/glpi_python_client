@@ -380,7 +380,8 @@ The full set is re-exported from the package root, including
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
 ``GetFollowup``, ``GetTicketTask``, ``GetSolution``, ``GetTimelineDocument``,
 ``GetTeamMember``, and ``GetDocument`` together with their post / patch /
-delete variants.
+delete variants. The read-only ``GetDocumentItem`` and ``FollowupDocuments``
+have no post / patch / delete variants.
 
 All models inherit from a permissive base: the GLPI server is the
 authoritative validator, so any extra keys returned by the live server
@@ -579,6 +580,43 @@ Example output::
 ``upload_document`` requires the legacy v1 session to be configured on
 the client (``v1_base_url`` and ``v1_user_token``) because the GLPI v2
 contract does not advertise a binary upload endpoint.
+
+Documents linked to a followup
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+GLPI's editor links an image pasted into a followup to the followup, not to
+the ticket, so ``list_ticket_timeline_documents`` never returns it. Two
+helpers read those links through the legacy v1 session (``v1_base_url`` and
+``v1_user_token``); without one they raise ``RuntimeError``.
+
+``list_item_documents(itemtype, items_id)`` returns the document links of any
+item as :class:`~glpi_python_client.GetDocumentItem` rows: the link ``id``, the
+``documents_id``, the ``itemtype`` and ``items_id`` it names, and a
+``timeline_position``. It does not filter anything, private followups
+included. A page of 1000 rows or more raises ``GlpiValidationError`` rather
+than return a possibly truncated list.
+
+``list_ticket_followup_documents(ticket_id, *, include_private=False)`` walks
+the ticket's followups and returns one
+:class:`~glpi_python_client.FollowupDocuments` per followup, in ascending
+followup id, holding the followup and its links (an empty list for a followup
+without any). By default private followups, and followups whose ``is_private``
+flag is missing, are dropped and not queried; pass ``include_private=True`` to
+keep them all.
+
+.. code-block:: python
+
+   for entry in client.list_ticket_followup_documents(ticket_id):
+       for link in entry.documents:
+           print(entry.followup.id, link.documents_id, link.timeline_position)
+
+``timeline_position`` is a :class:`~glpi_python_client.GlpiTimelinePosition`.
+``GlpiTimelinePosition.NO_TIMELINE`` (-1) names the value GLPI gives a link
+that sits outside the ticket timeline, such as an image pasted into a
+followup. It is an alias of ``INVALID``, which keeps its meaning.
+
+The followup route was measured against a live server. Tasks and solutions
+were not measured, so no helper walks them.
 
 Assets
 ~~~~~~

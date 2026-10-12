@@ -50,12 +50,14 @@ from glpi_python_client.models import (
     DeleteTicketTask,
     DeleteTimelineDocument,
     DeleteUser,
+    FollowupDocuments,
     GetComputer,
     GetContract,
     GetContractCost,
     GetContractItem,
     GetContractType,
     GetDocument,
+    GetDocumentItem,
     GetEntity,
     GetFollowup,
     GetKBArticle,
@@ -131,7 +133,7 @@ from glpi_python_client.rsql import (
     date_window,
 )
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
 __all__ = [
     "AsyncGlpiClient",
@@ -153,12 +155,14 @@ __all__ = [
     "DeleteTicketTask",
     "DeleteTimelineDocument",
     "DeleteUser",
+    "FollowupDocuments",
     "GetComputer",
     "GetContract",
     "GetContractCost",
     "GetContractItem",
     "GetContractType",
     "GetDocument",
+    "GetDocumentItem",
     "GetEntity",
     "GetFollowup",
     "GetKBArticle",

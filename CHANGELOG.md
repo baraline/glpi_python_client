@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.4 — 2026-10-12
+
+A patch release that reads the documents GLPI links to a followup. GLPI's
+editor links an image pasted into a followup to the followup and not to the
+ticket, so the ticket-level listing never returned it. Existing methods are
+unchanged.
+
+### Added
+
+- **`list_item_documents(itemtype, items_id)`** lists the v1 `Document_Item`
+  links of one item as `GetDocumentItem` rows. It needs the v1 session
+  (`v1_base_url` and `v1_user_token`) and raises `RuntimeError` without one.
+  An invalid `itemtype` or id, a non-list answer, or a full page of 1000 rows
+  or more raises `GlpiValidationError`; a partial list is never returned.
+- **`GetDocumentItem`**, exported from the package root, models a link row:
+  `id`, `documents_id`, `itemtype`, `items_id`, `entities_id`, the dates and
+  `timeline_position`. Other keys stay in `extra_payload`.
+- **`list_ticket_followup_documents(ticket_id, *, include_private=False)`**
+  returns one `FollowupDocuments` (the followup and its `GetDocumentItem`
+  links) per followup, in ascending followup id, empty ones included. Private
+  followups, and followups with no `is_private` flag, are dropped by default;
+  `include_private=True` keeps every followup.
+- **`FollowupDocuments`**, exported from the package root.
+- **`GlpiTimelinePosition.NO_TIMELINE`** (-1) is an alias of `INVALID`, so
+  existing uses of `INVALID` are unaffected.
+- The followup route was measured live. The primitive `list_item_documents`
+  does not filter private followups; the convenience filters them by default.
+  Tasks and solutions are not measured, and no helper walks them.
+
 ## 0.6.3 — 2026-10-08
 
 A patch release of the converter's reading: a caller can recognise the

@@ -18,14 +18,20 @@ from glpi_python_client.models.api_schema.management._document import (
     PatchDocument,
     PostDocument,
 )
+from glpi_python_client.models.api_schema.management._document_item import (
+    FollowupDocuments,
+    GetDocumentItem,
+)
 
 __all__ = [
     "DeleteContract",
     "DeleteContractCost",
     "DeleteDocument",
+    "FollowupDocuments",
     "GetContract",
     "GetContractCost",
     "GetDocument",
+    "GetDocumentItem",
     "PatchContract",
     "PatchContractCost",
     "PatchDocument",
