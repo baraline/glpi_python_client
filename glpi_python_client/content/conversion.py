@@ -402,6 +402,12 @@ class Link:
     enclosing_href : str or None
         For an ``<img>`` inside a link, that link's ``href``; ``None``
         otherwise. The image is read before the link around it.
+    image_id : str or None
+        For an ``<img>``, the value of its ``id`` attribute, trimmed, or
+        ``None`` when it has none or the element is a link. GLPI sets it to
+        the tag of the Document it created for an image it has not rewritten
+        into a document link, and that Document carries the same value as its
+        tag, so a caller can find it.
     """
 
     href: str
@@ -410,6 +416,7 @@ class Link:
     image: bool = False
     document_id: int | None = None
     enclosing_href: str | None = None
+    image_id: str | None = None
 
 
 #: A ``rewrite_link`` callback: called with each link and image a read meets,
@@ -664,6 +671,7 @@ class _Converter(MarkdownConverter):
                     enclosing_href=(
                         None if around is None else str(around.get("href") or "")
                     ),
+                    image_id=str(el.get("id") or "").strip() or None,
                 )
             )
             if isinstance(answer, str):

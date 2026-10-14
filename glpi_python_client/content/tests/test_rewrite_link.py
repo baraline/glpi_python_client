@@ -39,6 +39,11 @@ PASTED = (
 )
 
 
+#: A pasted image GLPI left as a raw data URI (synthetic tag and bytes).
+DATA_URI = "data:image/png;base64,iVBORw0KGgo="
+DATA_IMAGE = f'<p><img id="tag-1" src="{DATA_URI}" data-upload_id="x"></p>'
+
+
 def offered(html: str) -> list[Link]:
     """Read ``html`` with a callback that keeps everything, and return what it saw."""
 
@@ -60,10 +65,65 @@ def offered(html: str) -> list[Link]:
     "html",
     REALISTIC
     + E_MAIL_SHAPES
-    + [html for bodies in EARLIER_REGRESSIONS.values() for html in bodies],
+    + [html for bodies in EARLIER_REGRESSIONS.values() for html in bodies]
+    + [DATA_IMAGE],
 )
 def test_a_callback_answering_none_changes_nothing(html: str) -> None:
     assert read(html, rewrite_link=lambda link: None) == read(html)
+
+
+def test_a_pasted_data_image_is_offered_with_its_id() -> None:
+    assert offered(DATA_IMAGE) == [
+        Link(href=DATA_URI, image=True, image_id="tag-1", document_id=None)
+    ]
+
+
+def test_an_image_without_an_id_has_no_image_id() -> None:
+    (link,) = offered(f'<p><img src="{DATA_URI}"></p>')
+
+    assert link.image_id is None
+
+
+@pytest.mark.parametrize("attribute", ['id=""', 'id="   "', "id"])
+def test_an_empty_or_blank_id_reads_as_none(attribute: str) -> None:
+    (link,) = offered(f'<p><img {attribute} src="{DATA_URI}"></p>')
+
+    assert link.image_id is None
+
+
+def test_an_image_inside_a_link_keeps_its_own_id_and_the_link_has_none() -> None:
+    html = (
+        '<p><a id="link-id" href="https://x.example/p">'
+        f'<img id="tag-2" src="{DATA_URI}"></a></p>'
+    )
+
+    image, anchor = offered(html)
+
+    assert image.image_id == "tag-2"
+    assert anchor.image_id is None
+
+
+def test_an_id_is_trimmed() -> None:
+    (link,) = offered(f'<p><img id="  tag-3 " src="{DATA_URI}"></p>')
+
+    assert link.image_id == "tag-3"
+
+
+def test_link_positional_construction_still_works() -> None:
+    link = Link("h", "t", "ti", True, 5, "https://x.example")
+
+    assert (link.href, link.text, link.title, link.image) == ("h", "t", "ti", True)
+    assert (link.document_id, link.enclosing_href) == (5, "https://x.example")
+    assert link.image_id is None
+
+
+def test_answering_with_a_link_rewrites_a_data_image() -> None:
+    markdown = read(
+        DATA_IMAGE,
+        rewrite_link=lambda link: Link("https://files.example/9", "alt", image=True),
+    )
+
+    assert markdown == "![alt](https://files.example/9)"
 
 
 def test_each_link_and_image_is_offered_once_an_image_before_its_link() -> None:
