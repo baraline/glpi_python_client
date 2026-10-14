@@ -183,6 +183,9 @@ def _plain_text_html(text: str) -> str:
 _URL_LEADING = "".join(chr(c) for c in range(0x21))
 _URL_INNER = str.maketrans("", "", "\t\r\n")
 
+#: The elements inside which the reader writes no image, so offers none.
+_UNFORMATTED = ("pre", "code", "kbd", "samp")
+
 
 def _is_data_uri(src: str) -> bool:
     """Whether a browser reads ``src`` as a ``data:`` URI.
@@ -1056,7 +1059,9 @@ class GlpiContentConverter:
 
         Each ``<img>`` whose ``src`` a browser reads as a ``data:`` URI and
         that has a non-empty ``id`` contributes it, in document order and
-        without repeats. The base64 is not decoded.
+        without repeats. The base64 is not decoded. An image inside ``<pre>``,
+        ``<code>``, ``<kbd>`` or ``<samp>`` is left out: the reader shows it
+        as no image, so it never offers it to ``rewrite_link`` either.
 
         GLPI sets a tag on the Documents it creates from an upload or an
         editor paste, images or not. For an image it has not rewritten into a
@@ -1071,6 +1076,7 @@ class GlpiContentConverter:
             _image_id(img)
             for img in _soup(html).find_all("img")
             if _is_data_uri(str(img.get("src") or ""))
+            and img.find_parent(_UNFORMATTED) is None
         )
         return tuple(dict.fromkeys(i for i in ids if i is not None))
 

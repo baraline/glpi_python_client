@@ -20,7 +20,8 @@ image's `id`. Existing methods are unchanged.
 - **`GlpiContentConverter.data_image_ids(html)`** returns, in document order
   and without duplicates, the `id` of every `<img>` whose `src` is a `data:`
   URI, so a caller can tell whether it needs to read any Document at all. It
-  does not decode the base64.
+  does not decode the base64, and leaves out an image inside `<pre>`, `<code>`,
+  `<kbd>` or `<samp>`, which the reader never offers to `rewrite_link`.
 - **`GetDocument.tag`**, a read-only property: the Document's tag from
   `extra_payload`, or `None` when absent or not a non-empty string. GLPI sets a
   tag on the Documents it creates from an upload or an editor paste, images or

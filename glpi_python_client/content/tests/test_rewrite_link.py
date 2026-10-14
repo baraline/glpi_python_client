@@ -16,6 +16,7 @@ import pytest
 
 from glpi_python_client import GlpiValidationError
 from glpi_python_client.content import GlpiContentConverter, Link, RewriteLink
+from glpi_python_client.content.conversion import _is_data_uri
 from glpi_python_client.content.tests.test_round_trip import (
     E_MAIL_SHAPES,
     EARLIER_REGRESSIONS,
@@ -513,6 +514,35 @@ def test_data_image_ids_sees_a_scheme_in_mixed_case_spaced_and_split() -> None:
     assert data_image_ids(html) == ("t",)
 
 
+@pytest.mark.parametrize("lead", ["\x01", "\x0b", "\x1f", " \x0b\x01 "])
+def test_data_image_ids_strips_leading_control_characters(lead: str) -> None:
+    html = f'<p><img id="c" src="{lead}data:image/png;base64,AAAA"></p>'
+
+    assert data_image_ids(html) == ("c",)
+
+
+def test_data_image_ids_does_not_strip_a_leading_no_break_space() -> None:
+    html = '<p><img id="n" src="\xa0data:image/png;base64,AAAA"></p>'
+
+    assert data_image_ids(html) == ()
+
+
+@pytest.mark.parametrize("wrapper", ["pre", "code", "kbd", "samp"])
+def test_data_image_ids_skips_an_image_the_reader_never_offers(wrapper: str) -> None:
+    html = f'<{wrapper}><img id="a" src="{DATA_URI}"></{wrapper}>'
+
+    assert data_image_ids(html) == ()
+
+
+def test_data_image_ids_skips_an_image_nested_inside_code() -> None:
+    html = (
+        f'<p><code>x<img id="a" src="{DATA_URI}"></code>'
+        f'<img id="b" src="{DATA_URI}"></p>'
+    )
+
+    assert data_image_ids(html) == ("b",)
+
+
 @pytest.mark.parametrize("html", ["", "plain text", "<p>no image</p>"])
 def test_data_image_ids_of_an_empty_body_is_empty(html: str) -> None:
     assert data_image_ids(html) == ()
@@ -534,6 +564,13 @@ def test_data_image_ids_of_an_empty_body_is_empty(html: str) -> None:
         '<p><img src="data:image/png;base64,AAAA"></p>',
         '<p><a href="data:text/html,x" id="t10"><img id="t11" src="data:x,y"></a></p>',
         '<p><img id="d" src="data:a,b"><img id="d" src="data:a,b"></p>',
+        '<p><img id="c1" src="\x0bdata:image/png;base64,AAAA"></p>',
+        '<p><img id="c2" src="\x01 data:image/png;base64,AAAA"></p>',
+        '<p><img id="n1" src="\xa0data:image/png;base64,AAAA"></p>',
+        '<pre><img id="p1" src="data:image/png;base64,AAAA"></pre>',
+        '<p><code>x<img id="p2" src="data:image/png;base64,AAAA"></code></p>',
+        '<p><kbd><img id="p3" src="data:a,b"></kbd>'
+        '<samp><img id="p4" src="data:a,b"></samp></p>',
     ],
 )
 def test_data_image_ids_agrees_with_the_ids_the_reader_offers(html: str) -> None:
@@ -541,9 +578,7 @@ def test_data_image_ids_agrees_with_the_ids_the_reader_offers(html: str) -> None
         dict.fromkeys(
             link.image_id
             for link in offered(html)
-            if link.image
-            and link.image_id
-            and "".join(link.href.split()).lstrip().casefold().startswith("data:")
+            if link.image and link.image_id and _is_data_uri(link.href)
         )
     )
 
