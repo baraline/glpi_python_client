@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.5 — 2026-10-14
+
+A patch release that lets a caller find the Document behind an image GLPI left
+as a raw `data:` URI. GLPI may keep a large pasted image in the stored body as
+`<img id="..." src="data:image/png;base64,...">` instead of rewriting it into
+a document link, while still creating its Document, whose tag equals the
+image's `id`. Existing methods are unchanged.
+
+### Added
+
+- **`Link.image_id`**, a new last field of the `Link` the `rewrite_link`
+  callback receives: for an `<img>`, the value of its `id` attribute (trimmed;
+  `None` when absent or blank); always `None` for a link.
+- **`GlpiContentConverter.data_image_ids(html)`** returns, in document order
+  and without duplicates, the `id` of every `<img>` whose `src` is a `data:`
+  URI, so a caller can tell whether it needs to read any Document at all. It
+  does not decode the base64, and leaves out an image inside `<pre>`, `<code>`,
+  `<kbd>` or `<samp>`, which the reader never offers to `rewrite_link`.
+- **`GetDocument.tag`**, a read-only property: the Document's tag from
+  `extra_payload`, or `None` when absent or not a non-empty string. GLPI sets a
+  tag on the Documents it creates from an upload or an editor paste, images or
+  not.
+
 ## 0.6.4 — 2026-10-12
 
 A patch release that reads the documents GLPI links to a followup. GLPI's

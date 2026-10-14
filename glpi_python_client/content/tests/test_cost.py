@@ -242,3 +242,20 @@ def test_a_body_too_deep_to_convert_keeps_its_text() -> None:
 
     assert "init" in markdown
     assert "au fond" in render(markdown)
+
+
+def test_a_large_data_uri_is_read_within_the_cost_bound() -> None:
+    """A pasted image GLPI keeps as a raw data URI runs to about a megabyte."""
+
+    html = (
+        '<p><img id="tag-1" src="data:image/png;base64,'
+        + "iVBORw0KGgo=" * 80_000
+        + '"></p>'
+    )
+
+    started = time.perf_counter()
+    seen: list[object] = []
+    GlpiContentConverter.from_transport(html, rewrite_link=seen.append)
+
+    assert len(seen) == 1
+    assert time.perf_counter() - started < 10

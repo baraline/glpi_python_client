@@ -61,6 +61,20 @@ class GetDocument(GlpiModel):
     mime: str | None = None
     sha1sum: str | None = None
 
+    @property
+    def tag(self) -> str | None:
+        """The tag GLPI gave the Document, or ``None``.
+
+        GLPI sets a tag on the Documents it creates from an upload or an
+        editor paste, images or not. For an image it has not rewritten into
+        a document link, it is the ``id`` of the ``<img>`` left in the body
+        (see ``GlpiContentConverter.data_image_ids``). Read from
+        ``extra_payload``; ``None`` when absent, empty or not a string.
+        """
+
+        value = self.extra_payload.get("tag")
+        return value if isinstance(value, str) and value else None
+
 
 class PostDocument(GlpiModel):
     """Request body for ``POST /Management/Document``.

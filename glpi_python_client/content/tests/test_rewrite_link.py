@@ -16,6 +16,7 @@ import pytest
 
 from glpi_python_client import GlpiValidationError
 from glpi_python_client.content import GlpiContentConverter, Link, RewriteLink
+from glpi_python_client.content.conversion import _is_data_uri
 from glpi_python_client.content.tests.test_round_trip import (
     E_MAIL_SHAPES,
     EARLIER_REGRESSIONS,
@@ -26,6 +27,7 @@ read = GlpiContentConverter.from_transport
 render = GlpiContentConverter.to_transport
 document_image = GlpiContentConverter.document_image
 document_id_of = GlpiContentConverter.document_id_of
+data_image_ids = GlpiContentConverter.data_image_ids
 
 #: What every rendered link carries: GLPI's editor writes it on a link it makes.
 NEW_WINDOW = ' target="_blank" rel="noopener noreferrer"'
@@ -37,6 +39,11 @@ PASTED = (
     f'<img src="{DOCUMENT.replace("&", "&amp;")}" alt="5f1a-upload-tag" width="480" />'
     "</a></p>"
 )
+
+
+#: A pasted image GLPI left as a raw data URI (synthetic tag and bytes).
+DATA_URI = "data:image/png;base64,iVBORw0KGgo="
+DATA_IMAGE = f'<p><img id="tag-1" src="{DATA_URI}" data-upload_id="x"></p>'
 
 
 def offered(html: str) -> list[Link]:
@@ -60,10 +67,65 @@ def offered(html: str) -> list[Link]:
     "html",
     REALISTIC
     + E_MAIL_SHAPES
-    + [html for bodies in EARLIER_REGRESSIONS.values() for html in bodies],
+    + [html for bodies in EARLIER_REGRESSIONS.values() for html in bodies]
+    + [DATA_IMAGE],
 )
 def test_a_callback_answering_none_changes_nothing(html: str) -> None:
     assert read(html, rewrite_link=lambda link: None) == read(html)
+
+
+def test_a_pasted_data_image_is_offered_with_its_id() -> None:
+    assert offered(DATA_IMAGE) == [
+        Link(href=DATA_URI, image=True, image_id="tag-1", document_id=None)
+    ]
+
+
+def test_an_image_without_an_id_has_no_image_id() -> None:
+    (link,) = offered(f'<p><img src="{DATA_URI}"></p>')
+
+    assert link.image_id is None
+
+
+@pytest.mark.parametrize("attribute", ['id=""', 'id="   "', "id"])
+def test_an_empty_or_blank_id_reads_as_none(attribute: str) -> None:
+    (link,) = offered(f'<p><img {attribute} src="{DATA_URI}"></p>')
+
+    assert link.image_id is None
+
+
+def test_an_image_inside_a_link_keeps_its_own_id_and_the_link_has_none() -> None:
+    html = (
+        '<p><a id="link-id" href="https://x.example/p">'
+        f'<img id="tag-2" src="{DATA_URI}"></a></p>'
+    )
+
+    image, anchor = offered(html)
+
+    assert image.image_id == "tag-2"
+    assert anchor.image_id is None
+
+
+def test_an_id_is_trimmed() -> None:
+    (link,) = offered(f'<p><img id="  tag-3 " src="{DATA_URI}"></p>')
+
+    assert link.image_id == "tag-3"
+
+
+def test_link_positional_construction_still_works() -> None:
+    link = Link("h", "t", "ti", True, 5, "https://x.example")
+
+    assert (link.href, link.text, link.title, link.image) == ("h", "t", "ti", True)
+    assert (link.document_id, link.enclosing_href) == (5, "https://x.example")
+    assert link.image_id is None
+
+
+def test_answering_with_a_link_rewrites_a_data_image() -> None:
+    markdown = read(
+        DATA_IMAGE,
+        rewrite_link=lambda link: Link("https://files.example/9", "alt", image=True),
+    )
+
+    assert markdown == "![alt](https://files.example/9)"
 
 
 def test_each_link_and_image_is_offered_once_an_image_before_its_link() -> None:
@@ -402,3 +464,122 @@ def test_document_image_is_not_rewritten_by_a_read_in_progress() -> None:
 def test_rewrite_link_is_a_public_type() -> None:
     callback: RewriteLink = lambda link: None  # noqa: E731
     assert read("<p>x</p>", rewrite_link=callback) == "x"
+
+
+# ---------------------------------------------------------------------------
+# Which images are raw data, and what they are called
+# ---------------------------------------------------------------------------
+
+
+def test_data_image_ids_lists_ids_in_document_order() -> None:
+    html = (
+        f'<p><img id="b" src="{DATA_URI}"><img id="a" src="{DATA_URI}">'
+        f'<img id="c" src="{DATA_URI}"></p>'
+    )
+
+    assert data_image_ids(html) == ("b", "a", "c")
+
+
+def test_data_image_ids_drops_duplicates() -> None:
+    html = (
+        f'<p><img id="a" src="{DATA_URI}"><img id="b" src="{DATA_URI}">'
+        f'<img id="a" src="{DATA_URI}"></p>'
+    )
+
+    assert data_image_ids(html) == ("a", "b")
+
+
+def test_data_image_ids_ignores_images_without_an_id() -> None:
+    html = (
+        f'<p><img src="{DATA_URI}"><img id="" src="{DATA_URI}">'
+        f'<img id="  " src="{DATA_URI}"></p>'
+    )
+
+    assert data_image_ids(html) == ()
+
+
+def test_data_image_ids_ignores_a_non_data_src() -> None:
+    html = (
+        '<p><img id="web" src="https://files.example/i.png">'
+        f"{PASTED.replace('<p>', '').replace('</p>', '')}"
+        '<img id="bare"></p>'
+    )
+
+    assert data_image_ids(html) == ()
+
+
+def test_data_image_ids_sees_a_scheme_in_mixed_case_spaced_and_split() -> None:
+    html = '<p><img id="t" src="  DaTa\n:image/png;base64,iVBORw0KGgo="></p>'
+
+    assert data_image_ids(html) == ("t",)
+
+
+@pytest.mark.parametrize("lead", ["\x01", "\x0b", "\x1f", " \x0b\x01 "])
+def test_data_image_ids_strips_leading_control_characters(lead: str) -> None:
+    html = f'<p><img id="c" src="{lead}data:image/png;base64,AAAA"></p>'
+
+    assert data_image_ids(html) == ("c",)
+
+
+def test_data_image_ids_does_not_strip_a_leading_no_break_space() -> None:
+    html = '<p><img id="n" src="\xa0data:image/png;base64,AAAA"></p>'
+
+    assert data_image_ids(html) == ()
+
+
+@pytest.mark.parametrize("wrapper", ["pre", "code", "kbd", "samp"])
+def test_data_image_ids_skips_an_image_the_reader_never_offers(wrapper: str) -> None:
+    html = f'<{wrapper}><img id="a" src="{DATA_URI}"></{wrapper}>'
+
+    assert data_image_ids(html) == ()
+
+
+def test_data_image_ids_skips_an_image_nested_inside_code() -> None:
+    html = (
+        f'<p><code>x<img id="a" src="{DATA_URI}"></code>'
+        f'<img id="b" src="{DATA_URI}"></p>'
+    )
+
+    assert data_image_ids(html) == ("b",)
+
+
+@pytest.mark.parametrize("html", ["", "plain text", "<p>no image</p>"])
+def test_data_image_ids_of_an_empty_body_is_empty(html: str) -> None:
+    assert data_image_ids(html) == ()
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        DATA_IMAGE,
+        '<p><img id="t1" src="DATA:image/png;base64,AAAA"></p>',
+        '<p><img id="t2" src="  data:image/png;base64,AAAA"></p>',
+        '<p><img id="t3" src="da\nta:image/png;base64,AAAA"></p>',
+        '<p><img id="t4" src="\tda\tta:image/png;base64,AAAA"></p>',
+        '<p><img id="t&amp;5" src="data:image/png;base64,AAAA"></p>',
+        '<p><img id=" t6 " src="data:image/png;base64,AAAA"></p>',
+        '<p><img id="t7" src="https://files.example/i.png"></p>',
+        '<p><img id="t8" src="xdata:image/png;base64,AAAA"></p>',
+        '<p><img id="t9" src="/data:image/png;base64,AAAA"></p>',
+        '<p><img src="data:image/png;base64,AAAA"></p>',
+        '<p><a href="data:text/html,x" id="t10"><img id="t11" src="data:x,y"></a></p>',
+        '<p><img id="d" src="data:a,b"><img id="d" src="data:a,b"></p>',
+        '<p><img id="c1" src="\x0bdata:image/png;base64,AAAA"></p>',
+        '<p><img id="c2" src="\x01 data:image/png;base64,AAAA"></p>',
+        '<p><img id="n1" src="\xa0data:image/png;base64,AAAA"></p>',
+        '<pre><img id="p1" src="data:image/png;base64,AAAA"></pre>',
+        '<p><code>x<img id="p2" src="data:image/png;base64,AAAA"></code></p>',
+        '<p><kbd><img id="p3" src="data:a,b"></kbd>'
+        '<samp><img id="p4" src="data:a,b"></samp></p>',
+    ],
+)
+def test_data_image_ids_agrees_with_the_ids_the_reader_offers(html: str) -> None:
+    from_the_reader = tuple(
+        dict.fromkeys(
+            link.image_id
+            for link in offered(html)
+            if link.image and link.image_id and _is_data_uri(link.href)
+        )
+    )
+
+    assert data_image_ids(html) == from_the_reader

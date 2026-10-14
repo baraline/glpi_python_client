@@ -179,6 +179,30 @@ def _plain_text_html(text: str) -> str:
     return "<p>" + "<br>".join(lines) + "</p>"
 
 
+#: What a browser strips from the front of a URL, and drops from inside one.
+_URL_LEADING = "".join(chr(c) for c in range(0x21))
+_URL_INNER = str.maketrans("", "", "\t\r\n")
+
+#: The elements inside which the reader writes no image, so offers none.
+_UNFORMATTED = ("pre", "code", "kbd", "samp")
+
+
+def _is_data_uri(src: str) -> bool:
+    """Whether a browser reads ``src`` as a ``data:`` URI.
+
+    The scheme is case-insensitive, leading C0 controls and spaces are
+    stripped, and tabs and line breaks are dropped wherever they are.
+    """
+
+    return src.lstrip(_URL_LEADING).translate(_URL_INNER).casefold().startswith("data:")
+
+
+def _image_id(el: Tag) -> str | None:
+    """The trimmed ``id`` of an element, or ``None`` when it has none."""
+
+    return str(el.get("id") or "").strip() or None
+
+
 def _soup(html: str) -> BeautifulSoup:
     """Parse ``html`` and drop what a browser does not display."""
 
@@ -402,6 +426,12 @@ class Link:
     enclosing_href : str or None
         For an ``<img>`` inside a link, that link's ``href``; ``None``
         otherwise. The image is read before the link around it.
+    image_id : str or None
+        For an ``<img>``, the value of its ``id`` attribute, trimmed, or
+        ``None`` when it has none or the element is a link. GLPI sets it to
+        the tag of the Document it created for an image it has not rewritten
+        into a document link, and that Document carries the same value as its
+        tag, so a caller can find it.
     """
 
     href: str
@@ -410,6 +440,7 @@ class Link:
     image: bool = False
     document_id: int | None = None
     enclosing_href: str | None = None
+    image_id: str | None = None
 
 
 #: A ``rewrite_link`` callback: called with each link and image a read meets,
@@ -664,6 +695,7 @@ class _Converter(MarkdownConverter):
                     enclosing_href=(
                         None if around is None else str(around.get("href") or "")
                     ),
+                    image_id=_image_id(el),
                 )
             )
             if isinstance(answer, str):
@@ -1020,6 +1052,33 @@ class GlpiContentConverter:
             return None
         document_id = int(values[0])
         return document_id if document_id > 0 else None
+
+    @staticmethod
+    def data_image_ids(html: str) -> tuple[str, ...]:
+        """Return the ``id`` of every image a body keeps as a ``data:`` URI.
+
+        Each ``<img>`` whose ``src`` a browser reads as a ``data:`` URI and
+        that has a non-empty ``id`` contributes it, in document order and
+        without repeats. The base64 is not decoded. An image inside ``<pre>``,
+        ``<code>``, ``<kbd>`` or ``<samp>`` is left out: the reader shows it
+        as no image, so it never offers it to ``rewrite_link`` either.
+
+        GLPI sets a tag on the Documents it creates from an upload or an
+        editor paste, images or not. For an image it has not rewritten into a
+        document link, that tag is the ``id`` of the ``<img>``
+        (:attr:`Link.image_id`, :attr:`GetDocument.tag`). A caller calls this
+        first, to decide whether it needs to read any Document at all.
+        """
+
+        if "<" not in html:
+            return ()
+        ids = (
+            _image_id(img)
+            for img in _soup(html).find_all("img")
+            if _is_data_uri(str(img.get("src") or ""))
+            and img.find_parent(_UNFORMATTED) is None
+        )
+        return tuple(dict.fromkeys(i for i in ids if i is not None))
 
     @staticmethod
     def document_image(

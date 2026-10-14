@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from glpi_python_client.models.api_schema.management import (
     DeleteDocument,
     GetDocument,
@@ -48,3 +50,18 @@ def test_delete_document_default() -> None:
     """``DeleteDocument`` exposes ``force`` as optional."""
 
     assert DeleteDocument().force is None
+
+
+def test_get_document_tag_reads_the_extra_payload() -> None:
+    doc = GetDocument.model_validate({"id": 1, "tag": "tag-1"})
+
+    assert doc.tag == "tag-1"
+
+
+def test_get_document_tag_is_none_when_absent() -> None:
+    assert GetDocument.model_validate({"id": 1}).tag is None
+
+
+@pytest.mark.parametrize("value", [None, "", 7, ["tag-1"]])
+def test_get_document_tag_is_none_when_not_a_non_empty_string(value: object) -> None:
+    assert GetDocument.model_validate({"id": 1, "tag": value}).tag is None

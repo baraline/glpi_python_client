@@ -2007,6 +2007,25 @@ other type raises ``TypeError``. It is not called for a value passed through
 as Markdown (``plain_text_is_markdown=True``), nor for a body read as its text.
 ``easyvista-python-client`` 0.4.3 carries the same hook.
 
+GLPI does not always rewrite a pasted image into a document link. A large one
+can stay in the stored body as ``<img id="tag-1" src="data:image/png;base64,...">``
+while GLPI still creates its Document, whose tag is the image's ``id``. For
+such an image ``Link.image_id`` is that ``id`` and ``href`` is the data URI;
+``GlpiContentConverter.data_image_ids(html)`` lists those ids without
+converting, so a caller reads Documents only when a body needs it. A
+:class:`~glpi_python_client.models.GetDocument` exposes its tag as ``tag``:
+
+.. code-block:: python
+
+    ids = GlpiContentConverter.data_image_ids(body)
+    if ids:
+        by_tag = {d.tag: d for d in documents if d.tag}
+        matched = [by_tag[i] for i in ids if i in by_tag]
+
+The ``id`` is body text, and anyone who can write the body can forge it. Match
+it only against Documents the caller already trusts, such as the same
+ticket's own, never against every Document the instance holds.
+
 It is not a sanitiser
 ^^^^^^^^^^^^^^^^^^^^^
 
