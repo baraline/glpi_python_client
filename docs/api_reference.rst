@@ -486,6 +486,29 @@ Entities
    :undoc-members:
    :show-inheritance:
 
+Groups
+------
+
+.. autoclass:: GetGroup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostGroup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchGroup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteGroup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Plugin: Fields (custom fields)
 ------------------------------
 
