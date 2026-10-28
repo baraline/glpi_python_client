@@ -22,12 +22,16 @@ from glpi_python_client.models.api_schema._common import (
 )
 from glpi_python_client.models.api_schema.administration import (
     DeleteEntity,
+    DeleteGroup,
     DeleteUser,
     GetEntity,
+    GetGroup,
     GetUser,
     PatchEntity,
+    PatchGroup,
     PatchUser,
     PostEntity,
+    PostGroup,
     PostUser,
 )
 from glpi_python_client.models.api_schema.assets import (
@@ -141,6 +145,7 @@ __all__ = [
     "DeleteDocument",
     "DeleteEntity",
     "DeleteFollowup",
+    "DeleteGroup",
     "DeleteKBArticle",
     "DeleteKBArticleComment",
     "DeleteKBCategory",
@@ -161,6 +166,7 @@ __all__ = [
     "GetDocumentItem",
     "GetEntity",
     "GetFollowup",
+    "GetGroup",
     "GetKBArticle",
     "GetKBArticleComment",
     "GetKBArticleRevision",
@@ -197,6 +203,7 @@ __all__ = [
     "PatchDocument",
     "PatchEntity",
     "PatchFollowup",
+    "PatchGroup",
     "PatchKBArticle",
     "PatchKBArticleComment",
     "PatchKBCategory",
@@ -215,6 +222,7 @@ __all__ = [
     "PostDocument",
     "PostEntity",
     "PostFollowup",
+    "PostGroup",
     "PostKBArticle",
     "PostKBArticleComment",
     "PostKBCategory",

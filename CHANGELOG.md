@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.6 — 2026-10-28
+
+A minor addition: the GLPI v2 `/Administration/Group` routes, so a caller can
+find and create groups. Existing methods are unchanged.
+
+### Added
+
+- **`search_groups`, `iter_search_groups`, `get_group`, `create_group`,
+  `update_group` and `delete_group`** on both clients, from a new `GroupMixin`
+  and the `GROUP_ENDPOINT` constant.
+- **`skip_entity: bool = False`** on `search_groups` and `iter_search_groups`,
+  as on `search_users`: `True` omits the `GLPI-Entity`, `GLPI-Profile` and
+  `GLPI-Entity-Recursive` headers so the search spans every entity the caller
+  can see. The other group methods always send them.
+- **`GetGroup`, `PostGroup`, `PatchGroup` and `DeleteGroup`**, modelled on
+  `components.schemas.Group` (parent, entity, the `maybe_*` / `may_contain_*`
+  flags, LDAP fields and timestamps), exported from the package root and from
+  `glpi_python_client.models`.
+
 ## 0.6.5 — 2026-10-14
 
 A patch release that lets a caller find the Document behind an image GLPI left

@@ -5,18 +5,18 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write users, locations, and entities."
 metadata:
   package: glpi-python-client
-  version: "0.6.5"
+  version: "0.6.6"
 ---
 
 # GLPI User, Location, And Entity Provisioning
 > The snippets below use `AsyncGlpiClient` (`async with` + `await`). Every method shown also exists on the synchronous `GlpiClient` with the same signature -- replace `async with` with `with`, drop the `await` keyword, and skip the surrounding `async def`/`asyncio.run` scaffolding.
 
-Users live under `/Administration/User`, entities under `/Administration/Entity`, and locations under `/Dropdowns/Location`. Each resource family is exposed by the same `search_/get_/create_/update_/delete_` shape on `GlpiClient` with matching `Get`/`Post`/`Patch`/`Delete` Pydantic models.
+Users live under `/Administration/User`, entities under `/Administration/Entity`, groups under `/Administration/Group`, and locations under `/Dropdowns/Location`. Each resource family is exposed by the same `search_/get_/create_/update_/delete_` shape on `GlpiClient` with matching `Get`/`Post`/`Patch`/`Delete` Pydantic models.
 
 ## Procedure
 
 1. Create a `GlpiClient` with the correct entity/profile scope.
-2. Search before creating duplicates: `search_users(rsql_filter, limit=..., start=..., skip_entity=False)`, `search_locations(rsql_filter, limit=..., start=...)`, `search_entities(rsql_filter, limit=..., start=...)`. Scope matters here: `search_users` and `search_locations` are narrowed by the client's `GLPI-Entity` / `GLPI-Profile` headers, so pass `skip_entity=True` to `search_users` (the only one of the three `search_*` helpers that has the flag — `iter_search_users` takes it too) to look across every entity the caller can see before deciding a user does not exist; `search_entities` always bypasses those headers.
+2. Search before creating duplicates: `search_users(rsql_filter, limit=..., start=..., skip_entity=False)`, `search_locations(rsql_filter, limit=..., start=...)`, `search_entities(rsql_filter, limit=..., start=...)`, `search_groups(rsql_filter, limit=..., start=..., skip_entity=False)`. Scope matters here: `search_users`, `search_groups` and `search_locations` are narrowed by the client's `GLPI-Entity` / `GLPI-Profile` headers, so pass `skip_entity=True` to `search_users` or `search_groups` (the two `search_*` helpers that have the flag — `iter_search_users` and `iter_search_groups` take it too) to look across every entity the caller can see before deciding a user or group does not exist; `search_entities` always bypasses those headers. Groups are the only one of these with entity-scoped create too: `create_group(PostGroup(name=..., entity=IdNameRef(id=...), maybe_assigned=True))` places the group in that entity and makes it assignable to tickets; read it back with `get_group`, change it with `update_group(group_id, PatchGroup(...))`, remove it with `delete_group(group_id, force=...)`.
    To resolve a person by e-mail use `await client.find_user_by_email("a@b.test")`, which returns `GetUser | None` and defaults to `skip_entity=True` for the reason just given.
 3. Fetch one record with `get_user(user_id)`, `get_location(location_id)`, or `get_entity(entity_id)`.
 4. Create with `create_user(PostUser(...))`, `create_location(PostLocation(...))`, or `create_entity(PostEntity(...))`. Each returns the new ID.

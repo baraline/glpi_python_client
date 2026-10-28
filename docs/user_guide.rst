@@ -378,6 +378,7 @@ The full set is re-exported from the package root, including
 ``GetUser`` / ``PostUser`` / ``PatchUser`` / ``DeleteUser``,
 ``GetLocation`` / ``PostLocation`` / ``PatchLocation`` / ``DeleteLocation``,
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
+``GetGroup`` / ``PostGroup`` / ``PatchGroup`` / ``DeleteGroup``,
 ``GetFollowup``, ``GetTicketTask``, ``GetSolution``, ``GetTimelineDocument``,
 ``GetTeamMember``, and ``GetDocument`` together with their post / patch /
 delete variants. The read-only ``GetDocumentItem`` and ``FollowupDocuments``
@@ -1152,6 +1153,7 @@ batches until the API returns fewer rows than the requested
 * :meth:`GlpiClient.iter_search_tickets`
 * :meth:`GlpiClient.iter_search_users`
 * :meth:`GlpiClient.iter_search_entities`
+* :meth:`GlpiClient.iter_search_groups`
 
 .. code-block:: python
 

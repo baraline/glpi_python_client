@@ -143,3 +143,48 @@ def test_post_user_secret_serializer_none_propagates() -> None:
     payload = user.model_dump(exclude={"extra_payload"})
     assert payload.get("password") is None
     assert payload.get("password2") is None
+
+
+def test_get_group_validates_contract_payload() -> None:
+    """``GetGroup`` accepts the contract ``Group`` shape with nested refs."""
+
+    from glpi_python_client.models.api_schema.administration import GetGroup
+
+    group = GetGroup.model_validate(
+        {
+            "id": 7,
+            "name": "Team A",
+            "completename": "Parent > Team A",
+            "level": 2,
+            "entity": {"id": 492, "name": "Client"},
+            "parent": {"id": 3, "name": "Parent"},
+            "maybe_assigned": True,
+            "date_mod": "2026-10-28T10:00:00+00:00",
+        }
+    )
+    assert group.entity is not None and group.entity.id == 492
+    assert group.parent is not None and group.parent.id == 3
+    assert group.maybe_assigned is True
+    assert group.date_mod is not None
+
+
+def test_post_group_leaves_read_only_fields_to_the_server() -> None:
+    """Read-only fields are not declared; they travel in ``extra_payload``."""
+
+    from glpi_python_client.models.api_schema.administration import PostGroup
+
+    for forbidden in ("id", "completename", "level"):
+        group = PostGroup.model_validate({"name": "G", forbidden: "x"})
+        assert group.extra_payload == {forbidden: "x"}
+
+
+def test_patch_group_accepts_subset_and_delete_group_defaults() -> None:
+    """``PatchGroup`` takes a partial body; ``DeleteGroup.force`` defaults None."""
+
+    from glpi_python_client.models.api_schema.administration import (
+        DeleteGroup,
+        PatchGroup,
+    )
+
+    PatchGroup.model_validate({"comment": "changed"})
+    assert DeleteGroup().force is None

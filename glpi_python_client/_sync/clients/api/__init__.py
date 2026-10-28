@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from glpi_python_client._sync.clients.api.administration import (
     EntityMixin,
+    GroupMixin,
     UserMixin,
 )
 from glpi_python_client._sync.clients.api.assets import ComputerMixin
@@ -49,6 +50,7 @@ __all__ = [
     "DocumentMixin",
     "EntityMixin",
     "FollowupMixin",
+    "GroupMixin",
     "KBArticleCommentMixin",
     "KBArticleMixin",
     "KBArticleRevisionMixin",
