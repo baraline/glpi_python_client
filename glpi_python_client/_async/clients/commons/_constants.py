@@ -19,6 +19,7 @@ COMPUTER_ENDPOINT = "Assets/Computer"
 # administration/
 USER_ENDPOINT = "Administration/User"
 ENTITY_ENDPOINT = "Administration/Entity"
+GROUP_ENDPOINT = "Administration/Group"
 
 # dropdowns/
 CONTRACT_TYPE_ENDPOINT = "Dropdowns/ContractType"
@@ -52,6 +53,7 @@ __all__ = [
     "DOCUMENT_ENDPOINT",
     "ENTITY_ENDPOINT",
     "FOLLOWUP_SUFFIX",
+    "GROUP_ENDPOINT",
     "KB_ARTICLE_ENDPOINT",
     "KB_CATEGORY_ENDPOINT",
     "KB_COMMENT_SUFFIX",

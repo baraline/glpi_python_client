@@ -77,3 +77,22 @@ def test_asset_and_contract_models_exported_from_models() -> None:
     for name in _ASSET_AND_CONTRACT_MODELS:
         assert hasattr(models, name), name
         assert name in models.__all__, name
+
+
+_GROUP_MODELS = ("GetGroup", "PostGroup", "PatchGroup", "DeleteGroup")
+
+
+def test_group_models_exported_from_top_level() -> None:
+    """Every Group model is importable from ``glpi_python_client``."""
+
+    for name in _GROUP_MODELS:
+        assert hasattr(glpi_python_client, name), name
+        assert name in glpi_python_client.__all__, name
+
+
+def test_group_models_exported_from_models_package() -> None:
+    """Every Group model is importable from ``glpi_python_client.models``."""
+
+    for name in _GROUP_MODELS:
+        assert hasattr(models, name), name
+        assert name in models.__all__, name
