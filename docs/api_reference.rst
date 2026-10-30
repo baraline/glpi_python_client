@@ -509,6 +509,14 @@ Groups
    :undoc-members:
    :show-inheritance:
 
+User authorizations
+-------------------
+
+.. autoclass:: UserAuthorization
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Plugin: Fields (custom fields)
 ------------------------------
 

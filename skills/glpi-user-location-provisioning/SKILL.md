@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write users, locations, and entities."
 metadata:
   package: glpi-python-client
-  version: "0.6.6"
+  version: "0.6.7"
 ---
 
 # GLPI User, Location, And Entity Provisioning
@@ -22,6 +22,7 @@ Users live under `/Administration/User`, entities under `/Administration/Entity`
 4. Create with `create_user(PostUser(...))`, `create_location(PostLocation(...))`, or `create_entity(PostEntity(...))`. Each returns the new ID.
 5. Update with `update_user(user_id, PatchUser(...))`, `update_location(location_id, PatchLocation(...))`, or `update_entity(entity_id, PatchEntity(...))`.
 6. Delete with `delete_user(user_id, force=True|False|None)` and the matching `delete_location` / `delete_entity` helpers.
+7. Group recursion and user authorizations are not in the v2 API (its `Group` schema has no `is_recursive`, and there is no route for a user's profile/entity rows), so they go through the legacy v1 session and need `v1_base_url` / `v1_user_token`; without them each raises `RuntimeError`. `set_group_recursive(group_id, recursive=True)` sets the flag on a group. `list_user_authorizations(user_id)` returns `UserAuthorization` rows (`id`, `user_id`, `profile_id`, `entity_id`, `is_recursive`, `is_dynamic`, `is_default_profile`); `add_user_authorization(user_id, profile_id=..., entity_id=..., recursive=False)` returns the new row id; `update_user_authorization(authorization_id, entity_id=None, recursive=None)` changes only what you pass and raises `GlpiValidationError` with neither; `delete_user_authorization(authorization_id)` removes a row. A v1 write answered `false` raises `GlpiProtocolError` with the server's message.
 
 ## Examples
 
