@@ -130,6 +130,7 @@ from glpi_python_client.models import (
     PostTimelineDocument,
     PostUser,
     TicketMarkdownOptions,
+    UserAuthorization,
 )
 from glpi_python_client.rsql import (
     changed_since,
@@ -250,6 +251,7 @@ __all__ = [
     "PostTimelineDocument",
     "PostUser",
     "TicketMarkdownOptions",
+    "UserAuthorization",
     "__version__",
     "changed_since",
     "created_between",

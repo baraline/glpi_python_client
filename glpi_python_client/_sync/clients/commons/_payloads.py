@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import tzinfo
 from typing import TypeVar
 
+from glpi_python_client._errors import GlpiProtocolError
 from glpi_python_client.models._base import (
     SERVER_TIMEZONE_CONTEXT_KEY,
     GlpiModel,
@@ -95,3 +96,36 @@ def model_from_payload(
 
 
 __all__ = ["model_from_payload", "model_to_payload"]
+
+
+def ensure_v1_write_accepted(payload: object, description: str) -> None:
+    """Raise when a legacy v1 write answered ``false`` for an item.
+
+    The v1 API reports a refused write with a success HTTP status and a
+    body such as ``[{"<id>": false, "message": "..."}]``, so the status
+    check alone lets it pass. An empty body, or a body without any
+    ``false`` entry, is accepted.
+
+    Parameters
+    ----------
+    payload : object
+        Parsed JSON body returned by the v1 session.
+    description : str
+        What was attempted, used as the prefix of the error message.
+
+    Raises
+    ------
+    GlpiProtocolError
+        When any item of the answer is ``false``; the message carries the
+        server's own explanation when it gave one.
+    """
+
+    if not isinstance(payload, list):
+        return
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        if any(value is False for key, value in entry.items() if key != "message"):
+            reason = entry.get("message")
+            suffix = f": {reason}" if reason else ""
+            raise GlpiProtocolError(f"{description} was refused by GLPI{suffix}")

@@ -188,3 +188,41 @@ def test_patch_group_accepts_subset_and_delete_group_defaults() -> None:
 
     PatchGroup.model_validate({"comment": "changed"})
     assert DeleteGroup().force is None
+
+
+def test_user_authorization_reads_a_v1_row() -> None:
+    """The v1 column names and 0/1 flags map onto the model fields."""
+
+    from glpi_python_client.models.api_schema.administration import (
+        UserAuthorization,
+    )
+
+    row = UserAuthorization.model_validate(
+        {
+            "id": 5,
+            "users_id": 2568,
+            "profiles_id": 1,
+            "entities_id": 493,
+            "is_recursive": 1,
+            "is_dynamic": 0,
+            "is_default_profile": 1,
+            "extra_column": "kept",
+        }
+    )
+    assert (row.id, row.user_id, row.profile_id, row.entity_id) == (5, 2568, 1, 493)
+    assert row.is_recursive is True
+    assert row.is_dynamic is False
+    assert row.is_default_profile is True
+    assert row.extra_payload == {"extra_column": "kept"}
+
+
+def test_user_authorization_accepts_python_field_names() -> None:
+    """The Python field names are accepted on input as well."""
+
+    from glpi_python_client.models.api_schema.administration import (
+        UserAuthorization,
+    )
+
+    row = UserAuthorization(id=1, user_id=2, profile_id=3, entity_id=4)
+    assert (row.user_id, row.profile_id, row.entity_id) == (2, 3, 4)
+    assert row.is_recursive is False

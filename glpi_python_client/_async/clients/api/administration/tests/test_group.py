@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import PatchGroup, PostGroup
+from glpi_python_client import GlpiProtocolError, PatchGroup, PostGroup
 from glpi_python_client._async._testing import (
     FailingTransportRecorder,
     TransportRecorder,
@@ -155,3 +155,71 @@ async def test_iter_search_groups_pages_until_short(client: Any) -> None:
     ]
     assert seen == [(0, True), (2, True)]
     assert sum(len(b) for b in batches) == 3
+
+
+class _FakeV1:
+    """Stand-in for the v1 session that records ``request_json`` calls."""
+
+    def __init__(self, *responses: object) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    async def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        json_body: dict[str, object] | None = None,
+        success_statuses: tuple[int, ...] = (200, 201, 204, 206),
+        failure_message: str | None = None,
+    ) -> object:
+        self.calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+                "failure_message": failure_message,
+            }
+        )
+        return self.responses.pop(0)
+
+    async def close(self) -> None:
+        """No-op; the real session is closed with the client."""
+
+
+async def test_set_group_recursive_puts_the_flag_through_v1(client: Any) -> None:
+    """``set_group_recursive`` sends ``is_recursive: 1`` to the v1 Group route."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.set_group_recursive(7)
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "Group/7"
+    assert call["json_body"] == {"input": {"id": 7, "is_recursive": 1}}
+
+
+async def test_set_group_recursive_false_sends_zero(client: Any) -> None:
+    """``recursive=False`` sends ``is_recursive: 0``."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.set_group_recursive("7", recursive=False)
+    assert fake.calls[0]["json_body"] == {"input": {"id": 7, "is_recursive": 0}}
+
+
+async def test_set_group_recursive_raises_on_a_refused_answer(client: Any) -> None:
+    """A ``false`` answer raises with the server message, never passes."""
+
+    client._v1 = _FakeV1([{"7": False, "message": "Right missing"}])
+    with pytest.raises(GlpiProtocolError, match="Right missing"):
+        await client.set_group_recursive(7)
+
+
+async def test_set_group_recursive_requires_the_v1_session(client: Any) -> None:
+    """Without a v1 session the usual configuration error is raised."""
+
+    with pytest.raises(RuntimeError, match="group recursion"):
+        await client.set_group_recursive(7)

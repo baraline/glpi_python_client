@@ -96,3 +96,11 @@ def test_group_models_exported_from_models_package() -> None:
     for name in _GROUP_MODELS:
         assert hasattr(models, name), name
         assert name in models.__all__, name
+
+
+def test_user_authorization_exported_from_top_level_and_models() -> None:
+    """``UserAuthorization`` is importable from both public packages."""
+
+    for module in (glpi_python_client, models):
+        assert hasattr(module, "UserAuthorization")
+        assert "UserAuthorization" in module.__all__

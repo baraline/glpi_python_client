@@ -11,14 +11,24 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from glpi_python_client._sync.clients.commons._constants import USER_ENDPOINT, GlpiId
+from glpi_python_client._sync.clients.commons._payloads import (
+    ensure_v1_write_accepted,
+    model_from_payload,
+)
 from glpi_python_client._sync.clients.commons._transport import TransportMixin
-from glpi_python_client._errors import GlpiValidationError
+from glpi_python_client._errors import GlpiProtocolError, GlpiValidationError
 from glpi_python_client.models.api_schema.administration._user import (
     DeleteUser,
     GetUser,
     PatchUser,
     PostUser,
 )
+from glpi_python_client.models.api_schema.administration._user_authorization import (
+    UserAuthorization,
+)
+
+_V1_AUTHORIZATION_FEATURE_LABEL = "user authorizations"
+_AUTHORIZATION_LIST_RANGE = "0-999"
 
 
 class UserMixin(TransportMixin):
@@ -294,6 +304,209 @@ class UserMixin(TransportMixin):
             log_message=f"GLPI API deleted user {user_id}",
             force=force,
             delete_model_cls=DeleteUser,
+        )
+
+    def list_user_authorizations(
+        self, user_id: GlpiId
+    ) -> list[UserAuthorization]:
+        """List the profile/entity authorizations of one user.
+
+        The GLPI v2 API has no route for a user's authorizations
+        (``Profile_User`` rows), so this helper reads them through the legacy
+        v1 API, which requires ``v1_base_url``/``v1_user_token`` to be
+        configured (pointing at the legacy ``apirest.php``).
+
+        Parameters
+        ----------
+        user_id : int | str
+            Identifier of the user.
+
+        Returns
+        -------
+        list[UserAuthorization]
+            One entry per profile the user holds, with the entity it applies
+            to and whether it is recursive.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        """
+
+        v1 = self._require_v1_session(_V1_AUTHORIZATION_FEATURE_LABEL)
+        payload = v1.request_json(
+            "GET",
+            f"User/{user_id}/Profile_User",
+            params={"range": _AUTHORIZATION_LIST_RANGE},
+            failure_message=f"Failed to list the authorizations of user {user_id}",
+        )
+        rows = payload if isinstance(payload, list) else []
+        return [
+            model_from_payload(
+                UserAuthorization, row, server_timezone=self.server_timezone
+            )
+            for row in rows
+        ]
+
+    def add_user_authorization(
+        self,
+        user_id: GlpiId,
+        *,
+        profile_id: GlpiId,
+        entity_id: GlpiId,
+        recursive: bool = False,
+    ) -> int:
+        """Give one user a profile in an entity.
+
+        The GLPI v2 API has no route for a user's authorizations, so this
+        helper creates the ``Profile_User`` row through the legacy v1 API,
+        which requires ``v1_base_url``/``v1_user_token`` to be configured.
+
+        Parameters
+        ----------
+        user_id : int | str
+            Identifier of the user.
+        profile_id : int | str
+            Identifier of the profile to grant.
+        entity_id : int | str
+            Identifier of the entity the profile applies to.
+        recursive : bool, optional
+            Whether the profile also applies to the sub-entities of
+            ``entity_id``. ``False`` by default.
+
+        Returns
+        -------
+        int
+            Identifier of the new authorization.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the answer carries no authorization id.
+        """
+
+        v1 = self._require_v1_session(_V1_AUTHORIZATION_FEATURE_LABEL)
+        payload = v1.request_json(
+            "POST",
+            "Profile_User",
+            json_body={
+                "input": {
+                    "users_id": int(user_id),
+                    "profiles_id": int(profile_id),
+                    "entities_id": int(entity_id),
+                    "is_recursive": int(recursive),
+                }
+            },
+            failure_message=(
+                f"Failed to add profile {profile_id} in entity {entity_id} "
+                f"to user {user_id}"
+            ),
+        )
+        new_id = payload.get("id") if isinstance(payload, dict) else None
+        if new_id is None or isinstance(new_id, bool):
+            raise GlpiProtocolError(
+                f"GLPI user authorization response missing id: {payload!r}"
+            )
+        try:
+            return int(new_id)
+        except (TypeError, ValueError) as exc:
+            raise GlpiProtocolError(
+                f"GLPI user authorization response has a non-numeric id: {payload!r}"
+            ) from exc
+
+    def update_user_authorization(
+        self,
+        authorization_id: GlpiId,
+        *,
+        entity_id: GlpiId | None = None,
+        recursive: bool | None = None,
+    ) -> None:
+        """Move or re-scope one user authorization.
+
+        The GLPI v2 API has no route for a user's authorizations, so this
+        helper updates the ``Profile_User`` row through the legacy v1 API,
+        which requires ``v1_base_url``/``v1_user_token`` to be configured.
+        Only the supplied arguments are changed.
+
+        Parameters
+        ----------
+        authorization_id : int | str
+            Identifier of the authorization (see
+            :meth:`list_user_authorizations`).
+        entity_id : int | str | None, optional
+            New entity for the authorization.
+        recursive : bool | None, optional
+            New recursion flag.
+
+        Raises
+        ------
+        GlpiValidationError
+            When neither ``entity_id`` nor ``recursive`` is given; no request
+            is sent.
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the legacy API answers that the update was refused.
+        """
+
+        if entity_id is None and recursive is None:
+            raise GlpiValidationError(
+                "update_user_authorization needs entity_id, recursive or both."
+            )
+        v1 = self._require_v1_session(_V1_AUTHORIZATION_FEATURE_LABEL)
+        fields: dict[str, object] = {"id": int(authorization_id)}
+        if entity_id is not None:
+            fields["entities_id"] = int(entity_id)
+        if recursive is not None:
+            fields["is_recursive"] = int(recursive)
+        payload = v1.request_json(
+            "PUT",
+            f"Profile_User/{authorization_id}",
+            json_body={"input": fields},
+            failure_message=f"Failed to update user authorization {authorization_id}",
+        )
+        ensure_v1_write_accepted(
+            payload, f"Updating user authorization {authorization_id}"
+        )
+
+    def delete_user_authorization(self, authorization_id: GlpiId) -> None:
+        """Remove one user authorization.
+
+        The GLPI v2 API has no route for a user's authorizations, so this
+        helper deletes the ``Profile_User`` row through the legacy v1 API,
+        which requires ``v1_base_url``/``v1_user_token`` to be configured.
+
+        Parameters
+        ----------
+        authorization_id : int | str
+            Identifier of the authorization to remove.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the legacy API answers that the deletion was refused.
+        """
+
+        v1 = self._require_v1_session(_V1_AUTHORIZATION_FEATURE_LABEL)
+        payload = v1.request_json(
+            "DELETE",
+            f"Profile_User/{authorization_id}",
+            failure_message=f"Failed to delete user authorization {authorization_id}",
+        )
+        ensure_v1_write_accepted(
+            payload, f"Deleting user authorization {authorization_id}"
         )
 
 
