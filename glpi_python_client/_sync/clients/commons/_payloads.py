@@ -95,7 +95,7 @@ def model_from_payload(
     return model_class.model_validate(payload, context=context)
 
 
-__all__ = ["model_from_payload", "model_to_payload"]
+__all__ = ["ensure_v1_write_accepted", "model_from_payload", "model_to_payload"]
 
 
 def ensure_v1_write_accepted(payload: object, description: str) -> None:
