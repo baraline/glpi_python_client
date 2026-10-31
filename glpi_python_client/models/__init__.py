@@ -33,6 +33,7 @@ from glpi_python_client.models.api_schema.administration import (
     PostEntity,
     PostGroup,
     PostUser,
+    UserAuthorization,
 )
 from glpi_python_client.models.api_schema.assets import (
     DeleteComputer,
@@ -235,4 +236,5 @@ __all__ = [
     "PostTimelineDocument",
     "PostUser",
     "TicketMarkdownOptions",
+    "UserAuthorization",
 ]

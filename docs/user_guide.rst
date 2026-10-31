@@ -379,6 +379,7 @@ The full set is re-exported from the package root, including
 ``GetLocation`` / ``PostLocation`` / ``PatchLocation`` / ``DeleteLocation``,
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
 ``GetGroup`` / ``PostGroup`` / ``PatchGroup`` / ``DeleteGroup``,
+``UserAuthorization``,
 ``GetFollowup``, ``GetTicketTask``, ``GetSolution``, ``GetTimelineDocument``,
 ``GetTeamMember``, and ``GetDocument`` together with their post / patch /
 delete variants. The read-only ``GetDocumentItem`` and ``FollowupDocuments``
@@ -581,6 +582,40 @@ Example output::
 ``upload_document`` requires the legacy v1 session to be configured on
 the client (``v1_base_url`` and ``v1_user_token``) because the GLPI v2
 contract does not advertise a binary upload endpoint.
+
+Group recursion and user authorizations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+GLPI lets a group, and a user's profile in an entity, apply to the
+sub-entities of that entity too. The v2 API cannot set either: its ``Group``
+schema has no ``is_recursive`` property (a v2 create silently drops the key)
+and it has no route at all for a user's profile and entity authorizations.
+Five helpers go through the legacy v1 session instead (``v1_base_url`` and
+``v1_user_token``); without one they raise ``RuntimeError``.
+
+* ``set_group_recursive(group_id, recursive=True)`` sets the flag on one
+  group.
+* ``list_user_authorizations(user_id)`` returns the user's profiles as
+  :class:`~glpi_python_client.UserAuthorization` rows: the row ``id``, the
+  ``profile_id`` and ``entity_id``, and the ``is_recursive``, ``is_dynamic``
+  and ``is_default_profile`` flags.
+* ``add_user_authorization(user_id, profile_id=..., entity_id=...,
+  recursive=False)`` grants a profile in an entity and returns the new row id.
+* ``update_user_authorization(authorization_id, entity_id=None,
+  recursive=None)`` moves a row to another entity or changes its recursion;
+  with neither argument it raises ``GlpiValidationError`` without a request.
+* ``delete_user_authorization(authorization_id)`` removes a row.
+
+The v1 API answers a refused write with a success status and a body such as
+``[{"7": false, "message": "..."}]``. These helpers raise
+``GlpiProtocolError`` with that message instead of returning as if it had
+worked.
+
+.. code-block:: python
+
+   await client.set_group_recursive(119)
+   rows = await client.list_user_authorizations(2568)
+   await client.update_user_authorization(rows[0].id, entity_id=493, recursive=True)
 
 Documents linked to a followup
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

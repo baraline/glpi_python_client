@@ -24,6 +24,9 @@ from glpi_python_client.models.api_schema.administration._user import (
     PatchUser,
     PostUser,
 )
+from glpi_python_client.models.api_schema.administration._user_authorization import (
+    UserAuthorization,
+)
 
 __all__ = [
     "DeleteEntity",
@@ -38,4 +41,5 @@ __all__ = [
     "PostEntity",
     "PostGroup",
     "PostUser",
+    "UserAuthorization",
 ]

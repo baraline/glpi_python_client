@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta, timezone
 
+import pytest
+
 from glpi_python_client._async.clients.commons._payloads import (
     model_from_payload,
     model_to_payload,
@@ -119,3 +121,31 @@ def test_model_to_payload_leaves_an_aware_datetime_alone_without_a_timezone() ->
     body = model_to_payload(PostTicketTask(planned_begin=aware))
 
     assert body["planned_begin"] == "2024-01-01T12:00:00Z"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [[{"5": True, "message": ""}], {}, [], None, [{"message": "ok"}], ["x"]],
+)
+def test_ensure_v1_write_accepted_passes_accepted_answers(payload: object) -> None:
+    """Accepted, empty or unrecognised answers do not raise."""
+
+    from glpi_python_client._async.clients.commons._payloads import (
+        ensure_v1_write_accepted,
+    )
+
+    ensure_v1_write_accepted(payload, "Writing")
+
+
+def test_ensure_v1_write_accepted_raises_with_the_server_message() -> None:
+    """A ``false`` entry raises and carries the server's message."""
+
+    from glpi_python_client import GlpiProtocolError
+    from glpi_python_client._async.clients.commons._payloads import (
+        ensure_v1_write_accepted,
+    )
+
+    with pytest.raises(GlpiProtocolError, match=r"Writing was refused.*Nope"):
+        ensure_v1_write_accepted([{"5": False, "message": "Nope"}], "Writing")
+    with pytest.raises(GlpiProtocolError, match=r"refused by GLPI$"):
+        ensure_v1_write_accepted([{"5": False, "message": ""}], "Writing")

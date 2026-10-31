@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.7 — 2026-10-30
+
+A minor addition: group recursion and a user's profile/entity authorizations,
+through the legacy v1 API. The GLPI v2 `Group` schema has no `is_recursive`
+(a v2 create silently drops it) and v2 has no route for a user's
+authorizations, so these helpers need `v1_base_url` / `v1_user_token` and
+raise `RuntimeError` without them. Existing methods are unchanged.
+
+### Added
+
+- **`set_group_recursive(group_id, recursive=True)`** on both clients.
+- **`list_user_authorizations`, `add_user_authorization`,
+  `update_user_authorization` and `delete_user_authorization`** on both
+  clients, over GLPI's `Profile_User` rows. `update_user_authorization` with
+  neither `entity_id` nor `recursive` raises `GlpiValidationError` without a
+  request.
+- **`UserAuthorization`**, one authorization row (`id`, `user_id`,
+  `profile_id`, `entity_id`, `is_recursive`, `is_dynamic`,
+  `is_default_profile`), exported from the package root and from
+  `glpi_python_client.models`.
+
+### Changed
+
+- A v1 write that GLPI answers with `false` for an item (a success status and
+  a body such as `[{"7": false, "message": "..."}]`) raises
+  `GlpiProtocolError` with the server's message. The new helpers do this; the
+  existing v1 writes are unchanged.
+
 ## 0.6.6 — 2026-10-28
 
 A minor addition: the GLPI v2 `/Administration/Group` routes, so a caller can

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and v1 credentials configured on the client for binary uploads."
 metadata:
   package: glpi-python-client
-  version: "0.6.6"
+  version: "0.6.7"
 ---
 
 # GLPI Document Workflow

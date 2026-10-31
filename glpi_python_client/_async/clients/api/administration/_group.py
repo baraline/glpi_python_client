@@ -11,6 +11,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 from glpi_python_client._async.clients.commons._constants import GROUP_ENDPOINT, GlpiId
+from glpi_python_client._async.clients.commons._payloads import (
+    ensure_v1_write_accepted,
+)
 from glpi_python_client._async.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.administration._group import (
     DeleteGroup,
@@ -18,6 +21,8 @@ from glpi_python_client.models.api_schema.administration._group import (
     PatchGroup,
     PostGroup,
 )
+
+_V1_GROUP_FEATURE_LABEL = "group recursion"
 
 
 class GroupMixin(TransportMixin):
@@ -213,6 +218,44 @@ class GroupMixin(TransportMixin):
             force=force,
             delete_model_cls=DeleteGroup,
         )
+
+    async def set_group_recursive(
+        self, group_id: GlpiId, recursive: bool = True
+    ) -> None:
+        """Set whether one group is visible in the sub-entities of its entity.
+
+        The GLPI v2 ``Group`` schema has no ``is_recursive`` property (a v2
+        create or update silently drops the key), so this helper writes the
+        flag through the legacy v1 API, which requires
+        ``v1_base_url``/``v1_user_token`` to be configured (pointing at the
+        legacy ``apirest.php``).
+
+        Parameters
+        ----------
+        group_id : int | str
+            Identifier of the group.
+        recursive : bool, optional
+            ``True`` (the default) makes the group apply to the sub-entities
+            of its entity; ``False`` restricts it to its own entity.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the legacy API answers that the update was refused.
+        """
+
+        v1 = self._require_v1_session(_V1_GROUP_FEATURE_LABEL)
+        payload = await v1.request_json(
+            "PUT",
+            f"Group/{group_id}",
+            json_body={"input": {"id": int(group_id), "is_recursive": int(recursive)}},
+            failure_message=f"Failed to set is_recursive on group {group_id}",
+        )
+        ensure_v1_write_accepted(payload, f"Setting is_recursive on group {group_id}")
 
 
 __all__ = ["GroupMixin"]

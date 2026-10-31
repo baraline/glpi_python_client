@@ -42,6 +42,9 @@ _NO_TRANSPORT: dict[str, str] = {
     # documented "no criteria" case: it raises GlpiValidationError before
     # any request leaves the process.
     "get_user_activity": "validates that at least one selector is given first",
+    # Both changes are optional keywords, so a no-argument call is the
+    # documented "nothing to change" case, rejected before any request.
+    "update_user_authorization": "validates that a change is given first",
 }
 
 
