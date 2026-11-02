@@ -6,20 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## 0.6.8 — 2026-11-02
 
-A minor addition: a way to clear a ticket's take-into-account stamp, through
-the legacy v1 API. GLPI stamps the date on the first write by an account
-allowed to take a ticket into account, so a connector that writes to a ticket
-it has just created leaves a time-to-own of nearly zero. The v2 `Ticket`
+A minor addition: a way to write or clear a ticket's take-into-account stamp,
+through the legacy v1 API. GLPI stamps the date on the first write by an
+account allowed to take a ticket into account, so a connector that writes to a
+ticket it has just created leaves a time-to-own of nearly zero. The v2 `Ticket`
 schema exposes the date as read-only and ignores `_do_not_compute_takeintoaccount`.
-The helper needs `v1_base_url` / `v1_user_token` and raises `RuntimeError`
+Both helpers need `v1_base_url` / `v1_user_token` and raise `RuntimeError`
 without them. Existing methods are unchanged.
 
 ### Added
 
-- **`clear_ticket_take_into_account(ticket_id)`** on both clients. It sets the
-  ticket's take-into-account date to null and its stored duration to 0,
-  without recomputing them and without a "ticket updated" notification. A
-  refused write raises `GlpiProtocolError`.
+- **`change_ticket_take_into_account(ticket_id, *, take_into_account_date,
+  take_into_account_duration, do_not_compute=True, disable_notifications=True)`**
+  on both clients. It writes the ticket's take-into-account date (an aware
+  value is converted to `server_timezone`) and its duration in seconds. GLPI
+  writes a null date whenever the duration is 0. `do_not_compute` sends
+  `_do_not_compute_takeintoaccount` and `disable_notifications` sends
+  `_disablenotif`; a `False` flag is left out of the request, because GLPI
+  tests `_disablenotif` for presence. A refused write raises
+  `GlpiProtocolError`.
+- **`clear_ticket_take_into_account(ticket_id, *, do_not_compute=True,
+  disable_notifications=True)`** on both clients: the change above with a null
+  date and a 0 duration.
 
 ## 0.6.7 — 2026-10-30
 

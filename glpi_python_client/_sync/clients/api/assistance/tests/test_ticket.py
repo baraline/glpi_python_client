@@ -8,6 +8,7 @@ the four transport helpers without any HTTP plumbing.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -310,6 +311,88 @@ class _FakeV1:
         """No-op; the real session is closed with the client."""
 
 
+@pytest.mark.parametrize(
+    ("when", "written"),
+    [
+        (datetime(2026, 11, 2, 9, 30, tzinfo=UTC), "2026-11-02 10:30:00"),
+        (datetime(2026, 11, 2, 9, 30), "2026-11-02 09:30:00"),
+    ],
+    ids=["aware-converted-to-server-clock", "naive-kept-as-server-clock"],
+)
+def test_change_ticket_take_into_account_writes_the_date_and_duration(
+    client: Any, when: datetime, written: str
+) -> None:
+    """The date goes out on the server's clock, beside the duration and flags."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    client.change_ticket_take_into_account(
+        7, take_into_account_date=when, take_into_account_duration=600
+    )
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "Ticket/7"
+    assert call["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": written,
+            "takeintoaccount_delay_stat": 600,
+            "_do_not_compute_takeintoaccount": True,
+            "_disablenotif": True,
+        }
+    }
+
+
+def test_change_ticket_take_into_account_omits_a_flag_set_to_false(
+    client: Any,
+) -> None:
+    """A ``False`` flag is left out: GLPI disables notifications on ``isset``."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    client.change_ticket_take_into_account(
+        7,
+        take_into_account_date=None,
+        take_into_account_duration=0,
+        do_not_compute=False,
+        disable_notifications=False,
+    )
+    assert fake.calls[0]["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": None,
+            "takeintoaccount_delay_stat": 0,
+        }
+    }
+
+
+def test_change_ticket_take_into_account_raises_on_a_refused_answer(
+    client: Any,
+) -> None:
+    """A ``false`` answer raises with the server message, never passes."""
+
+    client._v1 = _FakeV1([{"7": False, "message": "Right missing"}])
+    with pytest.raises(GlpiProtocolError, match="Right missing"):
+        client.change_ticket_take_into_account(
+            7, take_into_account_date=None, take_into_account_duration=0
+        )
+
+
+def test_clear_ticket_take_into_account_forwards_the_flags(
+    client: Any,
+) -> None:
+    """The clear passes both flags through to the change it delegates to."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    client.clear_ticket_take_into_account(
+        7, do_not_compute=False, disable_notifications=False
+    )
+    assert fake.calls[0]["json_body"] == {
+        "input": {"id": 7, "takeintoaccountdate": None, "takeintoaccount_delay_stat": 0}
+    }
+
+
 def test_clear_ticket_take_into_account_puts_the_reset_through_v1(
     client: Any,
 ) -> None:
@@ -347,5 +430,5 @@ def test_clear_ticket_take_into_account_requires_the_v1_session(
 ) -> None:
     """Without a v1 session the usual configuration error is raised."""
 
-    with pytest.raises(RuntimeError, match="take-into-account reset"):
+    with pytest.raises(RuntimeError, match="take-into-account writes"):
         client.clear_ticket_take_into_account(7)

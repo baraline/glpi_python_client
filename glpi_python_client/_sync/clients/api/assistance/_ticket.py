@@ -7,6 +7,7 @@ GLPI ticket resource using the ``api_schema`` Pydantic models.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 
 from glpi_python_client._sync.clients.commons._constants import TICKET_ENDPOINT, GlpiId
 from glpi_python_client._sync.clients.commons._payloads import (
@@ -20,7 +21,7 @@ from glpi_python_client.models.api_schema.assistance._ticket import (
     PostTicket,
 )
 
-_V1_TICKET_FEATURE_LABEL = "take-into-account reset"
+_V1_TICKET_FEATURE_LABEL = "take-into-account writes"
 
 
 class TicketMixin(TransportMixin):
@@ -245,27 +246,47 @@ class TicketMixin(TransportMixin):
             delete_model_cls=DeleteTicket,
         )
 
-    def clear_ticket_take_into_account(self, ticket_id: GlpiId) -> None:
-        """Clear the take-into-account stamp of one ticket.
+    def change_ticket_take_into_account(
+        self,
+        ticket_id: GlpiId,
+        *,
+        take_into_account_date: datetime | None,
+        take_into_account_duration: int,
+        do_not_compute: bool = True,
+        disable_notifications: bool = True,
+    ) -> None:
+        """Write the take-into-account stamp of one ticket.
 
         GLPI stamps ``take_into_account_date`` on the first write made by an
         account allowed to take a ticket into account (and when a group is
-        assigned), which collapses the time-to-own statistic to nearly zero
-        for a ticket a connector has just created. The v2 ``Ticket`` schema
-        exposes the date as read-only and silently ignores
-        ``_do_not_compute_takeintoaccount``, so the reset goes through the
-        legacy v1 API, which requires ``v1_base_url``/``v1_user_token`` to be
-        configured (pointing at the legacy ``apirest.php``).
-
-        The update sets the date to ``null``, the stored duration to ``0``
-        and asks GLPI not to recompute it. It also suppresses the "ticket
-        updated" notification, since only internal timer fields change; GLPI
-        still records the change in the ticket history.
+        assigned). The v2 ``Ticket`` schema exposes the date as read-only and
+        silently ignores ``_do_not_compute_takeintoaccount``, so the write
+        goes through the legacy v1 API, which requires
+        ``v1_base_url``/``v1_user_token`` to be configured (pointing at the
+        legacy ``apirest.php``). GLPI records the change in the ticket
+        history either way.
 
         Parameters
         ----------
         ticket_id : int | str
             Identifier of the ticket.
+        take_into_account_date : datetime | None
+            New take-into-account instant (v1 ``takeintoaccountdate``), or
+            ``None`` for no stamp. An aware value is converted to the
+            server's clock; a naive one is taken to be on it already. GLPI
+            writes ``null`` instead whenever the duration is ``0``.
+        take_into_account_duration : int
+            Seconds from creation to the take-into-account (v1
+            ``takeintoaccount_delay_stat``). GLPI treats ``0`` as "not taken
+            into account".
+        do_not_compute : bool, optional
+            ``True`` (the default) sends ``_do_not_compute_takeintoaccount``
+            so GLPI keeps the values written. With ``False`` and a zero
+            duration, an account allowed to take the ticket into account
+            stamps it again with the current time in the same write.
+        disable_notifications : bool, optional
+            ``True`` (the default) sends ``_disablenotif``, which suppresses
+            the "ticket updated" notification.
 
         Raises
         ------
@@ -278,24 +299,77 @@ class TicketMixin(TransportMixin):
         """
 
         v1 = self._require_v1_session(_V1_TICKET_FEATURE_LABEL)
+        stamp: str | None = None
+        if take_into_account_date is not None:
+            if take_into_account_date.tzinfo is not None:
+                take_into_account_date = take_into_account_date.astimezone(
+                    self.server_timezone
+                )
+            stamp = take_into_account_date.strftime("%Y-%m-%d %H:%M:%S")
+        update: dict[str, object] = {
+            "id": int(ticket_id),
+            "takeintoaccountdate": stamp,
+            "takeintoaccount_delay_stat": take_into_account_duration,
+        }
+        # GLPI reads ``_disablenotif`` with isset(), so a False flag must be absent.
+        if do_not_compute:
+            update["_do_not_compute_takeintoaccount"] = True
+        if disable_notifications:
+            update["_disablenotif"] = True
         payload = v1.request_json(
             "PUT",
             f"Ticket/{ticket_id}",
-            json_body={
-                "input": {
-                    "id": int(ticket_id),
-                    "takeintoaccountdate": None,
-                    "takeintoaccount_delay_stat": 0,
-                    "_do_not_compute_takeintoaccount": True,
-                    "_disablenotif": True,
-                }
-            },
+            json_body={"input": update},
             failure_message=(
-                f"Failed to clear the take-into-account stamp of ticket {ticket_id}"
+                f"Failed to write the take-into-account stamp of ticket {ticket_id}"
             ),
         )
         ensure_v1_write_accepted(
-            payload, f"Clearing the take-into-account stamp of ticket {ticket_id}"
+            payload, f"Writing the take-into-account stamp of ticket {ticket_id}"
+        )
+
+    def clear_ticket_take_into_account(
+        self,
+        ticket_id: GlpiId,
+        *,
+        do_not_compute: bool = True,
+        disable_notifications: bool = True,
+    ) -> None:
+        """Clear the take-into-account stamp of one ticket.
+
+        The stamp collapses the time-to-own statistic to nearly zero for a
+        ticket a connector has just created and written to. This is
+        :meth:`change_ticket_take_into_account` with a ``None`` date and a
+        ``0`` duration, so it has the same v1 requirement.
+
+        Parameters
+        ----------
+        ticket_id : int | str
+            Identifier of the ticket.
+        do_not_compute : bool, optional
+            ``True`` (the default) keeps GLPI from stamping the ticket again
+            in the same write. ``False`` lets an account allowed to take the
+            ticket into account undo the clear at once.
+        disable_notifications : bool, optional
+            ``True`` (the default) suppresses the "ticket updated"
+            notification.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the legacy API answers that the update was refused.
+        """
+
+        self.change_ticket_take_into_account(
+            ticket_id,
+            take_into_account_date=None,
+            take_into_account_duration=0,
+            do_not_compute=do_not_compute,
+            disable_notifications=disable_notifications,
         )
 
 
