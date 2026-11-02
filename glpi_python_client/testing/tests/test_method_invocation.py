@@ -245,6 +245,8 @@ def _argument_for(name: str, annotation: Any) -> Any:
         return [1] if "int" in text else ["stub"]
     if "dict" in text or "Mapping" in text:
         return {"stub": "stub"}
+    if "datetime" in text:
+        return datetime(2026, 1, 1, tzinfo=UTC)
     if "bool" in text:
         return False
     if "str" in text:

@@ -617,6 +617,45 @@ worked.
    rows = await client.list_user_authorizations(2568)
    await client.update_user_authorization(rows[0].id, entity_id=493, recursive=True)
 
+Writing the take-into-account stamp
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+GLPI stamps ``take_into_account_date`` on a ticket the first time an account
+allowed to take it into account writes to it, which makes the time-to-own
+statistic nearly zero for a ticket a connector has just created. The v2
+``Ticket`` schema exposes the date as read-only and ignores the
+``_do_not_compute_takeintoaccount`` flag, so both helpers below go through the
+legacy v1 session (``v1_base_url`` and ``v1_user_token``); without one they
+raise ``RuntimeError``, and a refused write raises ``GlpiProtocolError``.
+
+* ``change_ticket_take_into_account(ticket_id, *, take_into_account_date,
+  take_into_account_duration, do_not_compute=True, disable_notifications=True)``
+  writes the date (an aware value is converted to ``server_timezone``, a
+  naive one is taken as already on it) and the duration in seconds. GLPI
+  writes a null date whenever the duration is 0.
+* ``clear_ticket_take_into_account(ticket_id, *, do_not_compute=True,
+  disable_notifications=True)`` is that change with a null date and a 0
+  duration.
+
+``do_not_compute`` sends ``_do_not_compute_takeintoaccount``, which keeps GLPI
+from stamping the ticket again in the same write; with it off, a clear made
+by an account allowed to take the ticket into account is undone at once.
+``disable_notifications`` sends ``_disablenotif``, which suppresses the
+"ticket updated" notification. GLPI tests ``_disablenotif`` for presence, so a
+``False`` flag is left out of the request rather than sent as ``false``. Read
+the result back with ``get_ticket`` (``take_into_account_date`` and
+``take_into_account_duration``).
+
+.. code-block:: python
+
+   await client.clear_ticket_take_into_account(321)
+   await client.change_ticket_take_into_account(
+       321,
+       take_into_account_date=datetime(2026, 11, 2, 9, 30, tzinfo=UTC),
+       take_into_account_duration=600,
+       disable_notifications=False,
+   )
+
 Documents linked to a followup
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write contracts."
 metadata:
   package: glpi-python-client
-  version: "0.6.7"
+  version: "0.6.8"
 ---
 
 # GLPI Contract Workflow

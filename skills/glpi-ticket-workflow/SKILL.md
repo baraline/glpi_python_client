@@ -5,7 +5,7 @@ license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials accepted by GlpiClient."
 metadata:
   package: glpi-python-client
-  version: "0.6.7"
+  version: "0.6.8"
 ---
 
 # GLPI Ticket Workflow
@@ -21,6 +21,7 @@ Use this skill for ticket reads and writes through the public client. Tickets li
 4. For updates, build a `PatchTicket` containing only the fields you intend to change and call `await client.update_ticket(ticket_id, ticket)`. The method returns `None`.
 5. For deletes, call `await client.delete_ticket(ticket_id, force=True|False|None)`. `force=True` permanently deletes; `False`/`None` move the record to the trash.
 6. Refetch with `get_ticket()` when the task needs a populated model after a write.
+7. GLPI stamps `take_into_account_date` on the first write by an account allowed to take a ticket into account, so a ticket you just created and wrote to reads as taken into account at once. v2 cannot clear it (the field is read-only and `_do_not_compute_takeintoaccount` is ignored), so call `await client.clear_ticket_take_into_account(ticket_id)`, or `await client.change_ticket_take_into_account(ticket_id, take_into_account_date=..., take_into_account_duration=...)` to write a stamp (an aware date is converted to `server_timezone`; a 0 duration makes GLPI write a null date). Both go through the legacy v1 session: they need `v1_base_url` / `v1_user_token` and raise `RuntimeError` without them, and a refused write raises `GlpiProtocolError`. Both take `do_not_compute=True` (sends `_do_not_compute_takeintoaccount`, so GLPI does not stamp the ticket again in the same write) and `disable_notifications=True` (sends `_disablenotif`, no "ticket updated" notification); a `False` flag is left out of the request, because GLPI tests `_disablenotif` for presence.
 
 ## Examples
 

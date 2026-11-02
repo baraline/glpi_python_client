@@ -8,11 +8,12 @@ the four transport helpers without any HTTP plumbing.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
-from glpi_python_client import PatchTicket, PostTicket
+from glpi_python_client import GlpiProtocolError, PatchTicket, PostTicket
 from glpi_python_client._async._testing import (
     FailingTransportRecorder,
     TransportRecorder,
@@ -271,3 +272,163 @@ async def test_iter_search_tickets_forwards_pagination_and_query_options(
     assert all(call["rsql_filter"] == "status==1" for call in calls)
     assert all(call["sort"] == "id:desc" for call in calls)
     assert all(call["fields"] == ("id", "name") for call in calls)
+
+
+# ---------------------------------------------------------------------------
+# Take-into-account reset (legacy v1)
+# ---------------------------------------------------------------------------
+
+
+class _FakeV1:
+    """Stand-in for the v1 session that records ``request_json`` calls."""
+
+    def __init__(self, *responses: object) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    async def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        json_body: dict[str, object] | None = None,
+        success_statuses: tuple[int, ...] = (200, 201, 204, 206),
+        failure_message: str | None = None,
+    ) -> object:
+        self.calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+                "failure_message": failure_message,
+            }
+        )
+        return self.responses.pop(0)
+
+    async def close(self) -> None:
+        """No-op; the real session is closed with the client."""
+
+
+@pytest.mark.parametrize(
+    ("when", "written"),
+    [
+        (datetime(2026, 11, 2, 9, 30, tzinfo=UTC), "2026-11-02 10:30:00"),
+        (datetime(2026, 11, 2, 9, 30), "2026-11-02 09:30:00"),
+    ],
+    ids=["aware-converted-to-server-clock", "naive-kept-as-server-clock"],
+)
+async def test_change_ticket_take_into_account_writes_the_date_and_duration(
+    client: Any, when: datetime, written: str
+) -> None:
+    """The date goes out on the server's clock, beside the duration and flags."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.change_ticket_take_into_account(
+        7, take_into_account_date=when, take_into_account_duration=600
+    )
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "Ticket/7"
+    assert call["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": written,
+            "takeintoaccount_delay_stat": 600,
+            "_do_not_compute_takeintoaccount": True,
+            "_disablenotif": True,
+        }
+    }
+
+
+async def test_change_ticket_take_into_account_omits_a_flag_set_to_false(
+    client: Any,
+) -> None:
+    """A ``False`` flag is left out: GLPI disables notifications on ``isset``."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.change_ticket_take_into_account(
+        7,
+        take_into_account_date=None,
+        take_into_account_duration=0,
+        do_not_compute=False,
+        disable_notifications=False,
+    )
+    assert fake.calls[0]["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": None,
+            "takeintoaccount_delay_stat": 0,
+        }
+    }
+
+
+async def test_change_ticket_take_into_account_raises_on_a_refused_answer(
+    client: Any,
+) -> None:
+    """A ``false`` answer raises with the server message, never passes."""
+
+    client._v1 = _FakeV1([{"7": False, "message": "Right missing"}])
+    with pytest.raises(GlpiProtocolError, match="Right missing"):
+        await client.change_ticket_take_into_account(
+            7, take_into_account_date=None, take_into_account_duration=0
+        )
+
+
+async def test_clear_ticket_take_into_account_forwards_the_flags(
+    client: Any,
+) -> None:
+    """The clear passes both flags through to the change it delegates to."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.clear_ticket_take_into_account(
+        7, do_not_compute=False, disable_notifications=False
+    )
+    assert fake.calls[0]["json_body"] == {
+        "input": {"id": 7, "takeintoaccountdate": None, "takeintoaccount_delay_stat": 0}
+    }
+
+
+async def test_clear_ticket_take_into_account_puts_the_reset_through_v1(
+    client: Any,
+) -> None:
+    """The v1 ticket route gets a null date, a zero delay and the opt-outs."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    await client.clear_ticket_take_into_account("7")
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "Ticket/7"
+    assert call["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": None,
+            "takeintoaccount_delay_stat": 0,
+            "_do_not_compute_takeintoaccount": True,
+            "_disablenotif": True,
+        }
+    }
+
+
+async def test_clear_ticket_take_into_account_raises_on_a_refused_answer(
+    client: Any,
+) -> None:
+    """A ``false`` answer raises with the server message, never passes."""
+
+    client._v1 = _FakeV1([{"7": False, "message": "Right missing"}])
+    with pytest.raises(GlpiProtocolError, match="Right missing"):
+        await client.clear_ticket_take_into_account(7)
+
+
+async def test_clear_ticket_take_into_account_requires_the_v1_session(
+    client: Any,
+) -> None:
+    """Without a v1 session the usual configuration error is raised."""
+
+    with pytest.raises(RuntimeError, match="take-into-account writes"):
+        await client.clear_ticket_take_into_account(7)
