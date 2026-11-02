@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.8 — 2026-11-02
+
+A minor addition: a way to clear a ticket's take-into-account stamp, through
+the legacy v1 API. GLPI stamps the date on the first write by an account
+allowed to take a ticket into account, so a connector that writes to a ticket
+it has just created leaves a time-to-own of nearly zero. The v2 `Ticket`
+schema exposes the date as read-only and ignores `_do_not_compute_takeintoaccount`.
+The helper needs `v1_base_url` / `v1_user_token` and raises `RuntimeError`
+without them. Existing methods are unchanged.
+
+### Added
+
+- **`clear_ticket_take_into_account(ticket_id)`** on both clients. It sets the
+  ticket's take-into-account date to null and its stored duration to 0,
+  without recomputing them and without a "ticket updated" notification. A
+  refused write raises `GlpiProtocolError`.
+
 ## 0.6.7 — 2026-10-30
 
 A minor addition: group recursion and a user's profile/entity authorizations,

@@ -617,6 +617,25 @@ worked.
    rows = await client.list_user_authorizations(2568)
    await client.update_user_authorization(rows[0].id, entity_id=493, recursive=True)
 
+Clearing the take-into-account stamp
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+GLPI stamps ``take_into_account_date`` on a ticket the first time an account
+allowed to take it into account writes to it, which makes the time-to-own
+statistic nearly zero for a ticket a connector has just created. The v2
+``Ticket`` schema exposes the date as read-only and ignores the
+``_do_not_compute_takeintoaccount`` flag, so
+``clear_ticket_take_into_account(ticket_id)`` goes through the legacy v1
+session (``v1_base_url`` and ``v1_user_token``); without one it raises
+``RuntimeError``. It sets the date to null and the stored duration to 0,
+without a "ticket updated" notification, and a refused write raises
+``GlpiProtocolError``. Read the result back with ``get_ticket``
+(``take_into_account_date`` and ``take_into_account_duration``).
+
+.. code-block:: python
+
+   await client.clear_ticket_take_into_account(321)
+
 Documents linked to a followup
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from glpi_python_client import PatchTicket, PostTicket
+from glpi_python_client import GlpiProtocolError, PatchTicket, PostTicket
 from glpi_python_client._sync._testing import (
     FailingTransportRecorder,
     TransportRecorder,
@@ -271,3 +271,81 @@ def test_iter_search_tickets_forwards_pagination_and_query_options(
     assert all(call["rsql_filter"] == "status==1" for call in calls)
     assert all(call["sort"] == "id:desc" for call in calls)
     assert all(call["fields"] == ("id", "name") for call in calls)
+
+
+# ---------------------------------------------------------------------------
+# Take-into-account reset (legacy v1)
+# ---------------------------------------------------------------------------
+
+
+class _FakeV1:
+    """Stand-in for the v1 session that records ``request_json`` calls."""
+
+    def __init__(self, *responses: object) -> None:
+        self.responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+
+    def request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+        json_body: dict[str, object] | None = None,
+        success_statuses: tuple[int, ...] = (200, 201, 204, 206),
+        failure_message: str | None = None,
+    ) -> object:
+        self.calls.append(
+            {
+                "method": method,
+                "path": path,
+                "params": params,
+                "json_body": json_body,
+                "failure_message": failure_message,
+            }
+        )
+        return self.responses.pop(0)
+
+    def close(self) -> None:
+        """No-op; the real session is closed with the client."""
+
+
+def test_clear_ticket_take_into_account_puts_the_reset_through_v1(
+    client: Any,
+) -> None:
+    """The v1 ticket route gets a null date, a zero delay and the opt-outs."""
+
+    fake = _FakeV1([{"7": True, "message": ""}])
+    client._v1 = fake
+    client.clear_ticket_take_into_account("7")
+    call = fake.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "Ticket/7"
+    assert call["json_body"] == {
+        "input": {
+            "id": 7,
+            "takeintoaccountdate": None,
+            "takeintoaccount_delay_stat": 0,
+            "_do_not_compute_takeintoaccount": True,
+            "_disablenotif": True,
+        }
+    }
+
+
+def test_clear_ticket_take_into_account_raises_on_a_refused_answer(
+    client: Any,
+) -> None:
+    """A ``false`` answer raises with the server message, never passes."""
+
+    client._v1 = _FakeV1([{"7": False, "message": "Right missing"}])
+    with pytest.raises(GlpiProtocolError, match="Right missing"):
+        client.clear_ticket_take_into_account(7)
+
+
+def test_clear_ticket_take_into_account_requires_the_v1_session(
+    client: Any,
+) -> None:
+    """Without a v1 session the usual configuration error is raised."""
+
+    with pytest.raises(RuntimeError, match="take-into-account reset"):
+        client.clear_ticket_take_into_account(7)

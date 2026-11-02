@@ -9,6 +9,9 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from glpi_python_client._sync.clients.commons._constants import TICKET_ENDPOINT, GlpiId
+from glpi_python_client._sync.clients.commons._payloads import (
+    ensure_v1_write_accepted,
+)
 from glpi_python_client._sync.clients.commons._transport import TransportMixin
 from glpi_python_client.models.api_schema.assistance._ticket import (
     DeleteTicket,
@@ -16,6 +19,8 @@ from glpi_python_client.models.api_schema.assistance._ticket import (
     PatchTicket,
     PostTicket,
 )
+
+_V1_TICKET_FEATURE_LABEL = "take-into-account reset"
 
 
 class TicketMixin(TransportMixin):
@@ -238,6 +243,59 @@ class TicketMixin(TransportMixin):
             log_message=f"GLPI API deleted ticket {ticket_id}",
             force=force,
             delete_model_cls=DeleteTicket,
+        )
+
+    def clear_ticket_take_into_account(self, ticket_id: GlpiId) -> None:
+        """Clear the take-into-account stamp of one ticket.
+
+        GLPI stamps ``take_into_account_date`` on the first write made by an
+        account allowed to take a ticket into account (and when a group is
+        assigned), which collapses the time-to-own statistic to nearly zero
+        for a ticket a connector has just created. The v2 ``Ticket`` schema
+        exposes the date as read-only and silently ignores
+        ``_do_not_compute_takeintoaccount``, so the reset goes through the
+        legacy v1 API, which requires ``v1_base_url``/``v1_user_token`` to be
+        configured (pointing at the legacy ``apirest.php``).
+
+        The update sets the date to ``null``, the stored duration to ``0``
+        and asks GLPI not to recompute it. It also suppresses the "ticket
+        updated" notification, since only internal timer fields change; GLPI
+        still records the change in the ticket history.
+
+        Parameters
+        ----------
+        ticket_id : int | str
+            Identifier of the ticket.
+
+        Raises
+        ------
+        RuntimeError
+            When no legacy v1 session is configured on the client.
+        GlpiStatusError
+            When the legacy API returns a non-success status.
+        GlpiProtocolError
+            When the legacy API answers that the update was refused.
+        """
+
+        v1 = self._require_v1_session(_V1_TICKET_FEATURE_LABEL)
+        payload = v1.request_json(
+            "PUT",
+            f"Ticket/{ticket_id}",
+            json_body={
+                "input": {
+                    "id": int(ticket_id),
+                    "takeintoaccountdate": None,
+                    "takeintoaccount_delay_stat": 0,
+                    "_do_not_compute_takeintoaccount": True,
+                    "_disablenotif": True,
+                }
+            },
+            failure_message=(
+                f"Failed to clear the take-into-account stamp of ticket {ticket_id}"
+            ),
+        )
+        ensure_v1_write_accepted(
+            payload, f"Clearing the take-into-account stamp of ticket {ticket_id}"
         )
 
 
