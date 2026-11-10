@@ -67,6 +67,61 @@ def test_get_ticket_accepts_the_major_priority_level() -> None:
     assert ticket.priority.glpi_id == 6
 
 
+_LEVEL_AGREEMENT_FIELDS = (
+    "sla_ttr",
+    "sla_tto",
+    "ola_ttr",
+    "ola_tto",
+    "sla_level_ttr",
+    "ola_level_ttr",
+)
+
+
+@pytest.mark.parametrize("field", _LEVEL_AGREEMENT_FIELDS)
+def test_get_ticket_reads_an_empty_sla_or_ola_array_as_none(field: str) -> None:
+    """GLPI 12's ``[]`` for a missing SLA or OLA reads as none.
+
+    GLPI 12.0.1 sends ``ola_ttr`` and ``ola_tto`` as an empty array on every
+    ticket without an OLA, where its v2.3 contract and GLPI 11 give a
+    nullable object. ``GetTicket`` used to raise ``ValidationError`` on it,
+    which failed every ticket read and every search against such a server.
+    All six SLA and OLA references read the same way.
+    """
+
+    ticket = GetTicket.model_validate({"id": 1, field: []})
+    assert getattr(ticket, field) is None
+
+
+@pytest.mark.parametrize("field", _LEVEL_AGREEMENT_FIELDS)
+def test_get_ticket_still_reads_an_sla_or_ola_object_and_null(field: str) -> None:
+    """The contract's own shapes, an object and ``null``, are unchanged."""
+
+    ticket = GetTicket.model_validate({"id": 1, field: {"id": 3, "name": "8h"}})
+    ref = getattr(ticket, field)
+    assert ref is not None
+    assert (ref.id, ref.name) == (3, "8h")
+    assert getattr(GetTicket.model_validate({"id": 1, field: None}), field) is None
+
+
+def test_get_ticket_reads_a_glpi_12_ticket_with_an_sla_and_no_ola() -> None:
+    """The shape GLPI 12 sends for a ticket with an SLA and no OLA."""
+
+    ticket = GetTicket.model_validate(
+        {
+            "id": 1,
+            "sla_ttr": {"id": 5, "name": "TTR 4h"},
+            "sla_tto": {"id": 6, "name": "TTO 1h"},
+            "sla_level_ttr": None,
+            "ola_ttr": [],
+            "ola_tto": [],
+            "ola_level_ttr": None,
+        }
+    )
+    assert ticket.sla_ttr is not None and ticket.sla_ttr.id == 5
+    assert ticket.sla_tto is not None and ticket.sla_tto.id == 6
+    assert ticket.ola_ttr is None and ticket.ola_tto is None
+
+
 def test_urgency_and_impact_still_span_one_to_five() -> None:
     """The five contract-declared levels keep their identifiers.
 

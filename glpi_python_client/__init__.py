@@ -138,7 +138,7 @@ from glpi_python_client.rsql import (
     date_window,
 )
 
-__version__ = "0.6.8"
+__version__ = "0.6.9"
 
 __all__ = [
     "AsyncGlpiClient",
