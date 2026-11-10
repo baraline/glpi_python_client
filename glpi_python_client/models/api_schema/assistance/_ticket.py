@@ -22,6 +22,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from functools import cached_property
+from typing import Annotated
+
+from pydantic import BeforeValidator
 
 from glpi_python_client.models._base import GlpiModel
 from glpi_python_client.models.api_schema._common import (
@@ -39,6 +42,22 @@ from glpi_python_client.models.api_schema.enums import (
     GlpiTicketStatus,
     GlpiTicketType,
 )
+
+
+def _empty_list_as_none(value: object) -> object:
+    """Read an empty JSON array as an absent reference.
+
+    GLPI 12 sends ``ola_ttr`` and ``ola_tto`` as ``[]`` on a ticket with no
+    OLA, where its own v2.3 contract, like GLPI 11, declares a nullable
+    ``{"id", "name"}`` object. Every other value is passed on unchanged.
+    """
+
+    if isinstance(value, list) and not value:
+        return None
+    return value
+
+
+_OlaRef = Annotated[IdNameRef | None, BeforeValidator(_empty_list_as_none)]
 
 
 class _TicketTeamMember(GlpiModel):
@@ -152,13 +171,16 @@ class GetTicket(GlpiModel):
     sla_tto : IdNameRef | None, optional
         SLA applied for time-to-own.
     ola_ttr : IdNameRef | None, optional
-        OLA applied for time-to-resolve.
+        OLA applied for time-to-resolve. The empty array GLPI 12 sends for
+        a ticket with no OLA reads as :data:`None`.
     ola_tto : IdNameRef | None, optional
-        OLA applied for time-to-own.
+        OLA applied for time-to-own. The empty array GLPI 12 sends for a
+        ticket with no OLA reads as :data:`None`.
     sla_level_ttr : IdNameRef | None, optional
         SLA level escalation step for time-to-resolve.
     ola_level_ttr : IdNameRef | None, optional
-        OLA level escalation step for time-to-resolve.
+        OLA level escalation step for time-to-resolve. An empty array reads
+        as :data:`None`, as for ``ola_ttr``.
     sla_waiting_duration : int | None, optional
         Total SLA waiting duration in seconds (contract field
         ``sla_waiting_duration`` — ``Total SLA waiting duration in
@@ -219,10 +241,10 @@ class GetTicket(GlpiModel):
     take_into_account_duration: int | None = None
     sla_ttr: IdNameRef | None = None
     sla_tto: IdNameRef | None = None
-    ola_ttr: IdNameRef | None = None
-    ola_tto: IdNameRef | None = None
+    ola_ttr: _OlaRef = None
+    ola_tto: _OlaRef = None
     sla_level_ttr: IdNameRef | None = None
-    ola_level_ttr: IdNameRef | None = None
+    ola_level_ttr: _OlaRef = None
     sla_waiting_duration: int | None = None
     ola_waiting_duration: int | None = None
     ola_ttr_begin_date: datetime | None = None

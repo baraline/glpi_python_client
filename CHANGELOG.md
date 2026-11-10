@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.9 — 2026-11-10
+
+A fix for GLPI 12. GLPI 12.0.1 sends a ticket's `ola_ttr` and `ola_tto` as an
+empty array, `[]`, when the ticket has no OLA. Its own v2.3 contract, like
+GLPI 11, declares a nullable object there. `GetTicket` refused the array, so
+every ticket read and every ticket search raised `ValidationError` against a
+GLPI 12 server.
+
+### Fixed
+
+- **`GetTicket.ola_ttr`, `ola_tto` and `ola_level_ttr`** read an empty array as
+  `None`. An object and `null` read as before. Nothing else changes.
+
 ## 0.6.8 — 2026-11-02
 
 A minor addition: a way to write or clear a ticket's take-into-account stamp,

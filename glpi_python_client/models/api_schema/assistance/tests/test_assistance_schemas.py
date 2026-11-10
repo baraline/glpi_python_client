@@ -67,6 +67,43 @@ def test_get_ticket_accepts_the_major_priority_level() -> None:
     assert ticket.priority.glpi_id == 6
 
 
+def test_get_ticket_reads_glpi_12_empty_ola_arrays_as_none() -> None:
+    """GLPI 12's ``[]`` for a ticket with no OLA reads as no OLA.
+
+    GLPI 12.0.1 sends ``ola_ttr`` and ``ola_tto`` as an empty array on every
+    ticket without an OLA, where its v2.3 contract and GLPI 11 give a
+    nullable object. ``GetTicket`` used to raise ``ValidationError`` on it,
+    which failed every ticket read and every search against such a server.
+    """
+
+    ticket = GetTicket.model_validate(
+        {
+            "id": 1,
+            "ola_ttr": [],
+            "ola_tto": [],
+            "ola_level_ttr": [],
+            "sla_ttr": {"id": 5, "name": "TTR 4h"},
+            "sla_tto": None,
+        }
+    )
+    assert ticket.ola_ttr is None
+    assert ticket.ola_tto is None
+    assert ticket.ola_level_ttr is None
+    assert ticket.sla_ttr is not None and ticket.sla_ttr.id == 5
+    assert ticket.sla_tto is None
+
+
+def test_get_ticket_still_reads_an_ola_object_and_null() -> None:
+    """The contract's own shapes, an object and ``null``, are unchanged."""
+
+    ticket = GetTicket.model_validate(
+        {"id": 1, "ola_ttr": {"id": 3, "name": "OLA 8h"}, "ola_tto": None}
+    )
+    assert ticket.ola_ttr is not None
+    assert (ticket.ola_ttr.id, ticket.ola_ttr.name) == (3, "OLA 8h")
+    assert ticket.ola_tto is None
+
+
 def test_urgency_and_impact_still_span_one_to_five() -> None:
     """The five contract-declared levels keep their identifiers.
 
