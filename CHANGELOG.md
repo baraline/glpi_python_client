@@ -14,7 +14,8 @@ GLPI 12 server.
 
 ### Fixed
 
-- **`GetTicket.ola_ttr`, `ola_tto` and `ola_level_ttr`** read an empty array as
+- **All six SLA and OLA references of `GetTicket`** (`sla_ttr`, `sla_tto`,
+  `sla_level_ttr`, `ola_ttr`, `ola_tto`, `ola_level_ttr`) read an empty array as
   `None`. An object and `null` read as before. Nothing else changes.
 
 ## 0.6.8 — 2026-11-02
