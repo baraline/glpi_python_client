@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.6.10 — 2026-11-16
+
+A minor addition: the GLPI v2 `/Dropdowns/ITILCategory` routes, so a caller
+can find and create ITIL categories. Existing methods are unchanged.
+
+### Added
+
+- **`search_itil_categories`, `iter_search_itil_categories`,
+  `get_itil_category`, `create_itil_category`, `update_itil_category` and
+  `delete_itil_category`** on both clients, from a new `ITILCategoryMixin`
+  and the `ITIL_CATEGORY_ENDPOINT` constant.
+- **`skip_entity: bool = False`** on `search_itil_categories`,
+  `iter_search_itil_categories` and `get_itil_category`: `True` omits the
+  `GLPI-Entity`, `GLPI-Profile` and `GLPI-Entity-Recursive` headers so the
+  call spans every entity the caller can see. The write methods always send
+  them.
+- **`GetITILCategory`, `PostITILCategory`, `PatchITILCategory` and
+  `DeleteITILCategory`**, modelled on `components.schemas.ITILCategory`
+  (entity, parent, code, templates, per-type visibility flags and
+  timestamps), exported from the package root and from
+  `glpi_python_client.models`.
+
 ## 0.6.9 — 2026-11-10
 
 A fix for GLPI 12. GLPI 12.0.1 sends a ticket's `ola_ttr` and `ola_tto` as an

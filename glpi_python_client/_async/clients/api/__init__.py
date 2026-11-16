@@ -27,6 +27,7 @@ from glpi_python_client._async.clients.api.assistance.timeline import (
 )
 from glpi_python_client._async.clients.api.dropdowns import (
     ContractTypeMixin,
+    ITILCategoryMixin,
     LocationMixin,
 )
 from glpi_python_client._async.clients.api.knowledgebase import (
@@ -51,6 +52,7 @@ __all__ = [
     "EntityMixin",
     "FollowupMixin",
     "GroupMixin",
+    "ITILCategoryMixin",
     "KBArticleCommentMixin",
     "KBArticleMixin",
     "KBArticleRevisionMixin",

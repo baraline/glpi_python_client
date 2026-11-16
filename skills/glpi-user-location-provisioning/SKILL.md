@@ -1,11 +1,11 @@
 ---
 name: glpi-user-location-provisioning
-description: "Search GLPI users, locations, and entities, or create, update, and delete users and locations and entities with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the matching Get/Post/Patch/Delete models. Use for user lookup, entity lookup, location lookup, user provisioning, location creation, GLPI entity defaults, or RSQL filters."
+description: "Search GLPI users, locations, and entities, or create, update, and delete users and locations and entities with the synchronous glpi_python_client.GlpiClient or the asynchronous AsyncGlpiClient, and the matching Get/Post/Patch/Delete models. Use for user lookup, entity lookup, location lookup, user provisioning, location creation, GLPI entity defaults, ITIL category lookup and creation (search_itil_categories, create_itil_category), or RSQL filters."
 license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to the GLPI v2 API, and credentials allowed to read or write users, locations, and entities."
 metadata:
   package: glpi-python-client
-  version: "0.6.9"
+  version: "0.6.10"
 ---
 
 # GLPI User, Location, And Entity Provisioning
@@ -23,6 +23,10 @@ Users live under `/Administration/User`, entities under `/Administration/Entity`
 5. Update with `update_user(user_id, PatchUser(...))`, `update_location(location_id, PatchLocation(...))`, or `update_entity(entity_id, PatchEntity(...))`.
 6. Delete with `delete_user(user_id, force=True|False|None)` and the matching `delete_location` / `delete_entity` helpers.
 7. Group recursion and user authorizations are not in the v2 API (its `Group` schema has no `is_recursive`, and there is no route for a user's profile/entity rows), so they go through the legacy v1 session and need `v1_base_url` / `v1_user_token`; without them each raises `RuntimeError`. `set_group_recursive(group_id, recursive=True)` sets the flag on a group. `list_user_authorizations(user_id)` returns `UserAuthorization` rows (`id`, `user_id`, `profile_id`, `entity_id`, `is_recursive`, `is_dynamic`, `is_default_profile`); `add_user_authorization(user_id, profile_id=..., entity_id=..., recursive=False)` returns the new row id; `update_user_authorization(authorization_id, entity_id=None, recursive=None)` changes only what you pass and raises `GlpiValidationError` with neither; `delete_user_authorization(authorization_id)` removes a row. A v1 write answered `false` raises `GlpiProtocolError` with the server's message.
+
+## ITIL categories
+
+ITIL categories live under `/Dropdowns/ITILCategory` and follow the same shape: `search_itil_categories(rsql_filter, limit=..., start=..., skip_entity=False)`, `iter_search_itil_categories(rsql_filter, batch_size=..., skip_entity=False)`, `get_itil_category(category_id, skip_entity=False)`, `create_itil_category(PostITILCategory(...))`, `update_itil_category(category_id, PatchITILCategory(...))` and `delete_itil_category(category_id, force=...)`. A search and a fetch are narrowed by the client's `GLPI-Entity` headers; pass `skip_entity=True` to look across every entity the caller can see. A category is placed with `entity=IdNameRef(id=...)` and nested under another with `parent=IdNameRef(id=...)`; `is_recursive`, `is_incident_visible`, `is_request_visible`, `is_change_visible` and `is_problem_visible` control where it can be used. `id`, `completename` and `level` are read-only.
 
 ## Examples
 

@@ -386,6 +386,29 @@ Locations
    :undoc-members:
    :show-inheritance:
 
+ITIL Categories
+---------------
+
+.. autoclass:: GetITILCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PostITILCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PatchITILCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: DeleteITILCategory
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Knowledge Base — Articles
 -------------------------
 

@@ -104,3 +104,27 @@ def test_user_authorization_exported_from_top_level_and_models() -> None:
     for module in (glpi_python_client, models):
         assert hasattr(module, "UserAuthorization")
         assert "UserAuthorization" in module.__all__
+
+
+_ITIL_CATEGORY_MODELS = (
+    "GetITILCategory",
+    "PostITILCategory",
+    "PatchITILCategory",
+    "DeleteITILCategory",
+)
+
+
+def test_itil_category_models_exported_from_top_level() -> None:
+    """Every ITILCategory model is importable from ``glpi_python_client``."""
+
+    for name in _ITIL_CATEGORY_MODELS:
+        assert hasattr(glpi_python_client, name), name
+        assert name in glpi_python_client.__all__, name
+
+
+def test_itil_category_models_exported_from_models_package() -> None:
+    """Every ITILCategory model is importable from ``glpi_python_client.models``."""
+
+    for name in _ITIL_CATEGORY_MODELS:
+        assert hasattr(models, name), name
+        assert name in models.__all__, name
