@@ -29,6 +29,18 @@ def test_search_itil_categories_passes_filter_and_paging(client: Any) -> None:
     assert call["skip_entity"] is False
 
 
+def test_search_itil_categories_without_filter_sends_no_filter(
+    client: Any,
+) -> None:
+    """With no filter the ``filter`` query parameter is omitted entirely."""
+
+    rec = TransportRecorder(get_payload=[])
+    rec.install(client)
+    client.search_itil_categories()
+    assert rec.calls[0]["params"] == {"limit": 50, "start": 0}
+    assert "filter" not in rec.calls[0]["params"]
+
+
 def test_search_itil_categories_forwards_skip_entity(client: Any) -> None:
     """``skip_entity=True`` reaches the transport."""
 
@@ -204,6 +216,7 @@ def test_iter_search_itil_categories_yields_every_page(client: Any) -> None:
         skip_entity: bool = False,
     ) -> list[GetITILCategory]:
         starts.append(start)
+        assert len(starts) < 10, "the walk did not stop"
         skips.append(skip_entity)
         index = start // limit
         return pages[index] if index < len(pages) else []
@@ -237,6 +250,7 @@ def test_iter_search_itil_categories_stops_on_a_single_short_page(
         skip_entity: bool = False,
     ) -> list[GetITILCategory]:
         starts.append(start)
+        assert len(starts) < 10, "the walk did not stop"
         return [GetITILCategory(id=1)]
 
     client.search_itil_categories = fake_search
@@ -252,6 +266,8 @@ def test_iter_search_itil_categories_yields_nothing_when_empty(
 ) -> None:
     """An empty first page yields no batch at all."""
 
+    starts: list[int] = []
+
     def fake_search(
         rsql_filter: str = "",
         *,
@@ -259,6 +275,8 @@ def test_iter_search_itil_categories_yields_nothing_when_empty(
         start: int = 0,
         skip_entity: bool = False,
     ) -> list[GetITILCategory]:
+        starts.append(start)
+        assert len(starts) < 10, "the walk did not stop"
         return []
 
     client.search_itil_categories = fake_search
