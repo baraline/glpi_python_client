@@ -377,6 +377,8 @@ The full set is re-exported from the package root, including
 ``GetTicket`` / ``PostTicket`` / ``PatchTicket`` / ``DeleteTicket``,
 ``GetUser`` / ``PostUser`` / ``PatchUser`` / ``DeleteUser``,
 ``GetLocation`` / ``PostLocation`` / ``PatchLocation`` / ``DeleteLocation``,
+``GetITILCategory`` / ``PostITILCategory`` / ``PatchITILCategory`` /
+``DeleteITILCategory``,
 ``GetEntity`` / ``PostEntity`` / ``PatchEntity`` / ``DeleteEntity``,
 ``GetGroup`` / ``PostGroup`` / ``PatchGroup`` / ``DeleteGroup``,
 ``UserAuthorization``,
@@ -1228,6 +1230,7 @@ batches until the API returns fewer rows than the requested
 * :meth:`GlpiClient.iter_search_users`
 * :meth:`GlpiClient.iter_search_entities`
 * :meth:`GlpiClient.iter_search_groups`
+* :meth:`GlpiClient.iter_search_itil_categories`
 
 .. code-block:: python
 

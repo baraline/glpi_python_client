@@ -75,12 +75,16 @@ from glpi_python_client.models.api_schema.assistance.timeline import (
 )
 from glpi_python_client.models.api_schema.dropdowns import (
     DeleteContractType,
+    DeleteITILCategory,
     DeleteLocation,
     GetContractType,
+    GetITILCategory,
     GetLocation,
     PatchContractType,
+    PatchITILCategory,
     PatchLocation,
     PostContractType,
+    PostITILCategory,
     PostLocation,
 )
 from glpi_python_client.models.api_schema.enums import (
@@ -147,6 +151,7 @@ __all__ = [
     "DeleteEntity",
     "DeleteFollowup",
     "DeleteGroup",
+    "DeleteITILCategory",
     "DeleteKBArticle",
     "DeleteKBArticleComment",
     "DeleteKBCategory",
@@ -168,6 +173,7 @@ __all__ = [
     "GetEntity",
     "GetFollowup",
     "GetGroup",
+    "GetITILCategory",
     "GetKBArticle",
     "GetKBArticleComment",
     "GetKBArticleRevision",
@@ -205,6 +211,7 @@ __all__ = [
     "PatchEntity",
     "PatchFollowup",
     "PatchGroup",
+    "PatchITILCategory",
     "PatchKBArticle",
     "PatchKBArticleComment",
     "PatchKBCategory",
@@ -224,6 +231,7 @@ __all__ = [
     "PostEntity",
     "PostFollowup",
     "PostGroup",
+    "PostITILCategory",
     "PostKBArticle",
     "PostKBArticleComment",
     "PostKBCategory",

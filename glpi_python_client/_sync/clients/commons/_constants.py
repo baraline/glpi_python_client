@@ -24,6 +24,7 @@ GROUP_ENDPOINT = "Administration/Group"
 # dropdowns/
 CONTRACT_TYPE_ENDPOINT = "Dropdowns/ContractType"
 LOCATION_ENDPOINT = "Dropdowns/Location"
+ITIL_CATEGORY_ENDPOINT = "Dropdowns/ITILCategory"
 
 # management/
 CONTRACT_ENDPOINT = "Management/Contract"
@@ -54,6 +55,7 @@ __all__ = [
     "ENTITY_ENDPOINT",
     "FOLLOWUP_SUFFIX",
     "GROUP_ENDPOINT",
+    "ITIL_CATEGORY_ENDPOINT",
     "KB_ARTICLE_ENDPOINT",
     "KB_CATEGORY_ENDPOINT",
     "KB_COMMENT_SUFFIX",

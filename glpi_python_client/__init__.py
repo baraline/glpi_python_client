@@ -41,6 +41,7 @@ from glpi_python_client.models import (
     DeleteEntity,
     DeleteFollowup,
     DeleteGroup,
+    DeleteITILCategory,
     DeleteKBArticle,
     DeleteKBArticleComment,
     DeleteKBCategory,
@@ -62,6 +63,7 @@ from glpi_python_client.models import (
     GetEntity,
     GetFollowup,
     GetGroup,
+    GetITILCategory,
     GetKBArticle,
     GetKBArticleComment,
     GetKBArticleRevision,
@@ -99,6 +101,7 @@ from glpi_python_client.models import (
     PatchEntity,
     PatchFollowup,
     PatchGroup,
+    PatchITILCategory,
     PatchKBArticle,
     PatchKBArticleComment,
     PatchKBCategory,
@@ -118,6 +121,7 @@ from glpi_python_client.models import (
     PostEntity,
     PostFollowup,
     PostGroup,
+    PostITILCategory,
     PostKBArticle,
     PostKBArticleComment,
     PostKBCategory,
@@ -138,7 +142,7 @@ from glpi_python_client.rsql import (
     date_window,
 )
 
-__version__ = "0.6.9"
+__version__ = "0.6.10"
 
 __all__ = [
     "AsyncGlpiClient",
@@ -151,6 +155,7 @@ __all__ = [
     "DeleteEntity",
     "DeleteFollowup",
     "DeleteGroup",
+    "DeleteITILCategory",
     "DeleteKBArticle",
     "DeleteKBArticleComment",
     "DeleteKBCategory",
@@ -172,6 +177,7 @@ __all__ = [
     "GetEntity",
     "GetFollowup",
     "GetGroup",
+    "GetITILCategory",
     "GetKBArticle",
     "GetKBArticleComment",
     "GetKBArticleRevision",
@@ -220,6 +226,7 @@ __all__ = [
     "PatchEntity",
     "PatchFollowup",
     "PatchGroup",
+    "PatchITILCategory",
     "PatchKBArticle",
     "PatchKBArticleComment",
     "PatchKBCategory",
@@ -239,6 +246,7 @@ __all__ = [
     "PostEntity",
     "PostFollowup",
     "PostGroup",
+    "PostITILCategory",
     "PostKBArticle",
     "PostKBArticleComment",
     "PostKBCategory",
