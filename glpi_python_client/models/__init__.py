@@ -52,6 +52,8 @@ from glpi_python_client.models.api_schema.assistance import (
     GetTicket,
     PatchTeamMember,
     PatchTicket,
+    PendingReason,
+    PendingReasonItem,
     PostTeamMember,
     PostTicket,
 )
@@ -222,6 +224,8 @@ __all__ = [
     "PatchTicketTask",
     "PatchTimelineDocument",
     "PatchUser",
+    "PendingReason",
+    "PendingReasonItem",
     "PostComputer",
     "PostContract",
     "PostContractCost",

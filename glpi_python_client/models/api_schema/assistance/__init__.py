@@ -5,6 +5,10 @@ sub-resources (followups, tasks, solutions, document links) are grouped in
 :mod:`.timeline`.
 """
 
+from glpi_python_client.models.api_schema.assistance._pending_reason import (
+    PendingReason,
+    PendingReasonItem,
+)
 from glpi_python_client.models.api_schema.assistance._team import (
     DeleteTeamMember,
     GetTeamMember,
@@ -25,6 +29,8 @@ __all__ = [
     "GetTicket",
     "PatchTeamMember",
     "PatchTicket",
+    "PendingReason",
+    "PendingReasonItem",
     "PostTeamMember",
     "PostTicket",
 ]

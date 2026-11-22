@@ -1080,6 +1080,62 @@ to ``list_item_plugin_field_rows``, ``create_item_plugin_field_row``,
 or ``update_item_plugin_field_row`` only when you need the raw v1 row
 shape.
 
+Pending reasons
+~~~~~~~~~~~~~~~
+
+A pause is ticket status ``4`` (Pending) plus at most one item linking
+the ticket to an entry of the pending-reason catalogue. The catalogue is
+read from the v2 API; the ticket's item needs the legacy v1 session
+(``v1_base_url`` and ``v1_user_token``), because the v2 item schema does
+not say *which* reason a ticket carries and no v2 route writes an item.
+Without the v1 session the three ticket methods raise ``RuntimeError``.
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiClient, GlpiTicketStatus, PatchTicket
+
+   with GlpiClient(
+       glpi_api_url="https://glpi.example.com/api.php/v2",
+       server_timezone="Europe/Paris",
+       client_id="oauth-client-id",
+       client_secret="oauth-client-secret",
+       username="api-user",
+       password="api-password",
+       v1_base_url="https://glpi.example.com/apirest.php",
+       v1_user_token="legacy-user-token",
+   ) as client:
+       reasons = client.list_pending_reasons()
+       reason = reasons[0]
+
+       # The status is the caller's to set: the item alone does not pause.
+       client.update_ticket(ticket_id, PatchTicket(status=GlpiTicketStatus.PENDING))
+       item = client.set_ticket_pending_reason(
+           ticket_id,
+           reason.id,
+           followup_frequency=reason.followup_frequency or 0,
+           followups_before_resolution=reason.followups_before_resolution or 0,
+       )
+       print(item.pendingreasons_id)
+
+       print(client.get_ticket_pending_reason(ticket_id))  # item or None
+
+       client.clear_ticket_pending_reason(ticket_id)  # True, or False if none
+
+Things worth knowing:
+
+* ``set_ticket_pending_reason`` creates the item when the ticket has none
+  and changes it otherwise; it never provokes GLPI's duplicate-key error.
+  It does **not** change the ticket status. An item set on a ticket that
+  is not pending is stored but has no effect, and GLPI removes it when
+  the ticket next leaves status ``4``.
+* The item does not copy the catalogue's ``followup_frequency``: pass the
+  frequencies wanted, or the item stores ``0``.
+* ``clear_ticket_pending_reason`` leaves the ticket at status ``4``,
+  without a reason. Leaving status ``4`` removes the item by itself.
+* A reason id that is not in the catalogue is stored without error.
+* None of these calls adds a followup to the timeline. The GLPI web
+  interface pauses through a followup, which does.
+
 Aggregated ticket context
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 

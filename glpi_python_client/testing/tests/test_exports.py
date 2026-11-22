@@ -128,3 +128,15 @@ def test_itil_category_models_exported_from_models_package() -> None:
     for name in _ITIL_CATEGORY_MODELS:
         assert hasattr(models, name), name
         assert name in models.__all__, name
+
+
+_PENDING_REASON_MODELS = ("PendingReason", "PendingReasonItem")
+
+
+def test_pending_reason_models_exported_from_both_packages() -> None:
+    """The pending-reason models are importable from both public packages."""
+
+    for module in (glpi_python_client, models):
+        for name in _PENDING_REASON_MODELS:
+            assert hasattr(module, name), name
+            assert name in module.__all__, name
