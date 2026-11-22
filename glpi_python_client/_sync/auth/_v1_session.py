@@ -43,6 +43,7 @@ from typing import Any, cast
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from glpi_python_client._sync._concurrency import Lock
 from glpi_python_client._sync.clients.commons._config import build_http_session
 from glpi_python_client._sync.clients.commons._http import (
     ensure_response_status,
@@ -111,6 +112,11 @@ class GLPIV1Session:
 
         self._session_token: str | None = None
         self._session_started_at: datetime | None = None
+        # Serialises every acquisition or replacement of the session token.
+        # It is not re-entrant: only ``_ensure_session``,
+        # ``_renew_rejected_session`` and ``close`` take it, and none of them
+        # calls another of them (or ``_headers``) while holding it.
+        self._session_lock = Lock()
 
     def _dispatch(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         """Send one raw v1 HTTP call, translating transport faults.
@@ -178,13 +184,32 @@ class GLPIV1Session:
 
         The helper is called by every authenticated request before any header
         construction so callers never have to manage the lifecycle directly.
+        Concurrent callers are serialised and the need is re-tested under the
+        lock, so a caller that waited reuses the token the first one obtained.
         """
 
-        if self._session_token is None:
-            self._init_session()
+        if self._session_token is not None and not self._is_session_stale():
             return
-        if self._is_session_stale():
-            logger.info("GLPI v1 session reached refresh interval; renewing session.")
+        with self._session_lock:
+            if self._session_token is None:
+                self._init_session()
+            elif self._is_session_stale():
+                logger.info(
+                    "GLPI v1 session reached refresh interval; renewing session."
+                )
+                self._renew_session()
+
+    def _renew_rejected_session(self, rejected_token: str | None) -> None:
+        """Renew the session after the server rejected ``rejected_token``.
+
+        Under the lock the current token is compared with the rejected one:
+        when another request already replaced it, the new token is reused
+        and nothing is killed or opened.
+        """
+
+        with self._session_lock:
+            if self._session_token != rejected_token:
+                return
             self._renew_session()
 
     def _is_session_stale(self) -> bool:
@@ -217,6 +242,8 @@ class GLPIV1Session:
 
     def _renew_session(self) -> None:
         """Drop the current GLPI v1 session token and acquire a new one.
+
+        The caller must hold ``_session_lock``; the helper never takes it.
 
         The previous token is best-effort killed so the GLPI server can release
         the associated session state immediately. ``_init_session`` will set
@@ -267,7 +294,8 @@ class GLPIV1Session:
         the caller to validate with :func:`ensure_response_status`.
         """
 
-        request_headers = {**self._headers(), **(headers or {})}
+        session_headers = self._headers()
+        request_headers = {**session_headers, **(headers or {})}
         # Dispatch through ``request(method, ...)`` rather than looking up a
         # per-verb attribute: it is the one call shape both transports share,
         # and it keeps the verb a value instead of an attribute name.
@@ -278,7 +306,7 @@ class GLPIV1Session:
                 "GLPI v1 session token was rejected; refreshing session and "
                 "retrying request once."
             )
-            self._renew_session()
+            self._renew_rejected_session(session_headers["Session-Token"])
             request_headers = {**self._headers(), **(headers or {})}
             response = self._dispatch(
                 verb, url, headers=request_headers, **kwargs
@@ -299,19 +327,22 @@ class GLPIV1Session:
         """
 
         try:
-            if self._session_token is not None:
-                self._dispatch(
-                    "GET",
-                    f"{self._base_url}/killSession",
-                    headers=self._session_headers(),
-                    timeout=10,
-                )
-                logger.info("GLPI v1 session killed.")
-        except Exception:
-            logger.warning("Failed to kill GLPI v1 session.", exc_info=True)
+            with self._session_lock:
+                try:
+                    if self._session_token is not None:
+                        self._dispatch(
+                            "GET",
+                            f"{self._base_url}/killSession",
+                            headers=self._session_headers(),
+                            timeout=10,
+                        )
+                        logger.info("GLPI v1 session killed.")
+                except Exception:
+                    logger.warning("Failed to kill GLPI v1 session.", exc_info=True)
+                finally:
+                    self._session_token = None
+                    self._session_started_at = None
         finally:
-            self._session_token = None
-            self._session_started_at = None
             self._http.close()
 
     @_RETRY_ON_NETWORK_ERRORS

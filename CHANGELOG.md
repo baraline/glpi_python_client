@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- **Concurrent renewals of the legacy v1 session.** A client shared by
+  concurrent tasks or threads renewed the v1 session once per request that
+  found the token stale (every 15 minutes by default), on the first lazy
+  `initSession`, and after a 401/403 rejection: each renewal killed the
+  token and opened a session, so a second `killSession` answered 401 and
+  one server-side session leaked per renewal. Every acquisition now takes a
+  lock and re-checks under it whether the work is still needed, so waiters
+  reuse the token the first renewal obtained and the session is killed and
+  opened once. Retry behaviour is unchanged.
+
 ## 0.6.10 — 2026-11-16
 
 A minor addition: the GLPI v2 `/Dropdowns/ITILCategory` routes, so a caller
