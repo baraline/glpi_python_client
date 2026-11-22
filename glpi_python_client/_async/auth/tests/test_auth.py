@@ -315,8 +315,9 @@ async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquires() -
 
     ``_refresh_access_token`` falls through to a *nested* ``_acquire_token()``
     call on any non-2xx response instead of raising directly
-    (auth.py:327-332). That nested call is independently decorated with
-    ``stop_after_attempt(3)`` and retries ``GlpiServerError``. This method's
+    (auth.py:327-332). That nested call is independently retried per
+    the ``max_retries`` setting (3 attempts by default) and retries
+    ``GlpiServerError``. This method's
     own decorator only matches ``httpx.HTTPError`` (a genuine
     network fault on the refresh POST itself), not ``GlpiServerError``, so it
     does not retry the fall-through a second time on top of the nested
