@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Fixed
+
+- **A success response whose body is not JSON now raises `GlpiProtocolError`
+  instead of a bare `json.JSONDecodeError`.** A server or a proxy answering
+  200 with an HTML page or a garbled body used to surface a `ValueError`
+  that read like bad input. Every decode of a success body, on the v2
+  transport, the v1 session and the OAuth token manager, now goes through
+  one helper that raises the new `GlpiResponseBodyError` (a subclass of
+  `GlpiProtocolError`) with `status_code`, `url`, `content_type`,
+  `body_length` and a bounded `body_excerpt`, and chains the decode error as
+  `__cause__`. The body is kept out of the message. It is not retried: a
+  2xx means the request was processed. Empty answers on routes that accept
+  them (204, `DELETE`, v1 calls without a payload) are unchanged; an empty
+  200 on a route that must return JSON raises the same error.
+
+### Added
+
+- **`GlpiResponseBodyError`**, exported from the package root.
+
 ## 0.6.10 — 2026-11-16
 
 A minor addition: the GLPI v2 `/Dropdowns/ITILCategory` routes, so a caller

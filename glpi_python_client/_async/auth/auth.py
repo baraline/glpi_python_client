@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._async.clients.commons._config import build_http_session
-from glpi_python_client._async.clients.commons._http import transport_error_from
+from glpi_python_client._async.clients.commons._http import (
+    decode_json_body,
+    transport_error_from,
+)
 from glpi_python_client._errors import (
     GlpiServerError,
     GlpiTransportError,
@@ -218,6 +222,18 @@ class GLPITokenManager:
 
         return data
 
+    def _decode_token_body(self, response: httpx.Response) -> dict[str, object]:
+        """Decode a successful token response, raising a library error if not JSON.
+
+        Raises
+        ------
+        GlpiResponseBodyError
+            When the 2xx body is not JSON. Not retried: the endpoint answered.
+        """
+
+        payload = decode_json_body(response, url=self._token_url)
+        return cast(dict[str, object], payload)
+
     def _store_token_data(
         self, token_data: dict[str, object], label: str = "acquired"
     ) -> None:
@@ -312,7 +328,7 @@ class GLPITokenManager:
         data = self._build_token_request_data()
         response = await self._post_token_request(data)
         if 200 <= response.status_code < 300:
-            self._store_token_data(response.json())
+            self._store_token_data(self._decode_token_body(response))
             return
         try:
             error_detail = response.json()
@@ -381,7 +397,7 @@ class GLPITokenManager:
             data["client_secret"] = self._client_secret
         response = await self._post_token_request(data)
         if 200 <= response.status_code < 300:
-            self._store_token_data(response.json(), label="refreshed")
+            self._store_token_data(self._decode_token_body(response), label="refreshed")
             return
         logger.warning("Token refresh failed, acquiring new token...")
         await self._acquire_token()

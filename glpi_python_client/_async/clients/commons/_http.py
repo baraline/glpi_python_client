@@ -7,6 +7,7 @@ can focus on resource-specific behaviour.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 
@@ -15,6 +16,7 @@ import httpx
 from glpi_python_client._async.clients.commons._constants import RequestParamValue
 from glpi_python_client._errors import (
     GlpiProtocolError,
+    GlpiResponseBodyError,
     GlpiServerError,
     GlpiTimeoutError,
     GlpiTransportError,
@@ -285,6 +287,62 @@ def ensure_response_status(
         )
 
 
+#: Longest body excerpt kept on a :class:`GlpiResponseBodyError`.
+_BODY_EXCERPT_LIMIT = 200
+
+
+def decode_json_body(response: httpx.Response, *, url: str | None = None) -> object:
+    """Decode one success response body as JSON, or raise a library error.
+
+    Every decode of a success body goes through this helper, so a server or
+    a proxy answering 2xx with an HTML page or a garbled body surfaces as
+    :class:`~glpi_python_client.GlpiResponseBodyError` (a
+    :class:`~glpi_python_client.GlpiProtocolError`) instead of a bare
+    :class:`json.JSONDecodeError`. The request was answered, so the failure
+    is the response, and it is not retried.
+
+    An empty body is not valid JSON and raises too: this helper is for
+    routes that must return a payload. Routes that deliberately accept an
+    empty answer use :func:`response_json_or_empty` or
+    :func:`response_json_mapping`.
+
+    Parameters
+    ----------
+    response : httpx.Response
+        A response whose status was already accepted as a success.
+    url : str, optional
+        URL to report; defaults to the response's own request URL.
+
+    Returns
+    -------
+    object
+        The decoded JSON value.
+
+    Raises
+    ------
+    GlpiResponseBodyError
+        When the body is not valid JSON or not valid text.
+    """
+
+    try:
+        return response.json()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        content = response.content
+        content_type = str(response.headers.get("content-type", ""))
+        status = response.status_code
+        reported_url = url if url is not None else str(response.url)
+        raise GlpiResponseBodyError(
+            f"GLPI answered {status} with a body that is not JSON "
+            f"(content type {content_type or 'none'!r}, {len(content)} bytes) "
+            f"from {reported_url}",
+            status_code=status,
+            url=reported_url,
+            content_type=content_type,
+            body_length=len(content),
+            body_excerpt=content[:_BODY_EXCERPT_LIMIT].decode("utf-8", "replace"),
+        ) from exc
+
+
 def response_json_or_empty(response: httpx.Response) -> object:
     """Return the parsed JSON body or an empty mapping for empty responses.
 
@@ -295,7 +353,7 @@ def response_json_or_empty(response: httpx.Response) -> object:
 
     if not response.content or not response.text.strip():
         return {}
-    return response.json()
+    return decode_json_body(response)
 
 
 def response_json_mapping(response: httpx.Response) -> Mapping[str, object]:
@@ -306,7 +364,7 @@ def response_json_mapping(response: httpx.Response) -> Mapping[str, object]:
     expected keys.
     """
 
-    result = response.json() if response.content else {}
+    result = decode_json_body(response) if response.content else {}
     return result if isinstance(result, Mapping) else {}
 
 
@@ -438,6 +496,7 @@ __all__ = [
     "build_request_headers",
     "build_request_url",
     "coerce_response_int",
+    "decode_json_body",
     "ensure_response_status",
     "finalize_request_response",
     "list_payload_items",

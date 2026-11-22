@@ -36,6 +36,7 @@ from glpi_python_client._sync._concurrency import Lock
 from glpi_python_client._sync.clients.commons._http import (
     build_request_headers,
     build_request_url,
+    decode_json_body,
     ensure_response_status,
     finalize_request_response,
     list_payload_items,
@@ -446,7 +447,7 @@ class TransportMixin:
             success_statuses=success_statuses,
             failure_message=failure_message or f"Failed to list {endpoint}",
         )
-        payload = response.json()
+        payload = decode_json_body(response)
         items = (
             unwrap_timeline_items(payload)
             if unwrap_envelope
@@ -492,7 +493,7 @@ class TransportMixin:
             failure_message=failure_message,
         )
         return model_from_payload(
-            model, response.json(), server_timezone=self.server_timezone
+            model, decode_json_body(response), server_timezone=self.server_timezone
         )
 
     def _body(self, model: GlpiModel) -> dict[str, object]:

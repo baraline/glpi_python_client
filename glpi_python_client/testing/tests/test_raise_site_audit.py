@@ -32,6 +32,7 @@ _PACKAGE_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _ALLOWED = {
     "GlpiValidationError",
     "GlpiProtocolError",
+    "GlpiResponseBodyError",
     "GlpiContentError",
     "GlpiServerError",
     "GlpiStatusError",
