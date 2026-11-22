@@ -104,6 +104,8 @@ TOKEN_REPLACEMENTS = {
     # this is easy to miss. ``aiter_text``/``aiter_lines``/``aiter_raw``
     # are equally un-rewritten and would each need an entry here.
     "aiter_bytes": "iter_bytes",
+    # tenacity: the async retrier has a sync twin of the same call shape.
+    "AsyncRetrying": "Retrying",
 }
 
 

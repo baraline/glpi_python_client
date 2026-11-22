@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+A new client setting turns the automatic retries off. Behaviour is unchanged
+unless it is set.
+
+### Added
+
+- **`max_retries` and `retry_wait_seconds`** on both clients, on
+  `GLPITokenManager` and `GLPIV1Session`, and as `GLPI_MAX_RETRIES` and
+  `GLPI_RETRY_WAIT_SECONDS` for `from_env`. `max_retries` counts the retries
+  after the first attempt: the default `2` keeps today's 3 attempts, `0`
+  disables retrying, so a failing call raises after exactly one request.
+  `retry_wait_seconds` is the pause between attempts (default 3 seconds). The
+  setting applies to every retried call: the v2 verbs, the v1 session helpers
+  and OAuth token acquisition. Which errors are retried (network faults and
+  5xx) is unchanged.
+
 ## 0.6.10 — 2026-11-16
 
 A minor addition: the GLPI v2 `/Dropdowns/ITILCategory` routes, so a caller

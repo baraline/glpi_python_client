@@ -44,7 +44,8 @@ class GlpiTransportError(GlpiError):
     back-compatibility argument that applies to the status and validation
     errors does not apply here.
 
-    Network faults are retried before they surface -- three attempts -- so
+    Network faults are retried before they surface -- three attempts by
+    default (see the ``max_retries`` client setting) -- so
     receiving this means the fault persisted.
     """
 
