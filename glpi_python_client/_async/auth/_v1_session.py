@@ -13,6 +13,9 @@ The session wrapper owns the authenticated v1 lifecycle (init, refresh,
 kill) and exposes the typed ``upload_document`` helper plus the generic
 ``request_json`` JSON-only HTTP helper that newer mixins build on.
 
+Session renewal is serialised by a lock and the need is re-checked under it,
+so concurrent requests share one new session instead of each renewing.
+
 Retry policy
 ------------
 Every public dispatch helper (``_init_session``, ``request_json``,
