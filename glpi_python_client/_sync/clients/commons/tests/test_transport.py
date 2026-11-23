@@ -20,10 +20,8 @@ from typing import Any
 
 import httpx
 import pytest
-from tenacity import wait_fixed
 
 from glpi_python_client import (
-    GlpiClient,
     GlpiError,
     GlpiProtocolError,
     GlpiResponseBodyError,
@@ -234,19 +232,6 @@ def test_delete_request_returns_response(transport_client: Any) -> None:
 # shadow the real method and the ``_session.request`` replacement would
 # never be exercised. Hence a second, lighter fixture (``retry_client``)
 # rather than reusing ``transport_client``.
-
-
-@pytest.fixture(autouse=True)
-def _no_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the 3s fixed wait so retry tests stay instant.
-
-    The decorator's ``Retrying`` object is patched directly. Patching
-    ``tenacity.nap.time.sleep`` would work today but silently stops working
-    on the async path, so it is deliberately not used here.
-    """
-
-    for name in _RETRIED_METHODS:
-        monkeypatch.setattr(getattr(GlpiClient, name).retry, "wait", wait_fixed(0))
 
 
 @pytest.fixture

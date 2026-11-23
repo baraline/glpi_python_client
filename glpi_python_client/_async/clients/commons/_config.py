@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
+from glpi_python_client._async._retry import DEFAULT_MAX_RETRIES
 from glpi_python_client._errors import GlpiValidationError
 
 if TYPE_CHECKING:
@@ -112,6 +113,8 @@ def build_client_resources(
     v1_base_url: str | None,
     v1_user_token: str | None,
     v1_app_token: str | None,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_wait_seconds: float | None = None,
     session_factory: SessionFactory | None = None,
 ) -> ClientResources:
     """Build the shared resources required by one client instance.
@@ -166,6 +169,8 @@ def build_client_resources(
         password=password,
         session=session,
         auth_token_refresh=auth_token_refresh,
+        max_retries=max_retries,
+        retry_wait_seconds=retry_wait_seconds,
     )
 
     v1: GLPIV1Session | None = None
@@ -174,6 +179,8 @@ def build_client_resources(
             base_url=v1_base_url,
             user_token=v1_user_token,
             app_token=v1_app_token,
+            max_retries=max_retries,
+            retry_wait_seconds=retry_wait_seconds,
             verify_ssl=verify_ssl,
         )
 
@@ -272,6 +279,34 @@ def parse_optional_env_int(value: object) -> int | None:
     raise TypeError("Integer environment values must be strings or integers")
 
 
+def parse_optional_env_float(value: object) -> float | None:
+    """Parse one optional number from an environment-style value.
+
+    ``None`` is preserved, native numbers are accepted as-is and strings are
+    converted through ``float()``.
+
+    Raises
+    ------
+    GlpiValidationError
+        If a string value cannot be parsed as a number.
+    TypeError
+        If ``value`` is neither ``None``, a number, nor ``str``.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise GlpiValidationError(
+                f"Invalid number environment value: {value!r}"
+            ) from exc
+    raise TypeError("Number environment values must be strings or numbers")
+
+
 def parse_optional_env_bool(value: object, *, default: bool) -> bool:
     """Parse one optional boolean from an environment-style value.
 
@@ -330,6 +365,13 @@ def build_client_env_config(
         "v1_user_token": env.get(f"{prefix}V1_USER_TOKEN"),
         "v1_app_token": env.get(f"{prefix}V1_APP_TOKEN"),
     }
+    # Absent keys keep the constructor defaults (3 attempts, 3 s apart).
+    max_retries = parse_optional_env_int(env.get(f"{prefix}MAX_RETRIES"))
+    if max_retries is not None:
+        config["max_retries"] = max_retries
+    retry_wait = parse_optional_env_float(env.get(f"{prefix}RETRY_WAIT_SECONDS"))
+    if retry_wait is not None:
+        config["retry_wait_seconds"] = retry_wait
     config.update(overrides)
     return config
 

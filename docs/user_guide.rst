@@ -117,6 +117,10 @@ Optional constructor arguments
   ``"en_GB"``).
 * ``verify_ssl`` — set to ``False`` only on test instances with
   self-signed certificates.
+* ``max_retries`` — automatic retries after the first attempt (default
+  ``2``, so 3 attempts in total); ``0`` disables retrying. See
+  :ref:`retry-behaviour`.
+* ``retry_wait_seconds`` — pause between two attempts (default 3 seconds).
 * ``auth_token_refresh`` — number of seconds before token expiry at
   which the auth manager proactively refreshes the OAuth access token.
 * ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
@@ -142,6 +146,7 @@ build the client for you:
   offset. There is no default: guessing UTC against a Europe/Paris instance
   shifts those values by an hour or two and never raises.
 * ``GLPI_LANGUAGE``, ``GLPI_VERIFY_SSL``
+* ``GLPI_MAX_RETRIES``, ``GLPI_RETRY_WAIT_SECONDS`` -- see :ref:`retry-behaviour`.
 * ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``
 
 .. code-block:: python
@@ -1776,7 +1781,8 @@ Connection failures, DNS errors and timeouts are translated into
 :class:`~glpi_python_client.GlpiTimeoutError` subclass for a timeout --
 so you never need to import the HTTP library to catch them. The original
 transport exception stays attached as ``__cause__`` for debugging, and
-these faults are retried three times before they surface:
+these faults are retried (three attempts by default, see
+:ref:`retry-behaviour`) before they surface:
 
 .. code-block:: python
 
@@ -1806,7 +1812,7 @@ The hierarchy lets you narrow as far as you need:
    ├── GlpiStatusError         GLPI answered with an unexpected status
    │   ├── GlpiAuthError       401 / 403
    │   ├── GlpiNotFoundError   404
-   │   └── GlpiServerError     5xx (retried up to 3 attempts before it
+   │   └── GlpiServerError     5xx (retried, 3 attempts by default, before it
    │                           reaches you)
    ├── GlpiValidationError     the client rejected your argument
    ├── GlpiProtocolError       GLPI answered 2xx with an unusable body
@@ -2252,27 +2258,44 @@ definition list's newline becomes a hard break. Bold inside bold
 link or image title loses a backslash before punctuation. The caption,
 colgroup and image-title shapes above settle too, on what they already lost.
 
+.. _retry-behaviour:
+
 Retry behaviour
 ~~~~~~~~~~~~~~~
 
-Each transport and v1-session retry decorator retries a server error
-(5xx) up to 3 attempts with a 3-second fixed wait before
-:class:`~glpi_python_client.GlpiServerError` reaches you. Client errors
-(4xx) are never retried — they cannot succeed on a second attempt.
+Every v2 verb, every v1-session helper and OAuth token acquisition retry a
+network fault (:class:`~glpi_python_client.GlpiTransportError`) or a server
+error (5xx, :class:`~glpi_python_client.GlpiServerError`) before it reaches
+you. Client errors (4xx) are never retried — they cannot succeed on a second
+attempt. The two client settings below govern all of these calls alike,
+token acquisition included; which errors are retried does not depend on them:
 
-OAuth token acquisition follows the same 3-attempt policy, with one
+* ``max_retries`` — retries after the first attempt. The default ``2`` makes
+  3 attempts in total; ``0`` disables retrying, so a failing call raises after
+  exactly one request. Use ``0`` when your own code owns the retry policy: a
+  retried write may already have been applied.
+* ``retry_wait_seconds`` — fixed pause between two attempts (default 3
+  seconds; ``None`` keeps it).
+
+.. code-block:: python
+
+   client = GlpiClient.from_env(max_retries=0)  # or GLPI_MAX_RETRIES=0
+
+The counts below are those of the default setting (3 attempts).
+
+OAuth token acquisition follows the same policy, with one
 exception: refreshing an already-issued token does not raise directly on
 a failed response. It logs a warning and falls through to a fresh token
-acquisition, which carries its own independent 3-attempt retry
-decorator. The refresh method's own retry decorator only retries a
+acquisition, which carries its own independent retry decorator. The
+refresh method's own retry decorator only retries a
 network-level fault on the refresh request itself (a
 :class:`~glpi_python_client.GlpiTransportError` raised before any
 response is received) —
 it does **not** retry a :class:`~glpi_python_client.GlpiServerError`
 from the fall-through, since that failure is already being retried by
 the nested acquisition call. A persistent 5xx encountered while
-refreshing therefore costs exactly 1 refresh POST + up to 3 nested
-acquisition POSTs = 4 POST requests before
+refreshing therefore costs, with the default setting, exactly 1 refresh
+POST + up to 3 nested acquisition POSTs = 4 POST requests before
 :class:`~glpi_python_client.GlpiServerError` reaches you. A rejected
 credential (401/403) is not retried at either layer and fails after at
 most 2 POST requests.

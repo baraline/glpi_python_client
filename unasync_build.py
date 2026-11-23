@@ -67,7 +67,11 @@ SYNC_DIR = PACKAGE / "_sync"
 #: on its absence, so ``--check`` would stay green while a whole module
 #: silently had no twin. Colocated tests make that collision plausible --
 #: generic names like ``test_concurrency.py`` now recur per package.
-HAND_WRITTEN = {"_concurrency.py", "tests/test_concurrency.py"}
+HAND_WRITTEN = {
+    "_concurrency.py",
+    "tests/test_concurrency.py",
+    "auth/tests/test_v1_session_concurrency.py",
+}
 
 #: Token substitutions beyond unasync's defaults.
 #:
@@ -104,6 +108,8 @@ TOKEN_REPLACEMENTS = {
     # this is easy to miss. ``aiter_text``/``aiter_lines``/``aiter_raw``
     # are equally un-rewritten and would each need an entry here.
     "aiter_bytes": "iter_bytes",
+    # tenacity: the async retrier has a sync twin of the same call shape.
+    "AsyncRetrying": "Retrying",
 }
 
 

@@ -7,7 +7,6 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from tenacity import wait_fixed
 
 from glpi_python_client import (
     GlpiProtocolError,
@@ -25,19 +24,6 @@ _RETRIED_METHODS = (
     "request_json",
     "upload_document",
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the 3s fixed wait so retry tests stay instant.
-
-    Each decorated method's own ``Retrying`` object is patched directly.
-    Patching ``tenacity.nap.time.sleep`` would work today but silently stops
-    working on the async path, so it is deliberately not used here.
-    """
-
-    for name in _RETRIED_METHODS:
-        monkeypatch.setattr(getattr(GLPIV1Session, name).retry, "wait", wait_fixed(0))
 
 
 class _FakeV1Http:

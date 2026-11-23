@@ -11,7 +11,15 @@ from collections.abc import AsyncIterator
 import pytest
 
 from glpi_python_client import AsyncGlpiClient
+from glpi_python_client._async import _retry
 from glpi_python_client._async._testing import make_client
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the default 3 s pause between retry attempts so tests stay instant."""
+
+    monkeypatch.setattr(_retry, "DEFAULT_RETRY_WAIT_SECONDS", 0.0)
 
 
 @pytest.fixture

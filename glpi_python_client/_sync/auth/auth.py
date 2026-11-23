@@ -12,8 +12,12 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from glpi_python_client._sync._retry import (
+    DEFAULT_MAX_RETRIES,
+    retried,
+    validate_retry_settings,
+)
 from glpi_python_client._sync.clients.commons._config import build_http_session
 from glpi_python_client._sync.clients.commons._http import (
     decode_json_body,
@@ -118,6 +122,12 @@ class GLPITokenManager:
     auth_token_refresh : int | None, optional
         Maximum token age in seconds before a refresh is attempted. ``None``
         disables interval-based refreshes.
+    max_retries : int, optional
+        Retries after the first attempt of a failed token request
+        (network fault or 5xx); ``0`` disables retrying. Defaults to 2,
+        that is 3 attempts in total.
+    retry_wait_seconds : float | None, optional
+        Pause between two attempts; ``None`` keeps the 3-second default.
     """
 
     def __init__(
@@ -129,7 +139,12 @@ class GLPITokenManager:
         password: str | None = None,
         session: httpx.Client | None = None,
         auth_token_refresh: int | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_wait_seconds: float | None = None,
     ) -> None:
+        self._max_retries, self._retry_wait_seconds = validate_retry_settings(
+            max_retries, retry_wait_seconds
+        )
         self._token_url = token_url
         self._client_id = client_id
         self._client_secret = client_secret
@@ -300,12 +315,7 @@ class GLPITokenManager:
             return False
         return now >= self.token_updated_at + self._auth_token_refresh_interval
 
-    @retry(
-        retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @retried((GlpiTransportError, GlpiServerError))
     def _acquire_token(self) -> None:
         """Acquire an OAuth2 access token using the configured auth flow.
 
@@ -319,7 +329,8 @@ class GLPITokenManager:
         GlpiAuthError
             If GLPI rejects the credentials (401/403). Not retried.
         GlpiServerError
-            If the token endpoint fails (5xx). Retried up to 3 attempts.
+            If the token endpoint fails (5xx). Retried up to ``max_retries`` times
+            (3 attempts by default).
         GlpiStatusError
             If the token endpoint returns any other unexpected status. Not
             retried.
@@ -342,12 +353,7 @@ class GLPITokenManager:
             response_text=str(error_detail),
         )
 
-    @retry(
-        retry=retry_if_exception_type(GlpiTransportError),
-        stop=stop_after_attempt(3),
-        wait=wait_fixed(3),
-        reraise=True,
-    )
+    @retried(GlpiTransportError)
     def _refresh_access_token(self) -> None:
         """Refresh the OAuth2 access token using the stored refresh token.
 
@@ -372,7 +378,8 @@ class GLPITokenManager:
             ``GlpiServerError``, so it does not retry the fall-through to
             :meth:`_acquire_token`. The nested call carries its own
             independent decorator, which does retry ``GlpiServerError`` up
-            to 3 attempts. A persistent 5xx therefore costs exactly 1
+            to ``max_retries`` + 1 attempts (3 by default). A persistent 5xx
+            therefore costs (with the default setting) exactly 1
             refresh POST + 3 nested acquire POSTs = 4 POST requests, not the
             12 an earlier, less precise predicate produced by retrying the
             already-retried nested failure a second time.
