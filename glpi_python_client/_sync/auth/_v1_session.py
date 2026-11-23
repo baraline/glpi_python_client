@@ -47,12 +47,12 @@ from typing import Any, cast
 
 import httpx
 
+from glpi_python_client._sync._concurrency import Lock
 from glpi_python_client._sync._retry import (
     DEFAULT_MAX_RETRIES,
     retried,
     validate_retry_settings,
 )
-from glpi_python_client._sync._concurrency import Lock
 from glpi_python_client._sync.clients.commons._config import build_http_session
 from glpi_python_client._sync.clients.commons._http import (
     ensure_response_status,
