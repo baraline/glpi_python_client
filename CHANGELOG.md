@@ -4,12 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## 0.6.11 — 2026-11-23
+## 0.6.12 — 2026-11-23
 
 Pending reasons, a setting that turns the automatic retries off, a typed error
 for a success response whose body is not JSON, and v1 session renewals that
 run once under concurrency. Retries behave as before unless the new setting is
 passed.
+
+There is no 0.6.11 on PyPI: its release stopped before the upload because
+the package still declared 0.6.10, and the tag name cannot be reused. This
+release carries the same changes.
 
 ### Added
 
