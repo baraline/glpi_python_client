@@ -167,7 +167,7 @@ class GlpiResponseBodyError(GlpiProtocolError):
     body_length : int, optional
         The length of the body in bytes.
     body_excerpt : str, optional
-        The first characters of the body, for diagnostics.
+        The first 200 bytes of the body, decoded as UTF-8 with replacement.
 
     Attributes
     ----------
@@ -180,7 +180,7 @@ class GlpiResponseBodyError(GlpiProtocolError):
     body_length : int
         The length of the body in bytes.
     body_excerpt : str
-        The first characters of the body, for diagnostics.
+        The first 200 bytes of the body, decoded as UTF-8 with replacement.
     """
 
     status_code: int

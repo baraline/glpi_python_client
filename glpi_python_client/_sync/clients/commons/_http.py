@@ -364,7 +364,9 @@ def response_json_mapping(response: httpx.Response) -> Mapping[str, object]:
     expected keys.
     """
 
-    result = decode_json_body(response) if response.content else {}
+    if not response.content or not response.text.strip():
+        return {}
+    result = decode_json_body(response)
     return result if isinstance(result, Mapping) else {}
 
 

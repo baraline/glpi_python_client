@@ -1847,7 +1847,7 @@ is the response, not your arguments:
        print(exc.url)            # the absolute URL that was requested
        print(exc.content_type)   # for example "text/html"
        print(exc.body_length)    # body size in bytes
-       print(exc.body_excerpt)   # first 200 characters, for diagnostics
+       print(exc.body_excerpt)   # first 200 bytes (UTF-8, replacement), for diagnostics
 
 The decode error is chained as ``__cause__``. The message names the status,
 URL, content type and length but never the body, which may carry data. The

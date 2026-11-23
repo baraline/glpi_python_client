@@ -319,6 +319,8 @@ def test_lenient_helpers_keep_an_empty_body_empty_but_reject_html() -> None:
 
     assert response_json_or_empty(_body_response(b"")) == {}
     assert response_json_mapping(_body_response(b"")) == {}
+    assert response_json_or_empty(_body_response(b"\n")) == {}
+    assert response_json_mapping(_body_response(b"\n")) == {}
     with pytest.raises(GlpiResponseBodyError):
         response_json_or_empty(_body_response(b"<html></html>"))
     with pytest.raises(GlpiResponseBodyError):
