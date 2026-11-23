@@ -136,8 +136,91 @@ class GlpiProtocolError(GlpiError, ValueError):
     Raised when the server returns a success status but the payload is
     missing a documented field or has an unusable shape. The caller did
     nothing wrong, so this is deliberately distinct from
-    :class:`GlpiValidationError`.
+    :class:`GlpiValidationError`. A body that is not JSON at all raises the
+    narrower :class:`GlpiResponseBodyError`.
     """
+
+
+class GlpiResponseBodyError(GlpiProtocolError):
+    """GLPI answered successfully with a body that is not JSON.
+
+    Raised when a 2xx response, expected to carry JSON, holds an HTML page
+    (typically a proxy or gateway answering in GLPI's place), a garbled
+    body, bytes that are not valid text, or nothing at all on a route that
+    must return a payload. The request was sent and processed, so it is
+    never retried: retrying a write could apply it twice. The underlying
+    decode error is attached as ``__cause__``.
+
+    The body itself is kept out of the message, which only names the
+    status, URL, content type and length; a bounded excerpt is available as
+    ``body_excerpt`` for diagnostics.
+
+    Parameters
+    ----------
+    message : str
+        Human-readable description of the failure.
+    status_code : int
+        The HTTP status code of the response.
+    url : str
+        The absolute URL that was requested.
+    content_type : str, optional
+        The ``Content-Type`` header of the response, ``""`` when absent.
+    body_length : int, optional
+        The length of the body in bytes.
+    body_excerpt : str, optional
+        The first 200 bytes of the body, decoded as UTF-8 with replacement.
+
+    Attributes
+    ----------
+    status_code : int
+        The HTTP status code of the response.
+    url : str
+        The absolute URL that was requested.
+    content_type : str
+        The ``Content-Type`` header of the response, ``""`` when absent.
+    body_length : int
+        The length of the body in bytes.
+    body_excerpt : str
+        The first 200 bytes of the body, decoded as UTF-8 with replacement.
+    """
+
+    status_code: int
+    url: str
+    content_type: str
+    body_length: int
+    body_excerpt: str
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        url: str,
+        content_type: str = "",
+        body_length: int = 0,
+        body_excerpt: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.url = url
+        self.content_type = content_type
+        self.body_length = body_length
+        self.body_excerpt = body_excerpt
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        """Support :mod:`pickle` and :mod:`copy` for keyword-only arguments."""
+
+        return (
+            partial(
+                type(self),
+                status_code=self.status_code,
+                url=self.url,
+                content_type=self.content_type,
+                body_length=self.body_length,
+                body_excerpt=self.body_excerpt,
+            ),
+            (str(self),),
+        )
 
 
 class GlpiContentError(GlpiError):
@@ -200,6 +283,7 @@ __all__ = [
     "GlpiError",
     "GlpiNotFoundError",
     "GlpiProtocolError",
+    "GlpiResponseBodyError",
     "GlpiServerError",
     "GlpiStatusError",
     "GlpiTimeoutError",

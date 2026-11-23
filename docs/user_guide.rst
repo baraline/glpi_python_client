@@ -1816,6 +1816,7 @@ The hierarchy lets you narrow as far as you need:
    │                           reaches you)
    ├── GlpiValidationError     the client rejected your argument
    ├── GlpiProtocolError       GLPI answered 2xx with an unusable body
+   │   └── GlpiResponseBodyError  the 2xx body is not JSON
    └── GlpiContentError        a rich-text body could not be converted
                                between HTML and Markdown
 
@@ -1832,6 +1833,35 @@ usually want:
        print(exc.status_code)    # 404
        print(exc.url)            # the absolute URL that was requested
        print(exc.response_text)  # the response body
+
+A success status does not guarantee a usable body. When a server, or a
+proxy in front of it, answers 2xx with an HTML page, a garbled body or
+nothing at all on a route that must return a payload, the client raises
+:class:`~glpi_python_client.GlpiResponseBodyError`, a
+:class:`~glpi_python_client.GlpiProtocolError`, instead of a bare
+``json.JSONDecodeError``. The request was sent and answered, so the failure
+is the response, not your arguments:
+
+.. code-block:: python
+
+   from glpi_python_client import GlpiResponseBodyError
+
+   try:
+       ticket = client.get_ticket(1)
+   except GlpiResponseBodyError as exc:
+       print(exc.status_code)    # 200
+       print(exc.url)            # the absolute URL that was requested
+       print(exc.content_type)   # for example "text/html"
+       print(exc.body_length)    # body size in bytes
+       print(exc.body_excerpt)   # first 200 bytes (UTF-8, replacement), for diagnostics
+
+The decode error is chained as ``__cause__``. The message names the status,
+URL, content type and length but never the body, which may carry data. The
+error is **not** retried: a 2xx means the request was processed, and
+sending a write again could apply it twice. Routes that deliberately accept
+an empty answer (a 204, a ``DELETE``, a v1 call with no payload) still
+return normally; an empty 200 on a route that must return a payload raises
+the same error with ``body_length == 0``.
 
 .. note::
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -8,6 +9,7 @@ import pytest
 
 from glpi_python_client import (
     GlpiAuthError,
+    GlpiResponseBodyError,
     GlpiServerError,
     GlpiTransportError,
     GlpiValidationError,
@@ -410,3 +412,55 @@ def test_refresh_network_error_is_retried_three_times() -> None:
         manager.ensure_token()
 
     assert len(session.calls) == 3
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"<html><body>Gateway page</body></html>", "text/html"),
+        (b"\xff\xfe\x00garbled", "application/json"),
+    ],
+)
+def test_token_success_body_that_is_not_json_raises_protocol_error_once(
+    refresh: bool, content: bytes, content_type: str
+) -> None:
+    """A non-JSON 200 from the token endpoint is a protocol error, not retried.
+
+    On the refresh path it is not swallowed into a silent re-acquire either:
+    the endpoint answered, and the answer is what failed.
+    """
+
+    url = "https://glpi.example.test/api.php/token"
+    session = _FakeSession(
+        response=cast(
+            FakeResponse,
+            httpx.Response(
+                200,
+                content=content,
+                headers={"content-type": content_type},
+                request=httpx.Request("POST", url),
+            ),
+        )
+    )
+    manager = GLPITokenManager(
+        token_url=url,
+        client_id="client-id",
+        client_secret="client-secret",
+        session=cast(httpx.Client, session),
+    )
+    if refresh:
+        manager.access_token = "old"
+        manager.refresh_token = "refresh"
+    with pytest.raises(GlpiResponseBodyError) as excinfo:
+        if refresh:
+            manager._refresh_access_token()
+        else:
+            manager.ensure_token()
+
+    error = excinfo.value
+    assert isinstance(error.__cause__, (json.JSONDecodeError, UnicodeDecodeError))
+    assert (error.status_code, error.content_type) == (200, content_type)
+    assert error.body_length == len(content)
+    assert error.url == url
+    assert len(session.calls) == 1

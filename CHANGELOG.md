@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- **A success response whose body is not JSON now raises `GlpiProtocolError`
+  instead of a bare `json.JSONDecodeError`.** A server or a proxy answering
+  200 with an HTML page or a garbled body used to surface a `ValueError`
+  that read like bad input. Every decode of a success body, on the v2
+  transport, the v1 session and the OAuth token manager, now goes through
+  one helper that raises the new `GlpiResponseBodyError` (a subclass of
+  `GlpiProtocolError`) with `status_code`, `url`, `content_type`,
+  `body_length` and a bounded `body_excerpt`, and chains the decode error as
+  `__cause__`. The body is kept out of the message. It is not retried: a
+  2xx means the request was processed. Empty answers on routes that accept
+  them (204, `DELETE`, v1 calls without a payload) are unchanged; an empty
+  200 on a route that must return JSON raises the same error. The lenient
+  helpers `response_json_or_empty` and `response_json_mapping` keep an
+  empty or whitespace-only body as empty but now raise the same error for a non-empty body that
+  is not JSON; the new error is a `ValueError` subclass like the one it
+  replaces, so existing `except ValueError` handlers still catch it.
+
+### Added
+
+- **`GlpiResponseBodyError`**, exported from the package root.
 A new client setting turns the automatic retries off. Behaviour is unchanged
 unless it is set.
 

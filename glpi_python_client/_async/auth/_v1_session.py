@@ -55,6 +55,7 @@ from glpi_python_client._async._retry import (
 )
 from glpi_python_client._async.clients.commons._config import build_http_session
 from glpi_python_client._async.clients.commons._http import (
+    decode_json_body,
     ensure_response_status,
     finalize_request_response,
     response_json_or_empty,
@@ -180,7 +181,8 @@ class GLPIV1Session:
             failure_message="GLPI v1 initSession failed",
         )
 
-        token = response.json().get("session_token")
+        body = decode_json_body(response)
+        token = body.get("session_token") if isinstance(body, dict) else None
         if not token:
             raise GlpiProtocolError("GLPI v1 initSession returned no session_token")
 
@@ -481,7 +483,7 @@ class GLPIV1Session:
             success_statuses=(200, 201),
             failure_message="GLPI v1 document upload failed",
         )
-        payload = response.json()
+        payload = decode_json_body(response)
         if not isinstance(payload, dict):
             raise GlpiProtocolError(
                 "GLPI v1 document upload returned unexpected payload: "
