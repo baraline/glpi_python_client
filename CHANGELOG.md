@@ -20,6 +20,17 @@ unless it is set.
   setting applies to every retried call: the v2 verbs, the v1 session helpers
   and OAuth token acquisition. Which errors are retried (network faults and
   5xx) is unchanged.
+### Fixed
+
+- **Concurrent renewals of the legacy v1 session.** A client shared by
+  concurrent tasks or threads renewed the v1 session once per request that
+  found the token stale (every 15 minutes by default), on the first lazy
+  `initSession`, and after a 401/403 rejection: each renewal killed the
+  token and opened a session, so a second `killSession` answered 401 and
+  one server-side session leaked per renewal. Every acquisition now takes a
+  lock and re-checks under it whether the work is still needed, so waiters
+  reuse the token the first renewal obtained and the session is killed and
+  opened once. Retry behaviour is unchanged.
 
 ## 0.6.10 — 2026-11-16
 

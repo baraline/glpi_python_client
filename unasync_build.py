@@ -67,7 +67,11 @@ SYNC_DIR = PACKAGE / "_sync"
 #: on its absence, so ``--check`` would stay green while a whole module
 #: silently had no twin. Colocated tests make that collision plausible --
 #: generic names like ``test_concurrency.py`` now recur per package.
-HAND_WRITTEN = {"_concurrency.py", "tests/test_concurrency.py"}
+HAND_WRITTEN = {
+    "_concurrency.py",
+    "tests/test_concurrency.py",
+    "auth/tests/test_v1_session_concurrency.py",
+}
 
 #: Token substitutions beyond unasync's defaults.
 #:
