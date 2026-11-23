@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- **`list_pending_reasons`, `iter_pending_reasons`,
+  `get_ticket_pending_reason`, `set_ticket_pending_reason` and
+  `clear_ticket_pending_reason`** on both clients, from a new
+  `PendingReasonMixin`. The catalogue is read from the v2
+  `/Assistance/PendingReason` route; a ticket's pending-reason item goes
+  through the legacy v1 API, because the v2 item schema omits the
+  catalogue id and no v2 route writes an item. The three ticket methods
+  need the v1 session and raise `RuntimeError` without one.
+  `set_ticket_pending_reason` creates or updates the item after reading
+  it and does not change the ticket status.
+- **`PendingReason` and `PendingReasonItem`** read models, exported from
+  the package root and from `glpi_python_client.models`.
 ### Fixed
 
 - **A success response whose body is not JSON now raises `GlpiProtocolError`

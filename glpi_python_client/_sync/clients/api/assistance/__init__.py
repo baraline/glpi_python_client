@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from glpi_python_client._sync.clients.api.assistance._pending_reason import (
+    PendingReasonMixin,
+)
 from glpi_python_client._sync.clients.api.assistance._team import TeamMemberMixin
 from glpi_python_client._sync.clients.api.assistance._ticket import TicketMixin
 
-__all__ = ["TeamMemberMixin", "TicketMixin"]
+__all__ = ["PendingReasonMixin", "TeamMemberMixin", "TicketMixin"]

@@ -33,6 +33,7 @@ DOCUMENT_ENDPOINT = "Management/Document"
 # assistance/
 TICKET_ENDPOINT = "Assistance/Ticket"
 TEAM_MEMBER_SUFFIX = "TeamMember"
+PENDING_REASON_ENDPOINT = "Assistance/PendingReason"
 
 # assistance/timeline/
 FOLLOWUP_SUFFIX = "Timeline/Followup"
@@ -61,6 +62,7 @@ __all__ = [
     "KB_COMMENT_SUFFIX",
     "KB_REVISION_SUFFIX",
     "LOCATION_ENDPOINT",
+    "PENDING_REASON_ENDPOINT",
     "SOLUTION_SUFFIX",
     "TASK_SUFFIX",
     "TEAM_MEMBER_SUFFIX",

@@ -16,6 +16,7 @@ from glpi_python_client._async.clients.api.administration import (
 )
 from glpi_python_client._async.clients.api.assets import ComputerMixin
 from glpi_python_client._async.clients.api.assistance import (
+    PendingReasonMixin,
     TeamMemberMixin,
     TicketMixin,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "KBArticleRevisionMixin",
     "KBCategoryMixin",
     "LocationMixin",
+    "PendingReasonMixin",
     "PluginFieldsMixin",
     "SolutionMixin",
     "TeamMemberMixin",

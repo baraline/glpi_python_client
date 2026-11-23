@@ -311,6 +311,25 @@ Ticket Team Members
    :undoc-members:
    :show-inheritance:
 
+Pending reasons
+---------------
+
+Models for the GLPI pending-reason catalogue (v2) and a ticket's pending
+reason item (legacy v1). The companion mixin methods are exposed on
+:class:`GlpiClient` / :class:`AsyncGlpiClient` as ``list_pending_reasons``,
+``iter_pending_reasons``, ``get_ticket_pending_reason``,
+``set_ticket_pending_reason`` and ``clear_ticket_pending_reason``.
+
+.. autoclass:: PendingReason
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+.. autoclass:: PendingReasonItem
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Documents
 ---------
 
