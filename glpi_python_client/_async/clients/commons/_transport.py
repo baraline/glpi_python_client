@@ -30,12 +30,13 @@ from datetime import tzinfo
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._async._concurrency import Lock
+from glpi_python_client._async._retry import DEFAULT_MAX_RETRIES, retried
 from glpi_python_client._async.clients.commons._http import (
     build_request_headers,
     build_request_url,
+    decode_json_body,
     ensure_response_status,
     finalize_request_response,
     list_payload_items,
@@ -72,12 +73,11 @@ ModelT = TypeVar("ModelT", bound=GlpiModel)
 #: :func:`~glpi_python_client._async.clients.commons._http.transport_error_from`
 #: guarantees every network fault is translated into, makes that failure
 #: impossible to reintroduce.
-_RETRY_ON_NETWORK_ERRORS = retry(
-    retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(3),
-    reraise=True,
-)
+#:
+#: How many times, and how long apart, is the client's ``max_retries`` and
+#: ``retry_wait_seconds`` setting (read per call from ``self``); by default 3
+#: attempts in total, 3 s apart, and ``max_retries=0`` disables retrying.
+_RETRY_ON_NETWORK_ERRORS = retried((GlpiTransportError, GlpiServerError))
 
 
 class TransportMixin:
@@ -102,6 +102,8 @@ class TransportMixin:
     _auth: GLPITokenManager
     _auth_lock: Lock
     _closed: bool = False
+    _max_retries: int = DEFAULT_MAX_RETRIES
+    _retry_wait_seconds: float | None = None
     _session: httpx.AsyncClient
     _v1: GLPIV1Session | None
     entity_recursive: bool
@@ -313,7 +315,8 @@ class TransportMixin:
 
         Network errors (:class:`~glpi_python_client.GlpiTransportError`) and 5xx
         responses (:class:`~glpi_python_client.GlpiServerError`) are
-        retried up to 3 times, with ``reraise=True`` so the real error
+        retried up to ``max_retries`` times (by default 2, so 3 attempts in
+        total; ``0`` disables retrying), with ``reraise=True`` so the real error
         propagates once retries are exhausted; 4xx responses are
         returned as-is without a retry.
         """
@@ -446,7 +449,7 @@ class TransportMixin:
             success_statuses=success_statuses,
             failure_message=failure_message or f"Failed to list {endpoint}",
         )
-        payload = response.json()
+        payload = decode_json_body(response)
         items = (
             unwrap_timeline_items(payload)
             if unwrap_envelope
@@ -492,7 +495,7 @@ class TransportMixin:
             failure_message=failure_message,
         )
         return model_from_payload(
-            model, response.json(), server_timezone=self.server_timezone
+            model, decode_json_body(response), server_timezone=self.server_timezone
         )
 
     def _body(self, model: GlpiModel) -> dict[str, object]:

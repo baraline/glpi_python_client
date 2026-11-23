@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
 import httpx
 import pytest
-from tenacity import wait_fixed
 
 from glpi_python_client import (
     GlpiAuthError,
+    GlpiResponseBodyError,
     GlpiServerError,
     GlpiTransportError,
     GlpiValidationError,
@@ -243,12 +244,9 @@ async def test_oauth_401_is_not_retried() -> None:
     assert len(session.calls) == 1
 
 
-async def test_oauth_5xx_raises_glpi_server_error_after_retries(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_oauth_5xx_raises_glpi_server_error_after_retries() -> None:
     """A 5xx from the token endpoint is retried, then reraised as-is."""
 
-    monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
     session = _FakeSession(response=TokenResponse(status_code=503, payload={}))
     manager = GLPITokenManager(
         token_url="https://glpi.example.test/api.php/token",
@@ -287,9 +285,7 @@ def _make_refresh_ready_manager(
     return manager
 
 
-async def test_refresh_401_stays_final_with_one_nested_acquire_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_refresh_401_stays_final_with_one_nested_acquire_call() -> None:
     """A 4xx during refresh is not retried by either decorator.
 
     ``_refresh_access_token`` does not raise directly on a non-2xx response:
@@ -302,10 +298,6 @@ async def test_refresh_401_stays_final_with_one_nested_acquire_call(
     of multiplying further (contrast with the 5xx case below).
     """
 
-    monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
-    monkeypatch.setattr(
-        GLPITokenManager._refresh_access_token.retry, "wait", wait_fixed(0)
-    )
     session = _FakeSession(
         response=TokenResponse(status_code=401, payload={"error": "invalid_grant"})
     )
@@ -320,15 +312,14 @@ async def test_refresh_401_stays_final_with_one_nested_acquire_call(
     assert len(session.calls) == 2
 
 
-async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_attempts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquires() -> None:
     """A persistent 5xx during refresh costs 4 POSTs, not 12.
 
     ``_refresh_access_token`` falls through to a *nested* ``_acquire_token()``
     call on any non-2xx response instead of raising directly
-    (auth.py:327-332). That nested call is independently decorated with
-    ``stop_after_attempt(3)`` and retries ``GlpiServerError``. This method's
+    (auth.py:327-332). That nested call is independently retried per
+    the ``max_retries`` setting (3 attempts by default) and retries
+    ``GlpiServerError``. This method's
     own decorator only matches ``httpx.HTTPError`` (a genuine
     network fault on the refresh POST itself), not ``GlpiServerError``, so it
     does not retry the fall-through a second time on top of the nested
@@ -342,10 +333,6 @@ async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_atte
     silently reintroduce the multiplication.
     """
 
-    monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
-    monkeypatch.setattr(
-        GLPITokenManager._refresh_access_token.retry, "wait", wait_fixed(0)
-    )
     session = _FakeSession(response=TokenResponse(status_code=503, payload={}))
     manager = _make_refresh_ready_manager(session)
 
@@ -356,17 +343,13 @@ async def test_refresh_5xx_persistent_costs_one_refresh_plus_nested_acquire_atte
     assert len(session.calls) == 4
 
 
-async def test_acquire_token_network_error_is_retried_three_times(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_acquire_token_network_error_is_retried_three_times() -> None:
     """A connection-level failure (no HTTP response at all) is retried.
 
     Mirrors ``test_network_errors_are_still_retried`` in
     ``clients/commons/tests/test_retry_semantics.py`` for the transport, but
     covers the OAuth token path, which previously had no equivalent test.
     """
-
-    monkeypatch.setattr(GLPITokenManager._acquire_token.retry, "wait", wait_fixed(0))
 
     class _FailingSession:
         def __init__(self) -> None:
@@ -392,9 +375,7 @@ async def test_acquire_token_network_error_is_retried_three_times(
     assert len(session.calls) == 3
 
 
-async def test_refresh_network_error_is_retried_three_times(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_refresh_network_error_is_retried_three_times() -> None:
     """A connection-level failure during refresh is retried by refresh's own decorator.
 
     Pins the one predicate member not yet covered by another test:
@@ -414,10 +395,6 @@ async def test_refresh_network_error_is_retried_three_times(
     it with every other test still green.
     """
 
-    monkeypatch.setattr(
-        GLPITokenManager._refresh_access_token.retry, "wait", wait_fixed(0)
-    )
-
     class _FailingSession:
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
@@ -435,3 +412,55 @@ async def test_refresh_network_error_is_retried_three_times(
         await manager.ensure_token()
 
     assert len(session.calls) == 3
+
+
+@pytest.mark.parametrize("refresh", [False, True])
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"<html><body>Gateway page</body></html>", "text/html"),
+        (b"\xff\xfe\x00garbled", "application/json"),
+    ],
+)
+async def test_token_success_body_that_is_not_json_raises_protocol_error_once(
+    refresh: bool, content: bytes, content_type: str
+) -> None:
+    """A non-JSON 200 from the token endpoint is a protocol error, not retried.
+
+    On the refresh path it is not swallowed into a silent re-acquire either:
+    the endpoint answered, and the answer is what failed.
+    """
+
+    url = "https://glpi.example.test/api.php/token"
+    session = _FakeSession(
+        response=cast(
+            FakeResponse,
+            httpx.Response(
+                200,
+                content=content,
+                headers={"content-type": content_type},
+                request=httpx.Request("POST", url),
+            ),
+        )
+    )
+    manager = GLPITokenManager(
+        token_url=url,
+        client_id="client-id",
+        client_secret="client-secret",
+        session=cast(httpx.AsyncClient, session),
+    )
+    if refresh:
+        manager.access_token = "old"
+        manager.refresh_token = "refresh"
+    with pytest.raises(GlpiResponseBodyError) as excinfo:
+        if refresh:
+            await manager._refresh_access_token()
+        else:
+            await manager.ensure_token()
+
+    error = excinfo.value
+    assert isinstance(error.__cause__, (json.JSONDecodeError, UnicodeDecodeError))
+    assert (error.status_code, error.content_type) == (200, content_type)
+    assert error.body_length == len(content)
+    assert error.url == url
+    assert len(session.calls) == 1

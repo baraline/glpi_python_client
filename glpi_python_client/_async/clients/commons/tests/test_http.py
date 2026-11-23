@@ -8,12 +8,19 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 
-from glpi_python_client import GlpiNotFoundError, GlpiProtocolError, GlpiValidationError
+from glpi_python_client import (
+    GlpiNotFoundError,
+    GlpiProtocolError,
+    GlpiResponseBodyError,
+    GlpiValidationError,
+)
 from glpi_python_client._async.clients.commons._http import (
     build_request_headers,
     build_request_url,
+    decode_json_body,
     ensure_response_status,
     list_payload_items,
     request_param_value,
@@ -21,6 +28,7 @@ from glpi_python_client._async.clients.commons._http import (
     require_access_token,
     require_response_int,
     response_json_mapping,
+    response_json_or_empty,
 )
 from glpi_python_client.testing.utils import FakeResponse
 
@@ -244,3 +252,96 @@ def test_require_response_int_falls_back_to_the_location_header() -> None:
     )
 
     assert require_response_int(response, keys=("id",), missing_message="x") == 4242
+
+
+_BODY_URL = "https://glpi.example.test/api.php/Assistance/Ticket/1"
+
+
+def _body_response(
+    content: bytes, *, content_type: str = "text/html", status: int = 200
+) -> httpx.Response:
+    """Build a real ``httpx`` response, so ``json()`` really tries to decode."""
+
+    return httpx.Response(
+        status,
+        content=content,
+        headers={"content-type": content_type},
+        request=httpx.Request("GET", _BODY_URL),
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"<html><body>Bad gateway page</body></html>", "text/html; charset=utf-8"),
+        (b"\xff\xfe\x00garbled", "application/json"),
+        (b"", "application/json"),
+    ],
+)
+def test_decode_json_body_raises_protocol_error_on_an_unusable_body(
+    content: bytes, content_type: str
+) -> None:
+    """A success body that is not JSON is the response's fault, not a bad value."""
+
+    response = _body_response(content, content_type=content_type)
+    with pytest.raises(GlpiResponseBodyError) as excinfo:
+        decode_json_body(response)
+
+    error = excinfo.value
+    assert isinstance(error, GlpiProtocolError)
+    assert isinstance(error.__cause__, (json.JSONDecodeError, UnicodeDecodeError))
+    assert error.status_code == 200
+    assert error.url == _BODY_URL
+    assert error.content_type == content_type
+    assert error.body_length == len(content)
+
+
+def test_decode_json_body_bounds_the_excerpt_and_keeps_it_out_of_the_message() -> None:
+    """The body may carry data: it is kept as a bounded attribute only."""
+
+    content = b"<html>" + b"x" * 5000
+    with pytest.raises(GlpiResponseBodyError) as excinfo:
+        decode_json_body(_body_response(content))
+
+    assert excinfo.value.body_excerpt == content[:200].decode()
+    assert "xxxx" not in str(excinfo.value)
+    assert str(excinfo.value.status_code) in str(excinfo.value)
+
+
+def test_decode_json_body_returns_valid_json_untouched() -> None:
+    assert decode_json_body(_body_response(b'{"id": 1}', content_type="a/b")) == {
+        "id": 1
+    }
+
+
+def test_lenient_helpers_keep_an_empty_body_empty_but_reject_html() -> None:
+    """Deliberately empty answers stay empty; a non-empty non-JSON body raises."""
+
+    assert response_json_or_empty(_body_response(b"")) == {}
+    assert response_json_mapping(_body_response(b"")) == {}
+    assert response_json_or_empty(_body_response(b"\n")) == {}
+    assert response_json_mapping(_body_response(b"\n")) == {}
+    with pytest.raises(GlpiResponseBodyError):
+        response_json_or_empty(_body_response(b"<html></html>"))
+    with pytest.raises(GlpiResponseBodyError):
+        response_json_mapping(_body_response(b"<html></html>"))
+
+
+def test_response_body_error_survives_pickle_round_trip() -> None:
+    import pickle
+
+    error = GlpiResponseBodyError(
+        "boom",
+        status_code=200,
+        url="https://x",
+        content_type="text/html",
+        body_length=7,
+        body_excerpt="<html>",
+    )
+    clone = pickle.loads(pickle.dumps(error))
+    assert (clone.status_code, clone.url, clone.content_type) == (
+        200,
+        "https://x",
+        "text/html",
+    )
+    assert (clone.body_length, clone.body_excerpt, str(clone)) == (7, "<html>", "boom")

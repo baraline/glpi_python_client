@@ -14,16 +14,17 @@ notes.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
-from tenacity import wait_fixed
 
 from glpi_python_client import (
-    GlpiClient,
     GlpiError,
+    GlpiProtocolError,
+    GlpiResponseBodyError,
     GlpiServerError,
     GlpiStatusError,
     GlpiTimeoutError,
@@ -233,19 +234,6 @@ def test_delete_request_returns_response(transport_client: Any) -> None:
 # rather than reusing ``transport_client``.
 
 
-@pytest.fixture(autouse=True)
-def _no_retry_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the 3s fixed wait so retry tests stay instant.
-
-    The decorator's ``Retrying`` object is patched directly. Patching
-    ``tenacity.nap.time.sleep`` would work today but silently stops working
-    on the async path, so it is deliberately not used here.
-    """
-
-    for name in _RETRIED_METHODS:
-        monkeypatch.setattr(getattr(GlpiClient, name).retry, "wait", wait_fixed(0))
-
-
 @pytest.fixture
 def retry_client() -> Iterator[Any]:
     """Return a client with auth stubbed so no token call is made."""
@@ -453,3 +441,52 @@ def test_timeouts_narrow_to_the_timeout_subclass(retry_client: Any) -> None:
     retry_client._session.request = _request
     with pytest.raises(GlpiTimeoutError):
         retry_client._get_request("Assistance/Ticket")
+
+
+def _non_json_response(content: bytes, content_type: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        content=content,
+        headers={"content-type": content_type},
+        request=httpx.Request("GET", "https://glpi.example.test/api.php/Ticket"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("content", "content_type"),
+    [
+        (b"<html><body>Gateway page</body></html>", "text/html"),
+        (b"\xff\xfe\x00garbled", "application/json"),
+    ],
+)
+@pytest.mark.parametrize("surface", ["list", "get"])
+def test_success_body_that_is_not_json_raises_protocol_error_once(
+    transport_client: Any, surface: str, content: bytes, content_type: str
+) -> None:
+    """A 200 that is not JSON is a protocol error and is never retried.
+
+    A 2xx means the server processed the request; sending it again could
+    apply a write twice, so exactly one request is made.
+    """
+
+    sent: list[str] = []
+
+    def _send(method: str, url: str, **kw: Any) -> httpx.Response:
+        sent.append(url)
+        return _non_json_response(content, content_type)
+
+    transport_client._send_request = _send
+
+    with pytest.raises(GlpiProtocolError) as excinfo:
+        if surface == "list":
+            transport_client.search_tickets()
+        else:
+            transport_client.get_ticket(1)
+
+    error = excinfo.value
+    assert isinstance(error, GlpiResponseBodyError)
+    assert isinstance(error.__cause__, (json.JSONDecodeError, UnicodeDecodeError))
+    assert error.status_code == 200
+    assert error.content_type == content_type
+    assert error.body_length == len(content)
+    assert len(sent) == 1

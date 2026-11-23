@@ -82,6 +82,10 @@ guide for the full picture, including which methods raise which type.
    :members:
    :show-inheritance:
 
+.. autoexception:: GlpiResponseBodyError
+   :members:
+   :show-inheritance:
+
 .. autoexception:: GlpiContentError
    :members:
    :show-inheritance:

@@ -20,6 +20,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it and does not change the ticket status.
 - **`PendingReason` and `PendingReasonItem`** read models, exported from
   the package root and from `glpi_python_client.models`.
+### Fixed
+
+- **A success response whose body is not JSON now raises `GlpiProtocolError`
+  instead of a bare `json.JSONDecodeError`.** A server or a proxy answering
+  200 with an HTML page or a garbled body used to surface a `ValueError`
+  that read like bad input. Every decode of a success body, on the v2
+  transport, the v1 session and the OAuth token manager, now goes through
+  one helper that raises the new `GlpiResponseBodyError` (a subclass of
+  `GlpiProtocolError`) with `status_code`, `url`, `content_type`,
+  `body_length` and a bounded `body_excerpt`, and chains the decode error as
+  `__cause__`. The body is kept out of the message. It is not retried: a
+  2xx means the request was processed. Empty answers on routes that accept
+  them (204, `DELETE`, v1 calls without a payload) are unchanged; an empty
+  200 on a route that must return JSON raises the same error. The lenient
+  helpers `response_json_or_empty` and `response_json_mapping` keep an
+  empty or whitespace-only body as empty but now raise the same error for a non-empty body that
+  is not JSON; the new error is a `ValueError` subclass like the one it
+  replaces, so existing `except ValueError` handlers still catch it.
+
+### Added
+
+- **`GlpiResponseBodyError`**, exported from the package root.
+A new client setting turns the automatic retries off. Behaviour is unchanged
+unless it is set.
+
+### Added
+
+- **`max_retries` and `retry_wait_seconds`** on both clients, on
+  `GLPITokenManager` and `GLPIV1Session`, and as `GLPI_MAX_RETRIES` and
+  `GLPI_RETRY_WAIT_SECONDS` for `from_env`. `max_retries` counts the retries
+  after the first attempt: the default `2` keeps today's 3 attempts, `0`
+  disables retrying, so a failing call raises after exactly one request.
+  `retry_wait_seconds` is the pause between attempts (default 3 seconds). The
+  setting applies to every retried call: the v2 verbs, the v1 session helpers
+  and OAuth token acquisition. Which errors are retried (network faults and
+  5xx) is unchanged.
+### Fixed
+
+- **Concurrent renewals of the legacy v1 session.** A client shared by
+  concurrent tasks or threads renewed the v1 session once per request that
+  found the token stale (every 15 minutes by default), on the first lazy
+  `initSession`, and after a 401/403 rejection: each renewal killed the
+  token and opened a session, so a second `killSession` answered 401 and
+  one server-side session leaked per renewal. Every acquisition now takes a
+  lock and re-checks under it whether the work is still needed, so waiters
+  reuse the token the first renewal obtained and the session is killed and
+  opened once. Retry behaviour is unchanged.
 
 ## 0.6.10 — 2026-11-16
 

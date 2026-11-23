@@ -7,10 +7,10 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from tenacity import wait_fixed
 
 from glpi_python_client import (
     GlpiProtocolError,
+    GlpiResponseBodyError,
     GlpiServerError,
     GlpiTransportError,
     GlpiValidationError,
@@ -24,19 +24,6 @@ _RETRIED_METHODS = (
     "request_json",
     "upload_document",
 )
-
-
-@pytest.fixture(autouse=True)
-def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Drop the 3s fixed wait so retry tests stay instant.
-
-    Each decorated method's own ``Retrying`` object is patched directly.
-    Patching ``tenacity.nap.time.sleep`` would work today but silently stops
-    working on the async path, so it is deliberately not used here.
-    """
-
-    for name in _RETRIED_METHODS:
-        monkeypatch.setattr(getattr(GLPIV1Session, name).retry, "wait", wait_fixed(0))
 
 
 class _FakeV1Http:
@@ -559,3 +546,54 @@ def test_session_token_invalid_marker_triggers_renew() -> None:
 
     result = session.upload_document("a.txt", b"x", "text/plain")
     assert result == {"id": 2}
+
+
+def _non_json(content: bytes, content_type: str) -> httpx.Response:
+    return httpx.Response(
+        200,
+        content=content,
+        headers={"content-type": content_type},
+        request=httpx.Request("GET", "https://glpi.example.test/apirest.php/x"),
+    )
+
+
+_NON_JSON_BODIES = [
+    (b"<html><body>Gateway page</body></html>", "text/html"),
+    (b"\xff\xfe\x00garbled", "application/json"),
+]
+
+
+@pytest.mark.parametrize(("content", "content_type"), _NON_JSON_BODIES)
+@pytest.mark.parametrize("step", ["init", "upload", "json"])
+def test_v1_success_body_that_is_not_json_raises_protocol_error_once(
+    step: str, content: bytes, content_type: str
+) -> None:
+    """A non-JSON 200 raises ``GlpiResponseBodyError`` and is not retried."""
+
+    bad = cast(FakeResponse, _non_json(content, content_type))
+    good_init = FakeResponse(status_code=200, payload={"session_token": "tk"})
+    responses: dict[str, list[FakeResponse]] = {
+        "init": [good_init],
+        "upload": [],
+        "json": [],
+        "kill": [FakeResponse(status_code=200, payload={})],
+    }
+    responses["init" if step == "init" else step] = [bad]
+    http = _FakeV1Http(responses=responses)
+    session = _make(http)
+
+    with pytest.raises(GlpiResponseBodyError) as excinfo:
+        if step == "init":
+            session._init_session()
+        elif step == "upload":
+            session.upload_document("a.txt", b"x", "text/plain")
+        else:
+            session.request_json("GET", "Ticket/1")
+
+    error = excinfo.value
+    assert isinstance(error, GlpiProtocolError)
+    assert isinstance(error.__cause__, (jsonlib.JSONDecodeError, UnicodeDecodeError))
+    assert (error.status_code, error.content_type) == (200, content_type)
+    assert error.body_length == len(content)
+    target = {"init": "/initSession", "upload": "/Document", "json": "/Ticket/1"}[step]
+    assert len([c for c in http.calls if c["url"].endswith(target)]) == 1
