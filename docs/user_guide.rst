@@ -14,8 +14,8 @@ Neither is a wrapper around the other; both are the same code, as
 
 Both clients speak the GLPI **v2** high-level API and fall back to the
 legacy v1 API for features that are not exposed by v2, currently
-binary document uploads and the ``Fields`` plugin custom-field
-helpers. They expose the exact same endpoint methods and accept the
+binary document uploads, the ``Fields`` plugin custom-field
+helpers and the ticket pending-reason item methods. They expose the exact same endpoint methods and accept the
 same constructor arguments.
 Public methods always return Pydantic models (or simple Python types)
 and never raw dictionaries.
@@ -122,7 +122,9 @@ Optional constructor arguments
 * ``v1_base_url`` and ``v1_user_token`` — together enable the legacy v1
     fallback used by :meth:`GlpiClient.upload_document` and the
     ``Fields`` plugin helpers such as
-    :meth:`GlpiClient.get_ticket_custom_fields`.
+    :meth:`GlpiClient.get_ticket_custom_fields`, and the ticket
+    pending-reason methods such as
+    :meth:`GlpiClient.set_ticket_pending_reason`.
 
 ``from_env``
 ~~~~~~~~~~~~
@@ -1124,10 +1126,12 @@ Without the v1 session the three ticket methods raise ``RuntimeError``.
 Things worth knowing:
 
 * ``set_ticket_pending_reason`` creates the item when the ticket has none
-  and changes it otherwise; it never provokes GLPI's duplicate-key error.
+  and changes it otherwise, so it avoids GLPI's duplicate-key error
+  unless another writer creates the item between its read and its write.
   It does **not** change the ticket status. An item set on a ticket that
-  is not pending is stored but has no effect, and GLPI removes it when
-  the ticket next leaves status ``4``.
+  is not pending is stored but has no effect; GLPI removes an item when
+  its ticket leaves status ``4``, but one set on a ticket that never was
+  pending is not known to be cleaned up, so clear it explicitly.
 * The item does not copy the catalogue's ``followup_frequency``: pass the
   frequencies wanted, or the item stores ``0``.
 * ``clear_ticket_pending_reason`` leaves the ticket at status ``4``,

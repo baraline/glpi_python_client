@@ -1,6 +1,6 @@
 ---
 name: glpi-client-setup
-description: "Create and configure the synchronous glpi_python_client.GlpiClient or the asynchronous glpi_python_client.AsyncGlpiClient, including from_env, OAuth credential pairs, entity/profile headers, SSL settings, and the optional legacy v1 session (v1_base_url / v1_user_token) that backs document uploads, the Fields plugin helpers, KB category writes and actor-based statistics. Use before calling GLPI APIs, when configuring the v1 session for any of those features, or when the user asks how to connect to GLPI with glpi_python_client."
+description: "Create and configure the synchronous glpi_python_client.GlpiClient or the asynchronous glpi_python_client.AsyncGlpiClient, including from_env, OAuth credential pairs, entity/profile headers, SSL settings, and the optional legacy v1 session (v1_base_url / v1_user_token) that backs document uploads, the Fields plugin helpers, KB category writes, ticket pending-reason items and actor-based statistics. Use before calling GLPI APIs, when configuring the v1 session for any of those features, or when the user asks how to connect to GLPI with glpi_python_client."
 license: MIT
 compatibility: "Requires Python 3.11+, glpi-python-client, network access to a GLPI v2 API, and valid GLPI credentials."
 metadata:
@@ -56,7 +56,9 @@ call `client.close()` (or `await client.close()`) when finished.
    (`get_ticket_custom_fields`, `set_ticket_custom_fields`,
    `list_plugin_fields_containers`, `list_plugin_fields_fields`,
    `list_item_plugin_field_rows`, `create_item_plugin_field_row`,
-   `update_item_plugin_field_row`); KB category writes
+   `update_item_plugin_field_row`); ticket pending-reason items
+   (`get_ticket_pending_reason`, `set_ticket_pending_reason`,
+   `clear_ticket_pending_reason`); KB category writes
    (`set_kb_article_categories`, and `PostKBArticle.categories` /
    `PatchKBArticle.categories` passed to `create_kb_article` /
    `update_kb_article`); and actor-based statistics
@@ -187,7 +189,8 @@ with GlpiClient.from_env(
   `upload_document` instead.
 - Use `glpi_api_url` for the v2 API; `v1_base_url` additionally enables
   every v1-backed feature listed in step 6 — document uploads, the
-  Fields plugin helpers, KB category writes and actor-based statistics.
+  Fields plugin helpers, ticket pending-reason items, KB category writes
+  and actor-based statistics.
 - Closing the client matters because it owns one or two HTTP sessions
   plus an OAuth token manager. Prefer the context-manager form.
 - Every **API** failure the library raises derives from `GlpiError`,

@@ -62,7 +62,7 @@ class PendingReasonItem(GlpiModel):
     """The ``PendingReason_Item`` row of one paused ticket (v1).
 
     At most one row exists per ticket. GLPI removes it by itself when the
-    ticket leaves status ``4``.
+    ticket leaves status ``4`` after having been pending.
 
     Parameters
     ----------

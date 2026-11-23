@@ -202,14 +202,19 @@ class PendingReasonMixin(TransportMixin):
 
         The ticket's item is read first (v1 ``GET``). When one exists it is
         changed with ``PUT``; otherwise a new one is created with ``POST``,
-        so the duplicate-key error is never provoked, and never parsed. The
-        item is then read back and returned.
+        so the duplicate-key error is avoided, and never parsed. The read and
+        the write are two requests, not one atomic step: a concurrent writer
+        that creates the item in between can still make the ``POST`` fail
+        with a ``400`` duplicate-key ``GlpiStatusError``. The item is then
+        read back and returned.
 
         This does **not** change the ticket status. The caller sets status
         ``4`` (Pending) itself, before or after. An item set on a ticket
         that is not pending is stored all the same, but has no effect on the
-        ticket, and GLPI removes it by itself the next time the ticket
-        leaves status ``4``. Setting a reason on a ticket that is already
+        ticket. GLPI removes an item when its ticket leaves status ``4``;
+        an item set on a ticket that never was pending is not known to be
+        cleaned up, so clear it with ``clear_ticket_pending_reason``.
+        Setting a reason on a ticket that is already
         pending changes the reason without touching the status.
 
         The item does not copy the catalogue's ``followup_frequency``: pass
