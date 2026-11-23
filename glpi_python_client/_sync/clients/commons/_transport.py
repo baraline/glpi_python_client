@@ -30,9 +30,9 @@ from datetime import tzinfo
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._sync._concurrency import Lock
+from glpi_python_client._sync._retry import DEFAULT_MAX_RETRIES, retried
 from glpi_python_client._sync.clients.commons._http import (
     build_request_headers,
     build_request_url,
@@ -72,12 +72,11 @@ ModelT = TypeVar("ModelT", bound=GlpiModel)
 #: :func:`~glpi_python_client._sync.clients.commons._http.transport_error_from`
 #: guarantees every network fault is translated into, makes that failure
 #: impossible to reintroduce.
-_RETRY_ON_NETWORK_ERRORS = retry(
-    retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(3),
-    reraise=True,
-)
+#:
+#: How many times, and how long apart, is the client's ``max_retries`` and
+#: ``retry_wait_seconds`` setting (read per call from ``self``); by default 3
+#: attempts in total, 3 s apart, and ``max_retries=0`` disables retrying.
+_RETRY_ON_NETWORK_ERRORS = retried((GlpiTransportError, GlpiServerError))
 
 
 class TransportMixin:
@@ -102,6 +101,8 @@ class TransportMixin:
     _auth: GLPITokenManager
     _auth_lock: Lock
     _closed: bool = False
+    _max_retries: int = DEFAULT_MAX_RETRIES
+    _retry_wait_seconds: float | None = None
     _session: httpx.Client
     _v1: GLPIV1Session | None
     entity_recursive: bool
@@ -313,7 +314,8 @@ class TransportMixin:
 
         Network errors (:class:`~glpi_python_client.GlpiTransportError`) and 5xx
         responses (:class:`~glpi_python_client.GlpiServerError`) are
-        retried up to 3 times, with ``reraise=True`` so the real error
+        retried up to ``max_retries`` times (by default 2, so 3 attempts in
+        total; ``0`` disables retrying), with ``reraise=True`` so the real error
         propagates once retries are exhausted; 4xx responses are
         returned as-is without a retry.
         """

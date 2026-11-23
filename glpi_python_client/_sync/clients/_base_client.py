@@ -16,6 +16,10 @@ import os
 from typing import TYPE_CHECKING, Self
 
 from glpi_python_client._sync._concurrency import Lock
+from glpi_python_client._sync._retry import (
+    DEFAULT_MAX_RETRIES,
+    validate_retry_settings,
+)
 from glpi_python_client._sync.clients.commons._config import (
     build_client_env_config,
     build_client_resources,
@@ -55,6 +59,8 @@ class _BaseGlpiClient:
         v1_base_url: str | None = None,
         v1_user_token: str | None = None,
         v1_app_token: str | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_wait_seconds: float | None = None,
     ) -> None:
         """Build the shared resources for a GLPI client.
 
@@ -111,6 +117,17 @@ class _BaseGlpiClient:
             ``user_token`` for the v1 fallback session.
         v1_app_token : str | None, optional
             ``app_token`` for the v1 fallback session.
+        max_retries : int, optional
+            Automatic retries after the first attempt of a call that failed on
+            a network fault (``GlpiTransportError``) or a 5xx answer
+            (``GlpiServerError``): ``0`` disables retrying, the default ``2``
+            makes 3 attempts in total. It applies to every v2 verb, the v1
+            session helpers and OAuth token acquisition. A retried write may
+            already have been applied; pass ``0`` when the caller owns its
+            own retry policy.
+        retry_wait_seconds : float | None, optional
+            Pause between two attempts; ``None`` keeps the default of 3
+            seconds.
 
         Raises
         ------
@@ -120,6 +137,9 @@ class _BaseGlpiClient:
         """
 
         self.server_timezone = resolve_server_timezone(server_timezone)
+        self._max_retries, self._retry_wait_seconds = validate_retry_settings(
+            max_retries, retry_wait_seconds
+        )
         resources = build_client_resources(
             glpi_api_url=glpi_api_url,
             client_name=type(self).__name__,
@@ -132,6 +152,8 @@ class _BaseGlpiClient:
             v1_base_url=v1_base_url,
             v1_user_token=v1_user_token,
             v1_app_token=v1_app_token,
+            max_retries=self._max_retries,
+            retry_wait_seconds=self._retry_wait_seconds,
         )
         self.glpi_api_url = resources.glpi_api_url
         self._session = resources.session
@@ -160,7 +182,8 @@ class _BaseGlpiClient:
         ``GLPI_V1_BASE_URL``, ``GLPI_V1_USER_TOKEN``, ``GLPI_V1_APP_TOKEN``,
         ``GLPI_ENTITY``, ``GLPI_PROFILE``, ``GLPI_ENTITY_RECURSIVE``,
         ``GLPI_LANGUAGE``, ``GLPI_AUTH_TOKEN_REFRESH``,
-        ``GLPI_SERVER_TIMEZONE``).
+        ``GLPI_SERVER_TIMEZONE``, ``GLPI_MAX_RETRIES``,
+        ``GLPI_RETRY_WAIT_SECONDS``).
 
         Parameters
         ----------

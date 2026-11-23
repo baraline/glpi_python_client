@@ -20,7 +20,9 @@ Retry policy
 ------------
 Every public dispatch helper (``_init_session``, ``request_json``,
 ``upload_document``) carries the same :mod:`tenacity` retry decorator
-used by the v2 transport: three attempts spaced by three seconds,
+used by the v2 transport: by default three attempts spaced by three
+seconds (the ``max_retries`` and ``retry_wait_seconds`` client settings,
+``max_retries=0`` disables retrying),
 triggered by :class:`~glpi_python_client.GlpiTransportError` (network
 faults) and
 :class:`~glpi_python_client.GlpiServerError` (which
@@ -44,9 +46,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import httpx
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from glpi_python_client._async._concurrency import Lock
+from glpi_python_client._async._retry import (
+    DEFAULT_MAX_RETRIES,
+    retried,
+    validate_retry_settings,
+)
 from glpi_python_client._async.clients.commons._config import build_http_session
 from glpi_python_client._async.clients.commons._http import (
     ensure_response_status,
@@ -70,12 +76,7 @@ _AUTH_FAILURE_STATUS_CODES = frozenset({401, 403})
 #: Mirrors the v2 transport policy deliberately: naming the HTTP library's
 #: own exception base here would make the retries stop matching — silently —
 #: the next time the transport changes.
-_RETRY_ON_NETWORK_ERRORS = retry(
-    retry=retry_if_exception_type((GlpiTransportError, GlpiServerError)),
-    stop=stop_after_attempt(3),
-    wait=wait_fixed(3),
-    reraise=True,
-)
+_RETRY_ON_NETWORK_ERRORS = retried((GlpiTransportError, GlpiServerError))
 
 
 class GLPIV1Session:
@@ -96,10 +97,15 @@ class GLPIV1Session:
         session_refresh_interval_seconds: int = (
             _DEFAULT_SESSION_REFRESH_INTERVAL_SECONDS
         ),
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        retry_wait_seconds: float | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._user_token = user_token
         self._app_token = app_token
+        self._max_retries, self._retry_wait_seconds = validate_retry_settings(
+            max_retries, retry_wait_seconds
+        )
         if session_refresh_interval_seconds < 1:
             raise GlpiValidationError(
                 "session_refresh_interval_seconds must be a positive integer"

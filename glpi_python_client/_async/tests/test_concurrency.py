@@ -183,8 +183,6 @@ async def test_network_faults_are_translated_on_the_async_path() -> None:
         raise httpx.ConnectError("network down")
 
     client._session.request = _boom  # type: ignore[method-assign,assignment]
-    # Keep the retry from spending 6 real seconds on the way to failing.
-    client._get_request.retry.wait = lambda *a, **k: 0  # type: ignore[attr-defined]
     try:
         with pytest.raises(GlpiTransportError) as excinfo:
             await client.get_ticket(1)
@@ -203,7 +201,6 @@ async def test_timeouts_narrow_on_the_async_path() -> None:
         raise httpx.ConnectTimeout("too slow")
 
     client._session.request = _slow  # type: ignore[method-assign,assignment]
-    client._get_request.retry.wait = lambda *a, **k: 0  # type: ignore[attr-defined]
     try:
         with pytest.raises(GlpiTimeoutError):
             await client.get_ticket(1)
